@@ -1,0 +1,4 @@
+interface:
+  display_name: "PM Discovery"
+  short_description: "Discovery questions + smoke-test plan + PRD handoff"
+  default_prompt: "Use $pm-discovery to remove ambiguity with questions only, propose smoke tests, and auto-handoff to $pm-create-prd."

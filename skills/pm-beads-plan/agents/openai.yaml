@@ -1,0 +1,4 @@
+interface:
+  display_name: "PM Beads Plan"
+  short_description: "Build Beads graph, run bdui review gate, then handoff"
+  default_prompt: "Use $pm-beads-plan to convert an approved PRD into a Beads graph, review tasks in bdui, and gate implementation on approval."

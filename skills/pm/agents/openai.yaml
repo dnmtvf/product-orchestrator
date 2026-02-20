@@ -1,0 +1,4 @@
+interface:
+  display_name: "PM"
+  short_description: "PM orchestrator with paired Senior Engineer and Librarian"
+  default_prompt: "Use $pm to orchestrate Discovery -> PRD -> approvals -> Beads -> implementation -> automated reviews -> Manual QA smoke tests with paired support agents."

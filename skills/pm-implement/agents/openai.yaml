@@ -1,0 +1,4 @@
+interface:
+  display_name: "PM Implement"
+  short_description: "Team-lead orchestration + implementation + reviews + QA"
+  default_prompt: "Use $pm-implement to run Team Lead orchestration for backend/frontend/security subagents, then reviews and Manual QA smoke tests."
