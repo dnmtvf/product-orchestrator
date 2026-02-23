@@ -43,7 +43,11 @@ If any precondition fails:
 
 ## Planning Rules
 When preconditions pass:
-- Ensure Beads is initialized (`bd init`) if `.beads/` is missing.
+- Beads initialization policy:
+  - Normal repo (not a git worktree): if `.beads/` is missing, run `bd init`.
+  - Git worktree: do not run `bd init` in the worktree (Beads blocks this). Initialize once in the main repository, then continue from the worktree.
+  - If main-repo initialization is not available during this run, continue in planning mode with `bd --no-db` (JSONL under `.beads/`) and explicitly note this in output.
+  - Worktree detection heuristic: `git rev-parse --git-dir` path contains `/worktrees/` (or `.git` file points to `.../.git/worktrees/...`).
 - Epic title format:
   - `<slug> (PRD: <path>)`
 - Generate atomic tasks only:

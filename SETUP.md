@@ -16,39 +16,18 @@ The runtime `Skill` loader resolves skills from runtime skill directories (for t
 
 Referencing a path from `AGENTS.md` is not enough to make `/skill` invocable. The skill must be discoverable from runtime skill directories.
 
-## Install / relink skills to this repo
-Run:
+## Prerequisites
+- MCP requirements: `docs/MCP_PREREQUISITES.md`
 
-```bash
-set -e
-mkdir -p "$HOME/.claude/skills" "$HOME/.codex/skills"
-for s in pm pm-discovery pm-create-prd pm-beads-plan pm-implement agent-browser; do
-  rm -f "$HOME/.claude/skills/$s"
-  rm -f "$HOME/.codex/skills/$s"
-  ln -s "$HOME/product-orchestrator/skills/$s" "$HOME/.claude/skills/$s"
-  ln -s "$HOME/product-orchestrator/skills/$s" "$HOME/.codex/skills/$s"
-done
-```
+## Installation modes
 
-## Verify links
+1. Direct injection (no submodule, no symlink):
+- See `docs/INSTALL_INJECT_WORKFLOW.md`
+- Script: `scripts/inject-workflow.sh`
 
-```bash
-for s in pm pm-discovery pm-create-prd pm-beads-plan pm-implement agent-browser; do
-  echo "$s"
-  readlink "$HOME/.claude/skills/$s"
-  readlink "$HOME/.codex/skills/$s"
-done
-```
-
-Expected target for each link:
-`$HOME/product-orchestrator/skills/<skill-name>`
+2. Submodule + copy (independent fetch + copied runtime skills):
+- See `docs/INSTALL_SUBMODULE_WORKFLOW.md`
+- Script: `scripts/install-workflow.sh`
 
 ## Runtime reload
-After linking/updating skills, restart Codex/Claude session so the skill index reloads.
-
-## Backups and rollback
-If setup scripts moved previous skill folders aside, restore by moving directories back from the timestamped backup folders:
-- `~/.claude/skills/.backup-product-orchestrator-<timestamp>/`
-- `~/.codex/skills/.backup-product-orchestrator-<timestamp>/`
-
-Then remove the symlinks and restart the session.
+After any install/update, restart Codex/Claude session so skill indexes reload.

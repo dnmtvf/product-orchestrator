@@ -1,6 +1,6 @@
 ---
 name: pm
-description: Strict PM orchestration workflow for any repo. Trigger when user invokes $pm; orchestrates discovery, PRD, approvals, beads planning, team-lead execution orchestration, implementation, automated reviews, manual QA smoke tests, and iteration while pairing specialized support agents.
+description: Strict PM orchestration workflow for any repo. Trigger when user invokes /pm; orchestrates discovery, PRD, approvals, beads planning, team-lead execution orchestration, implementation, automated reviews, manual QA smoke tests, and iteration while pairing specialized support agents.
 ---
 
 # PM Skill (Strict Orchestrator)
@@ -12,10 +12,12 @@ description: Strict PM orchestration workflow for any repo. Trigger when user in
 - Two hard human gates must use exact response: `approved`.
 - Do not jump phases unless prerequisites are satisfied.
 - Use Beads (`bd`) as the execution source of truth; keep `.beads/` tracked in git.
+- Invocation guard: when this skill is available, it must be invoked via the Skill tool before any PM-phase actions. Do not manually read this file and proceed as fallback.
 
 ## Orchestrator Trigger Semantics
-- `$pm` is the orchestrator entrypoint for this workflow.
-- Orchestrator does **not** start globally on its own; it starts when user invokes `$pm` or when a PM phase performs an automatic handoff.
+- `/pm` is the orchestrator entrypoint for this workflow.
+- `$pm` is text shorthand only and may not invoke the skill runtime. If user writes `$pm ...`, treat it as intent and immediately invoke `pm` via the Skill tool.
+- Orchestrator does **not** start globally on its own; it starts when user invokes `/pm` (or explicit Skill tool call for `pm`) or when a PM phase performs an automatic handoff.
 - Once started, downstream PM phases are auto-invoked by the orchestrator; user should not need to type intermediate PM commands.
 
 ## Subagent Launcher Compatibility (mandatory across all phases)
@@ -155,7 +157,11 @@ Discovery extension:
 
 ### 4) Beads Planning
 - Validate task decomposition with Senior Engineer and dependency/standards constraints with Librarian.
-- Ensure Beads is initialized (`bd init`) if `.beads/` is missing.
+- Beads initialization policy:
+  - Normal repo (not a git worktree): if `.beads/` is missing, run `bd init`.
+  - Git worktree: do not run `bd init` in the worktree (Beads blocks this). Initialize once in the main repository, then continue from the worktree.
+  - If main-repo initialization is not available during this run, continue in planning mode with `bd --no-db` (JSONL under `.beads/`) and mark this in phase output.
+  - Worktree detection heuristic: `git rev-parse --git-dir` path contains `/worktrees/` (or `.git` file points to `.../.git/worktrees/...`).
 - Create one epic for the PRD and atomic child tasks with clear DoD.
 - Add explicit dependencies with `bd dep`.
 - Render execution view with `bd graph <epic-id> --compact`.
@@ -317,5 +323,6 @@ Always include:
 3. `What I need from you next`
 
 ## Invocation
-- Trigger strongly on explicit `$pm ...`.
+- Trigger strongly on explicit `/pm ...`.
+- If user provides `$pm ...`, convert that intent to explicit `pm` skill invocation first, then run this workflow.
 - If planning is requested generally, enforce this workflow.
