@@ -1,6 +1,6 @@
 # Product Orchestrator
 
-`product-orchestrator` is a strict PM workflow package for Codex/Claude workspaces.
+`product-orchestrator` is a strict PM workflow package for Codex workspaces.
 It installs PM skills plus a workflow policy file into target repositories so feature delivery follows fixed gates:
 
 - Discovery before PRD
@@ -91,7 +91,6 @@ git -C /path/to/target-repo submodule update --init --recursive .orchestrator
 
 ## What gets installed into the target repo
 
-- `.claude/skills/{pm,pm-discovery,pm-create-prd,pm-beads-plan,pm-implement,agent-browser}`
 - `.codex/skills/{pm,pm-discovery,pm-create-prd,pm-beads-plan,pm-implement,agent-browser}`
 - `.config/opencode/instructions/pm_workflow.md`
 - Backup snapshots under `.orchestrator-backups/<timestamp>/`
@@ -115,6 +114,12 @@ Example:
 /pm plan: Add multi-tenant project switching to the dashboard with role-based access.
 ```
 
+Help command:
+
+```text
+/pm help
+```
+
 Big-feature mode example:
 
 ```text
@@ -127,6 +132,17 @@ Big-feature mode selector:
 - If not provided in the request, PM asks for mode selection during discovery.
 - Worktree note: Ralph already uses worktrees for parallel execution; external tools (for example Worktrunk) are optional helpers.
 - Queue behavior: each PRD enters async enqueue only after both approvals and empty `Open Questions`; worker cap is 2 with single auto-retry.
+
+Manual self-update mode:
+- Check latest Codex changes and stage pending version:
+  - `./.codex/skills/pm/scripts/pm-command.sh self-update check`
+  - source-repo fallback: `./skills/pm/scripts/pm-command.sh self-update check`
+- The command outputs a required planning trigger in this format:
+  - `/pm plan: Inspect latest Codex changes and align orchestrator behavior with Codex-only runtime policy.`
+- After full PM completion gate succeeds, finalize processed version checkpoint:
+  - `./.codex/skills/pm/scripts/pm-command.sh self-update complete --approval approved --prd-approval approved --beads-approval approved --prd-path docs/prd/<approved-prd>.md`
+  - source-repo fallback: `./skills/pm/scripts/pm-command.sh self-update complete --approval approved --prd-approval approved --beads-approval approved --prd-path docs/prd/<approved-prd>.md`
+
 ## Fixed phase order
 
 `Discovery -> PRD -> Awaiting PRD Approval -> Beads Planning -> Awaiting Beads Approval -> Team Lead Orchestration -> Implementation -> Post-Implementation Reviews -> Review Iteration -> Manual QA Smoke Tests -> Awaiting Final Review`
@@ -148,8 +164,8 @@ bd graph <epic-id> --compact
 ## Troubleshooting
 
 - `/pm` does not invoke:
-  - confirm skill folders exist under `.claude/skills` or `.codex/skills`
-  - restart Codex/Claude session so skill indexes reload
+  - confirm skill folders exist under `.codex/skills`
+  - restart Codex session so skill indexes reload
 - Workflow blocks on missing tooling:
   - run `codex mcp list` and confirm required MCP servers are enabled
 - Beads planning issues in worktrees:

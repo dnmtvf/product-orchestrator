@@ -8,8 +8,8 @@ This setup makes `product-orchestrator` the independently updatable source via g
 ## What gets installed in target repo
 - Submodule: `<repo>/.orchestrator` (configurable)
 - Copied skills:
-  - `<repo>/.claude/skills/{pm,pm-discovery,pm-create-prd,pm-beads-plan,pm-implement,agent-browser}`
   - `<repo>/.codex/skills/{pm,pm-discovery,pm-create-prd,pm-beads-plan,pm-implement,agent-browser}`
+  - PM helper script: `<repo>/.codex/skills/pm/scripts/pm-command.sh`
 - Workflow file:
   - `<repo>/.config/opencode/instructions/pm_workflow.md`
 
@@ -47,19 +47,18 @@ git -C /path/to/target-repo submodule update --init --recursive .orchestrator
 
 Or if running from another working directory, call script by absolute path.
 
-## Conductor usage
-In Conductor workspace bootstrap/startup for each repo:
+## Workspace bootstrap usage
+In workspace bootstrap/startup for each repo:
 1. `git submodule update --init --recursive`
 2. Run installer in `--sync-only` mode (or full mode if submodule not yet configured)
 3. Restart session so skill indexes refresh
 
 ## Backups and rollback
 Each install creates backups in target repo:
-- `<repo>/.orchestrator-backups/<timestamp>/claude/...`
 - `<repo>/.orchestrator-backups/<timestamp>/codex/...`
 
 Rollback:
-1. Move backed-up folders back into `.claude/skills` / `.codex/skills`
+1. Move backed-up folders back into `.codex/skills`
 2. Revert/adjust submodule changes
 3. Restart session
 

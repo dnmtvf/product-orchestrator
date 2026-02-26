@@ -7,7 +7,7 @@ usage() {
   cat <<'EOF'
 Install PM orchestrator workflow into a target repository using:
 - git submodule (source of truth)
-- copied runtime skill folders (no symlinks)
+- copied Codex runtime skill folders (no symlinks)
 
 Usage:
   install-workflow.sh --repo <path> --orchestrator-url <git-url> [options]
@@ -23,8 +23,6 @@ Options:
   --submodule-path PATH        Submodule mount path inside target repo (default: .orchestrator)
   --branch NAME                Branch to track when adding submodule (optional)
   --sync-only                  Skip submodule add/update metadata; only copy from existing submodule
-  --no-claude                  Skip install to .claude/skills
-  --no-codex                   Skip install to .codex/skills
   -h, --help                   Show this help
 
 Examples:
@@ -48,8 +46,6 @@ ORCHESTRATOR_URL=""
 SUBMODULE_PATH=".orchestrator"
 BRANCH=""
 SYNC_ONLY=0
-INSTALL_CLAUDE=1
-INSTALL_CODEX=1
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -73,12 +69,8 @@ while [ $# -gt 0 ]; do
       SYNC_ONLY=1
       shift
       ;;
-    --no-claude)
-      INSTALL_CLAUDE=0
-      shift
-      ;;
-    --no-codex)
-      INSTALL_CODEX=0
+    --no-claude|--no-codex)
+      err "Legacy runtime flag '$1' is not supported. This installer is Codex-only."
       shift
       ;;
     -h|--help)
@@ -92,7 +84,6 @@ while [ $# -gt 0 ]; do
 done
 
 [ -n "$REPO_PATH" ] || err "--repo is required"
-[ "$INSTALL_CLAUDE" -eq 1 ] || [ "$INSTALL_CODEX" -eq 1 ] || err "At least one runtime must be enabled (remove --no-claude/--no-codex)"
 
 if [ ! -d "$REPO_PATH" ]; then
   err "Repo path does not exist: $REPO_PATH"
@@ -139,12 +130,10 @@ TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 BACKUP_ROOT="$REPO_PATH/.orchestrator-backups/$TIMESTAMP"
 mkdir -p "$BACKUP_ROOT"
 
-install_runtime_skills() {
-  local runtime_name="$1"
-  local runtime_dir="$2"
-
+install_codex_skills() {
+  local runtime_dir="$1"
   mkdir -p "$runtime_dir"
-  local runtime_backup="$BACKUP_ROOT/$runtime_name"
+  local runtime_backup="$BACKUP_ROOT/codex"
   mkdir -p "$runtime_backup"
 
   for skill in "${SKILLS[@]}"; do
@@ -162,13 +151,7 @@ install_runtime_skills() {
   done
 }
 
-if [ "$INSTALL_CLAUDE" -eq 1 ]; then
-  install_runtime_skills "claude" "$REPO_PATH/.claude/skills"
-fi
-
-if [ "$INSTALL_CODEX" -eq 1 ]; then
-  install_runtime_skills "codex" "$REPO_PATH/.codex/skills"
-fi
+install_codex_skills "$REPO_PATH/.codex/skills"
 
 WORKFLOW_SRC="$REPO_PATH/$SUBMODULE_PATH/instructions/pm_workflow.md"
 WORKFLOW_DST="$REPO_PATH/.config/opencode/instructions/pm_workflow.md"
@@ -186,5 +169,5 @@ echo
 echo "Backups saved under: $BACKUP_ROOT"
 echo "Next steps:"
 echo "  1) Review changes: git -C \"$REPO_PATH\" status"
-echo "  2) Commit submodule + runtime skill files + workflow file"
-echo "  3) Restart Codex/Claude session in that repo so skills are re-indexed"
+echo "  2) Commit submodule + Codex skill files + workflow file"
+echo "  3) Restart Codex session in that repo so skills are re-indexed"

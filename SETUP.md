@@ -10,9 +10,10 @@ This repository is the source of truth for PM orchestration skills and workflow 
 - `skills/pm-implement`
 - `skills/agent-browser`
 - `instructions/pm_workflow.md`
+- `skills/pm/scripts/pm-command.sh` (manual self-update + deterministic `$pm help` output helper)
 
 ## Why symlinks are required
-The runtime `Skill` loader resolves skills from runtime skill directories (for this machine: `~/.claude/skills` and `~/.codex/skills`).
+The runtime `Skill` loader resolves skills from runtime skill directories (for this machine: `~/.codex/skills`).
 
 Referencing a path from `AGENTS.md` is not enough to make `/skill` invocable. The skill must be discoverable from runtime skill directories.
 
@@ -30,4 +31,4 @@ Referencing a path from `AGENTS.md` is not enough to make `/skill` invocable. Th
 - Script: `scripts/install-workflow.sh`
 
 ## Runtime reload
-After any install/update, restart Codex/Claude session so skill indexes reload.
+After any install/update, restart Codex session so skill indexes reload.

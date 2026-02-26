@@ -27,6 +27,21 @@ description: Strict PM orchestration workflow for any repo. Trigger when user in
 - Big-feature planning route:
   - Trigger: `/pm plan big feature: ...` or `$pm plan big feature: ...`
   - Behavior: big-feature planning workflow with multi-PRD decomposition.
+- Help route:
+  - Trigger: `/pm help` or `$pm help`
+  - Behavior: print basic workflow invocations, required phase sequence, and exact approval gate token.
+- Self-update route (manual only):
+  - Trigger: `/pm self-update` or `$pm self-update`
+  - Behavior:
+    1. Run Codex self-update check helper:
+       - `./.codex/skills/pm/scripts/pm-command.sh self-update check`
+       - source-repo fallback: `./skills/pm/scripts/pm-command.sh self-update check`
+    2. If update is available, immediately trigger default planning route:
+       - `/pm plan: Inspect latest Codex changes and align orchestrator behavior with Codex-only runtime policy.`
+    3. After full PM flow completion gate, advance processed version with:
+       - `./.codex/skills/pm/scripts/pm-command.sh self-update complete --approval approved --prd-approval approved --beads-approval approved --prd-path docs/prd/<approved-prd>.md`
+       - source-repo fallback: `./skills/pm/scripts/pm-command.sh self-update complete --approval approved --prd-approval approved --beads-approval approved --prd-path docs/prd/<approved-prd>.md`
+  - Do not run in background/scheduled mode.
 - Backward-compatibility rule:
   - `$pm plan:` must remain the default single-PRD route.
   - Big-feature mode is entered only with explicit `plan big feature` phrasing.
