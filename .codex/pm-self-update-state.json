@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "latest_processed_codex_version": "0.105.0",
+  "pending_codex_version": "",
+  "last_checked_codex_version": "0.105.0",
+  "last_check": {
+    "checked_at": "2026-02-26T12:04:01Z",
+    "changelog_version": "0.105.0",
+    "release_version": "0.105.0",
+    "selected_version": "0.105.0",
+    "sources": [
+      "https://developers.openai.com/codex/changelog/",
+      "https://github.com/openai/codex/releases/latest"
+    ]
+  },
+  "last_checkpoint_ref": "codex-version-0.105.0",
+  "updated_at": "2026-02-26T12:05:11Z"
+}
