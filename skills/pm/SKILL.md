@@ -325,13 +325,9 @@ Use parallel sub-agents for this step whenever available.
 - Present final status, including original plan tasks and review-iteration tasks.
 - Include Manual QA smoke-test results (pass/fail and evidence summary).
 - Ask user to review results.
-- If user wants fixes, user records review notes in project-root `review.md` with file:line/range + comment.
-- If user replies `fix comments`:
-  - parse `review.md`
-  - pass comments to Team Lead
-  - Team Lead creates Beads human-review iteration tasks and orchestrates implementation through regular flow
-  - after creating those tasks, Team Lead clears `review.md` (truncate to empty content)
-  - return to `Awaiting Final Review` when those tasks are done
+- If user wants fixes, capture requested changes from the user response and pass them to Team Lead.
+- Team Lead creates Beads human-review iteration tasks and orchestrates implementation through regular flow.
+- Return to `Awaiting Final Review` when those tasks are done.
 - If user approves without additional fixes, complete the run.
 - Do not auto-complete beyond this point unless user approval is explicit.
 

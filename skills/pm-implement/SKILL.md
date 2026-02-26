@@ -203,27 +203,12 @@ For every actionable review finding, Team Lead must:
   - reviewer findings summary
   - review-iteration changes completed
   - Manual QA smoke-test results
-- Ask user to review results and add review notes into project-root `review.md` when fixes are needed.
-- If user replies `fix comments`:
-  - read and parse `review.md`
-  - pass parsed comments to Team Lead
+- Ask user to review results and provide requested fixes directly in the conversation.
+- If user requests fixes:
+  - pass user feedback to Team Lead
   - Team Lead creates Beads review-fix tickets and orchestrates implementation using the same regular flow (subagents + verification + close on DoD)
-  - after ticket creation, Team Lead clears `review.md` (truncate to empty content) to prevent duplicate processing
   - return to `AWAITING FINAL REVIEW` after fixes are completed
 - If user approves without additional fixes, finish.
-
-## Human Review Comments Intake (mandatory when user requests fixes)
-- Source of truth: `review.md` in project root.
-- Expected per-comment data:
-  - file reference with line or range (for example `src/app.ts:42` or `src/app.ts:42-55`)
-  - optional markdown link form to file/line
-  - user comment describing requested fix
-- Recommended line format:
-  - `- src/app.ts:42-55 | <comment>`
-- If `review.md` is missing/empty when user requests `fix comments`:
-  - ask user to populate `review.md` first, then continue.
-- Team Lead must convert each actionable comment into one or more Beads tasks labeled for human review iteration and track them to completion.
-- After Team Lead creates the corresponding Beads tasks, Team Lead must clear `review.md` (truncate file to empty) before starting fix implementation.
 
 ## Output Requirements (every run)
 Always include:
@@ -235,7 +220,7 @@ Always include:
 6. `Reviewer status` (not started/running/completed)
 7. `Iteration task status`
 8. `Manual QA smoke status` (not started/running/passed/failed)
-9. `Human review comments status` (none/pending/in-progress/completed)
+9. `Human review fix status` (none/pending/in-progress/completed)
 10. `What I need from you next`
 11. `Queue reconciliation` (required for big-feature route; include per-PRD state and blocked/failed reasons)
 

@@ -44,8 +44,7 @@ Responsibilities:
 11. Spawn AGENTS Compliance Reviewer and Jazz Reviewer as generic `default` subagents (role-labeled prompts), then create Beads review-iteration fix tickets for actionable findings and orchestrate those fixes to completion before QA/final review.
 12. Spawn Manual QA Smoke agent as generic `default` subagent (role-labeled prompt) and block final handoff until smoke plan execution is complete.
 13. When implementation adds new logic or changes existing behavior/logic, create a Beads documentation-sync task and spawn Librarian Documentation Sync (`default`) to audit/update project docs before QA/final handoff.
-14. When PM forwards user comments from `review.md`, convert each actionable comment (file:line/range + comment) into Beads human-review fix tickets and orchestrate implementation to completion.
-15. Immediately after creating Beads tickets from `review.md`, clear `review.md` (truncate file to empty content) to avoid duplicate re-intake.
+14. When PM forwards user final-review feedback, convert each actionable comment into Beads human-review fix tickets and orchestrate implementation to completion.
 
 Claude prompt quality requirements (mandatory):
 - For any Claude subagent invocation, include:
@@ -77,8 +76,7 @@ Operating rules:
 - Do not start Manual QA/final handoff while required documentation-sync tasks are still open.
 - Resolve technical questions directly whenever possible to keep implementation moving.
 - Do not answer product-direction questions yourself; route them to PM and distribute PM's answer to all impacted subagents.
-- Treat `review.md` feedback as user-priority scope for final review iteration; map every actionable comment to tracked Beads work before coding fixes.
-- Do not keep processed comments in `review.md`; clear the file right after ticket creation.
+- Treat user final-review feedback as user-priority scope for final review iteration; map every actionable comment to tracked Beads work before coding fixes.
 
 Output format:
 1. Workstream plan
