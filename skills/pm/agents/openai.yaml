@@ -1,4 +1,4 @@
 interface:
   display_name: "PM"
-  short_description: "PM orchestrator with paired Senior Engineer and Librarian"
-  default_prompt: "Use $pm to orchestrate Discovery -> PRD -> approvals -> Beads -> implementation -> automated reviews -> Manual QA smoke tests with paired support agents."
+  short_description: "PM orchestrator with single-PRD and big-feature routes"
+  default_prompt: "Use $pm plan: for default single-PRD flow, and $pm plan big feature: for multi-PRD big-feature flow with mode selection (conflict-aware or worktree-isolated), then orchestrate Discovery -> PRD -> approvals -> Beads -> implementation -> reviews -> Manual QA."

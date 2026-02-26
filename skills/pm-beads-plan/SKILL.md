@@ -48,6 +48,10 @@ When preconditions pass:
   - Git worktree: do not run `bd init` in the worktree (Beads blocks this). Initialize once in the main repository, then continue from the worktree.
   - If main-repo initialization is not available during this run, continue in planning mode with `bd --no-db` (JSONL under `.beads/`) and explicitly note this in output.
   - Worktree detection heuristic: `git rev-parse --git-dir` path contains `/worktrees/` (or `.git` file points to `.../.git/worktrees/...`).
+- Big-feature worktree-isolated mode:
+  - Add per-PRD task notes for isolated worktree execution boundaries.
+  - Record integration/merge sequencing tasks where cross-PRD touch points exist.
+  - Prefer Ralph-native worktree assumptions; external worktree tools are optional helpers only.
 - Epic title format:
   - `<slug> (PRD: <path>)`
 - Generate atomic tasks only:
@@ -62,6 +66,7 @@ When preconditions pass:
   - consumes the discovery/PRD smoke-test plan
   - runs happy/unhappy/regression checks
   - includes browser-based smoke checks when needed
+  - for big-feature route, includes dual-mode regression checks for `conflict-aware` and `worktree-isolated`
 
 ## bdui Review Gate (required)
 After task graph is generated:
@@ -71,6 +76,17 @@ After task graph is generated:
   - `bd list --parent <epic-id> --pretty`
   - `bd graph <epic-id> --compact`
 - Require explicit user response `approved` before implementation.
+
+## Runnable Promotion Gate (mandatory for big-feature route)
+- While waiting for Beads approval, manifest state must be `awaiting_beads_approval`.
+- Promotion to `queued` is allowed only if all are true:
+  - PRD approval gate exact reply is `approved`
+  - Beads approval gate exact reply is `approved`
+  - PRD `Open Questions` remains empty
+- On gate violation, do not enqueue and keep explicit blocked state:
+  - missing Beads approval -> `awaiting_beads_approval`
+  - open questions reintroduced -> `approved` with `blocked_reason=open_questions`
+- Promotion attempts must enforce idempotency key uniqueness (`<prd_slug>:<approval_version>`).
 
 ## Handoff to Implementation
 When user responds `approved` at this gate:

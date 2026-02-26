@@ -56,6 +56,11 @@ Only ask the user questions that remain unresolved after those checks.
   - unhappy-path smoke tests
   - regression smoke tests
   - post-implementation test execution plan (include browser checks when needed)
+- For big-feature planning, also generate dual-mode regression coverage:
+  - command routing checks (`plan` vs `plan big feature`)
+  - `conflict-aware` mode smoke checks
+  - `worktree-isolated` mode smoke checks
+  - queue gate/retry/reconciliation regression checklist
 - Include this smoke-test plan in the Discovery Summary for downstream PRD and QA phases.
 
 ## Alternative PM (mandatory every discovery step)
@@ -88,6 +93,30 @@ You must make all of these explicit and testable:
 - Rollout expectations
 - Dependencies / integrations
 
+## Conflict-Aware Decomposition (mandatory for big-feature route)
+When route is `$pm plan big feature:` and mode is `conflict-aware`:
+- Decompose into PRDs with explicit anti-conflict boundaries.
+- For every proposed PRD, record:
+  - intended ownership boundary
+  - expected file/module touch boundary
+  - dependency boundary (what it can and cannot block)
+  - known overlap risks with sibling PRDs
+- If overlap risk is high, either:
+  - re-scope PRDs to reduce overlap, or
+  - document a required dependency/sequence contract explicitly.
+- Do not mark discovery complete until each PRD has conflict notes sufficient for independent implementation planning.
+
+## Worktree-Isolated Decomposition (mandatory for big-feature route)
+When route is `$pm plan big feature:` and mode is `worktree-isolated`:
+- Decompose PRDs so each can be executed in isolated git worktree context.
+- For every proposed PRD, record:
+  - target worktree execution boundary
+  - cross-PRD merge/integration order expectations
+  - files or modules with expected merge-pressure
+  - cleanup and rollback considerations for isolated worktrees
+- Prefer Ralph-native worktree execution semantics for planning assumptions.
+- Do not mark discovery complete until each PRD has worktree execution notes sufficient for independent planning.
+
 ## Questioning Rules
 - Group questions by section (for example: Problem, Scope, UX, Data, Security, Integrations, Rollout).
 - Use **numbered questions**.
@@ -105,7 +134,10 @@ Output exactly this structure:
 4. Propose PRD slug format: `YYYY-MM-DD--kebab-slug`.
 5. Include `Smoke Test Plan` with happy/unhappy/regression groups and execution notes.
 6. Include `Alternatives Matrix` and recommended option from Alternative PM.
-7. `Automatic handoff: STARTED` or `Automatic handoff: BLOCKED (<reason>)`.
+7. For big-feature conflict-aware mode, include `PRD Conflict Boundaries` section with per-PRD ownership/file/dependency constraints.
+8. For big-feature worktree-isolated mode, include `PRD Worktree Execution Notes` section with per-PRD worktree boundaries and merge-order constraints.
+9. For big-feature route, include `Dual-Mode Regression Checklist` with pass/fail criteria for both planning modes.
+10. `Automatic handoff: STARTED` or `Automatic handoff: BLOCKED (<reason>)`.
 
 ## Automatic Handoff (mandatory when Discovery Complete is YES)
 - Immediately invoke: `$pm-create-prd Use the Discovery Summary above`.

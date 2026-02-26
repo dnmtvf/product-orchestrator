@@ -18,6 +18,14 @@ Before implementation starts, verify:
 If any precondition fails:
 - Stop and ask only for missing prerequisite(s).
 
+## Big-Feature Queue Preconditions (mandatory for `plan big feature`)
+- Before starting a PRD work stream, verify manifest item is queue-ready:
+  - `state=queued`
+  - `epic_id` present
+  - `readiness.selectable=true`
+  - `readiness.doctor_pass=true`
+- If not queue-ready, do not start implementation for that PRD and report blocked reason.
+
 ## Claude MCP Contract (mandatory for external Claude agents)
 - Use Claude through MCP server `claude-code` (not direct CLI/app invocation).
 - Required environment setup (once):
@@ -105,6 +113,13 @@ Whenever Team Lead invokes any external Claude agent, the prompt must include su
   - Backend Engineer owns backend tasks
   - Frontend Engineer owns frontend tasks
   - Security Engineer performs security-focused implementation/review tasks
+- For big-feature worktree-isolated mode:
+  - keep PRD work streams isolated by worktree execution boundaries
+  - follow Ralph-native worktree lifecycle assumptions for parallel execution and merge sequencing
+  - treat external worktree managers as optional helpers, not execution source of truth
+- For big-feature queue execution:
+  - respect async enqueue worker cap (`worker_cap=2`) when dispatching parallel PRD streams
+  - do not bypass queue states manually to start blocked PRDs
 - Execute tasks from ready queue first:
   - `bd ready --parent <epic-id> --pretty`
 - Claim/start work:
@@ -184,6 +199,7 @@ For every actionable review finding, Team Lead must:
 - Move to `Current phase: AWAITING FINAL REVIEW`.
 - Present:
   - implementation summary
+  - queue reconciliation summary (`discovered`, `approved`, `queued`, `queue_failed`) when big-feature route is used
   - reviewer findings summary
   - review-iteration changes completed
   - Manual QA smoke-test results
@@ -221,6 +237,7 @@ Always include:
 8. `Manual QA smoke status` (not started/running/passed/failed)
 9. `Human review comments status` (none/pending/in-progress/completed)
 10. `What I need from you next`
+11. `Queue reconciliation` (required for big-feature route; include per-PRD state and blocked/failed reasons)
 
 ## Invocation
 - Trigger strongly on `$pm-implement ...`.

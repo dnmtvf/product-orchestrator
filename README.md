@@ -112,9 +112,21 @@ Injection mode also writes:
 Example:
 
 ```text
-/pm Add multi-tenant project switching to the dashboard with role-based access.
+/pm plan: Add multi-tenant project switching to the dashboard with role-based access.
 ```
 
+Big-feature mode example:
+
+```text
+/pm plan big feature: Build a new orchestrator workflow that decomposes a large initiative into multiple PRDs and prepares async Ralph queue execution.
+```
+
+Big-feature mode selector:
+- `conflict-aware`: discovery enforces anti-conflict boundaries between PRDs.
+- `worktree-isolated`: each PRD is planned for isolated worktree execution context.
+- If not provided in the request, PM asks for mode selection during discovery.
+- Worktree note: Ralph already uses worktrees for parallel execution; external tools (for example Worktrunk) are optional helpers.
+- Queue behavior: each PRD enters async enqueue only after both approvals and empty `Open Questions`; worker cap is 2 with single auto-retry.
 ## Fixed phase order
 
 `Discovery -> PRD -> Awaiting PRD Approval -> Beads Planning -> Awaiting Beads Approval -> Team Lead Orchestration -> Implementation -> Post-Implementation Reviews -> Review Iteration -> Manual QA Smoke Tests -> Awaiting Final Review`
@@ -122,6 +134,9 @@ Example:
 ## Beads as source of truth
 
 Execution is tracked in Beads (`bd`) and `.beads/` should stay committed in Git.
+For big-feature queue mode, persist queue state in `docs/prd/_queue/<feature-slug>.json` using the contract in `docs/QUEUE_WORKFLOW.md`.
+Runtime policy is Codex-first; external Claude usage is allowed only via `claude-code` MCP.
+Smoke evidence for dual planning modes is tracked in `docs/smoke/2026-02-26-big-feature-planning-modes.md`.
 Common commands:
 
 ```bash

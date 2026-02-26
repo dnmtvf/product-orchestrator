@@ -20,6 +20,62 @@ description: Strict PM orchestration workflow for any repo. Trigger when user in
 - Orchestrator does **not** start globally on its own; it starts when user invokes `/pm` (or explicit Skill tool call for `pm`) or when a PM phase performs an automatic handoff.
 - Once started, downstream PM phases are auto-invoked by the orchestrator; user should not need to type intermediate PM commands.
 
+## Command Routing (mandatory)
+- Default planning route:
+  - Trigger: `/pm plan: ...` or `$pm plan: ...`
+  - Behavior: single-PRD planning workflow (existing default).
+- Big-feature planning route:
+  - Trigger: `/pm plan big feature: ...` or `$pm plan big feature: ...`
+  - Behavior: big-feature planning workflow with multi-PRD decomposition.
+- Backward-compatibility rule:
+  - `$pm plan:` must remain the default single-PRD route.
+  - Big-feature mode is entered only with explicit `plan big feature` phrasing.
+
+## Big-Feature Mode Selector (mandatory)
+- In big-feature route, PM must capture planning mode before decomposition starts.
+- Allowed values:
+  - `conflict-aware`: discovery enforces anti-conflict PRD boundaries.
+  - `worktree-isolated`: each PRD is prepared for isolated worktree execution context.
+- If user did not specify a mode in the initial request, ask one numbered clarification question to choose mode before continuing discovery.
+
+## Queue Manifest Contract (mandatory for big-feature route)
+- Persist queue state at `docs/prd/_queue/<feature-slug>.json`.
+- Maintain per-PRD lifecycle states:
+  - `pending`, `in_discovery`, `awaiting_prd_approval`, `awaiting_beads_approval`, `approved`, `queued`, `queue_failed`.
+- Canonical runnable queue unit is Beads epic ID.
+- Idempotency key format must be `<prd_slug>:<approval_version>`.
+- Duplicate prevention invariants:
+  - reject enqueue if idempotency key already exists
+  - reject enqueue if PRD already has an active runnable queue entry
+- Allow only one automatic retry for enqueue failures; then set `queue_failed` and require manual intervention.
+- Promote PRD to `queued` only when both approvals are exact `approved` and PRD `Open Questions` is empty.
+
+## Runnable Promotion Gate (mandatory for big-feature route)
+- Gate conditions for enqueue promotion:
+  - PRD approval gate exact reply `approved`
+  - Beads approval gate exact reply `approved`
+  - PRD `Open Questions` empty
+- On gate violation, do not enqueue and keep explicit status:
+  - PRD gate missing -> `awaiting_prd_approval`
+  - Beads gate missing -> `awaiting_beads_approval`
+  - Open questions not empty -> `approved` with `blocked_reason=open_questions`
+
+## Async Enqueue Worker (mandatory for big-feature route)
+- Process queue promotion asynchronously with `worker_cap=2`.
+- Selection input is PRDs that satisfy Runnable Promotion Gate only.
+- Enqueue attempts are idempotent by `<prd_slug>:<approval_version>`.
+- Retry behavior:
+  - first failure -> one automatic retry
+  - second failure -> `queue_failed` and stop auto-retries
+
+## Queue Reconciliation Output (mandatory for big-feature route)
+- After all PRDs are processed, report:
+  - total discovered PRDs
+  - approved PRDs
+  - queued PRDs
+  - queue_failed PRDs
+- Include per-PRD blocked/failed reasons and required next action.
+
 ## Subagent Launcher Compatibility (mandatory across all phases)
 - PM must launch only supported generic agent types: `default`, `explorer`, `worker`.
 - PM must encode functional role in prompt payload (for example: `[Role: Senior Engineer]`).
@@ -34,6 +90,7 @@ description: Strict PM orchestration workflow for any repo. Trigger when user in
   - do not treat `claude-code` as a launcher type
 
 ## Claude MCP Contract (mandatory for external Claude agents)
+- PM orchestration runtime remains Codex-first; Claude is external and optional.
 - Use Claude through MCP server `claude-code` (do not run Claude as app/interactive CLI for pipeline orchestration).
 - Required environment setup (once):
   - `codex mcp add claude-code -- claude mcp serve`

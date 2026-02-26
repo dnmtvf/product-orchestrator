@@ -30,6 +30,7 @@ Use their findings to reduce avoidable user clarification loops.
 ## Inputs (required)
 - Discovery Summary (structured and complete)
 - Intended scope for this PRD
+- For big-feature conflict-aware mode: PRD conflict-boundary notes (ownership/file/dependency constraints)
 
 If Discovery Summary is incomplete, stop and ask only targeted clarification questions.
 
@@ -40,11 +41,21 @@ If Discovery Summary is incomplete, stop and ask only targeted clarification que
 4. Include `Open Questions`.
 5. Do not request approval until `Open Questions` is empty.
 6. Include a smoke-test subsection covering happy path, unhappy path, regression, and post-implementation QA execution notes.
+   - For big-feature route, include dual-mode regression criteria for `conflict-aware` and `worktree-isolated`.
+7. For big-feature conflict-aware mode, include explicit PRD-level anti-conflict constraints in scope/risks (ownership, file touch boundaries, dependency contracts).
 
 ## Approval Gate
 - Move to `Current phase: AWAITING PRD APPROVAL`.
 - Require exact user response: `approved`.
 - If user requests edits, apply edits and stay in approval phase.
+
+## Big-Feature Queue State Updates (mandatory when route is `plan big feature`)
+- On PRD draft completion (before approval), set manifest item state to `awaiting_prd_approval`.
+- On exact PRD approval:
+  - set state to `approved`
+  - set or increment `approval_version`
+  - recompute `idempotency_key=<prd_slug>:<approval_version>`
+- Do not promote to `queued` in this phase. Queue promotion is blocked until Beads approval gate passes and `Open Questions` remains empty.
 
 ## Automatic Handoff to Beads Planning
 When PRD is approved:
