@@ -36,11 +36,19 @@ description: Strict PM orchestration workflow for any repo. Trigger when user in
     1. Run Codex self-update check helper:
        - `./.codex/skills/pm/scripts/pm-command.sh self-update check`
        - source-repo fallback: `./skills/pm/scripts/pm-command.sh self-update check`
-    2. If update is available, immediately trigger default planning route:
+    2. Interpret check results with these rules:
+       - changelog website is source of truth
+       - release/npm signals are corroborative only
+       - pending updates are evaluated as one deterministic batch (stable + prerelease by default)
+       - feature flags may narrow/strictly gate behavior:
+         - `PM_SELF_UPDATE_INCLUDE_PRERELEASE=0|1`
+         - `PM_SELF_UPDATE_STRICT_MISMATCH=0|1`
+    3. If update is available, immediately trigger default planning route:
        - `/pm plan: Inspect latest Codex changes and align orchestrator behavior with Codex-only runtime policy.`
-    3. After full PM flow completion gate, advance processed version with:
+    4. After full PM flow completion gate, advance processed version with:
        - `./.codex/skills/pm/scripts/pm-command.sh self-update complete --approval approved --prd-approval approved --beads-approval approved --prd-path docs/prd/<approved-prd>.md`
        - source-repo fallback: `./skills/pm/scripts/pm-command.sh self-update complete --approval approved --prd-approval approved --beads-approval approved --prd-path docs/prd/<approved-prd>.md`
+       - completion requires PRD evidence covering all pending batch versions and empty `Open Questions`
   - Do not run in background/scheduled mode.
 - Backward-compatibility rule:
   - `$pm plan:` must remain the default single-PRD route.

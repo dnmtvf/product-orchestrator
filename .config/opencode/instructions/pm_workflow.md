@@ -22,12 +22,20 @@ This workflow is the source of truth for PM orchestration in OpenCode.
 - `/pm help` and `$pm help` print command invocations, required phase order, and approval-gate reminders.
 - `/pm self-update` and `$pm self-update` are manual-only and must run the Codex self-update check flow, then trigger:
   - `/pm plan: Inspect latest Codex changes and align orchestrator behavior with Codex-only runtime policy.`
+- Self-update check policy:
+  - changelog website is source of truth
+  - release/npm signals are corroborative only
+  - pending updates are evaluated as one deterministic batch (stable + prerelease by default)
+  - configurable gates:
+    - `PM_SELF_UPDATE_INCLUDE_PRERELEASE=0|1`
+    - `PM_SELF_UPDATE_STRICT_MISMATCH=0|1`
 - Helper script path resolution:
   - preferred in installed target repos: `./.codex/skills/pm/scripts/pm-command.sh`
   - source-repo fallback: `./skills/pm/scripts/pm-command.sh`
 - Self-update completion gate is explicit and manual:
   - `./.codex/skills/pm/scripts/pm-command.sh self-update complete --approval approved --prd-approval approved --beads-approval approved --prd-path docs/prd/<approved-prd>.md`
   - or `./skills/pm/scripts/pm-command.sh self-update complete --approval approved --prd-approval approved --beads-approval approved --prd-path docs/prd/<approved-prd>.md`
+  - completion requires PRD coverage evidence for all pending batch versions and empty `Open Questions`
 - Big-feature planning must require explicit mode selection:
   - `conflict-aware`
   - `worktree-isolated`
