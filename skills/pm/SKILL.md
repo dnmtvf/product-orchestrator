@@ -34,7 +34,7 @@ description: Strict PM orchestration workflow for any repo. Trigger when user in
   - Trigger: `/pm self-update` or `$pm self-update`
   - Behavior:
     1. Run Codex self-update check helper:
-       - `./.codex/skills/pm/scripts/pm-command.sh self-update check`
+       - `./.claude/skills/pm/scripts/pm-command.sh self-update check`
        - source-repo fallback: `./skills/pm/scripts/pm-command.sh self-update check`
     2. Interpret check results with these rules:
        - changelog website is source of truth
@@ -46,7 +46,7 @@ description: Strict PM orchestration workflow for any repo. Trigger when user in
     3. If update is available, immediately trigger default planning route:
        - `/pm plan: Inspect latest Codex changes and align orchestrator behavior with Codex-only runtime policy.`
     4. After full PM flow completion gate, advance processed version with:
-       - `./.codex/skills/pm/scripts/pm-command.sh self-update complete --approval approved --prd-approval approved --beads-approval approved --prd-path docs/prd/<approved-prd>.md`
+       - `./.claude/skills/pm/scripts/pm-command.sh self-update complete --approval approved --prd-approval approved --beads-approval approved --prd-path docs/prd/<approved-prd>.md`
        - source-repo fallback: `./skills/pm/scripts/pm-command.sh self-update complete --approval approved --prd-approval approved --beads-approval approved --prd-path docs/prd/<approved-prd>.md`
        - completion requires PRD evidence covering all pending batch versions and empty `Open Questions`
   - Do not run in background/scheduled mode.
@@ -116,7 +116,7 @@ description: Strict PM orchestration workflow for any repo. Trigger when user in
 - PM orchestration runtime remains Codex-first; Claude is external and optional.
 - Use Claude through MCP server `claude-code` (do not run Claude as app/interactive CLI for pipeline orchestration).
 - Required environment setup (once):
-  - `codex mcp add claude-code -- claude mcp serve`
+  - `claude mcp add claude-code -- claude mcp serve`
 - Start a new Claude interaction via `claude-code` MCP tool call with the full prompt.
 - Continue follow-ups/answers in the same Claude interaction using the returned conversation/session identifier from the MCP response.
 - If `claude-code` MCP is unavailable, report a blocked state with exact reason instead of silently switching invocation mode.

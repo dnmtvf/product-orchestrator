@@ -130,10 +130,10 @@ TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 BACKUP_ROOT="$REPO_PATH/.orchestrator-backups/$TIMESTAMP"
 mkdir -p "$BACKUP_ROOT"
 
-install_codex_skills() {
+install_claude_skills() {
   local runtime_dir="$1"
   mkdir -p "$runtime_dir"
-  local runtime_backup="$BACKUP_ROOT/codex"
+  local runtime_backup="$BACKUP_ROOT/claude"
   mkdir -p "$runtime_backup"
 
   for skill in "${SKILLS[@]}"; do
@@ -151,7 +151,7 @@ install_codex_skills() {
   done
 }
 
-install_codex_skills "$REPO_PATH/.codex/skills"
+install_claude_skills "$REPO_PATH/.claude/skills"
 
 WORKFLOW_SRC="$REPO_PATH/$SUBMODULE_PATH/instructions/pm_workflow.md"
 WORKFLOW_DST="$REPO_PATH/.config/opencode/instructions/pm_workflow.md"

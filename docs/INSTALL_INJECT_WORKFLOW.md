@@ -11,7 +11,7 @@ The injector is safe for repos that already contain these folders:
   - `pm-beads-plan`
   - `pm-implement`
   - `agent-browser`
-- Other skills/files in `.codex/skills` are left untouched.
+- Other skills/files in `.claude/skills` are left untouched.
 - If a managed folder already exists, it is moved to a timestamped backup and replaced (default mode).
 
 ## Prerequisites
@@ -55,8 +55,8 @@ To avoid replacing existing managed paths:
 ```
 
 ## What gets copied
-- `.codex/skills/{pm,pm-discovery,pm-create-prd,pm-beads-plan,pm-implement,agent-browser}`
-- PM helper script is included under `.codex/skills/pm/scripts/pm-command.sh`
+- `.claude/skills/{pm,pm-discovery,pm-create-prd,pm-beads-plan,pm-implement,agent-browser}`
+- PM helper script is included under `.claude/skills/pm/scripts/pm-command.sh`
 - `.config/opencode/instructions/pm_workflow.md`
 - `.orchestrator-injected.json` (metadata: source path, commit, timestamp)
 
@@ -67,7 +67,7 @@ Backups are written to:
 Rollback:
 1. Move backed-up folders/files back to original paths.
 2. Remove copied managed folders if needed.
-3. Restart Codex session.
+3. Restart Claude session.
 
 ## Update model
 This mode is copy-based. After orchestrator changes, run injector again to refresh target repo.

@@ -13,17 +13,17 @@ From the PM skill contract, these are required:
 ## Install commands (Codex CLI)
 
 ```bash
-codex mcp add claude-code -- claude mcp serve
-codex mcp add context7 -- npx -y @upstash/context7-mcp
-codex mcp add firecrawl --env FIRECRAWL_API_KEY=YOUR_KEY -- npx -y firecrawl-mcp
-codex mcp add deepwiki --url https://mcp.deepwiki.com/mcp
-codex mcp add exa --url https://mcp.exa.ai/mcp
+claude mcp add claude-code -- claude mcp serve
+claude mcp add context7 -- npx -y @upstash/context7-mcp
+claude mcp add firecrawl --env FIRECRAWL_API_KEY=YOUR_KEY -- npx -y firecrawl-mcp
+claude mcp add deepwiki --url https://mcp.deepwiki.com/mcp
+claude mcp add exa --url https://mcp.exa.ai/mcp
 ```
 
 ## Verify configuration
 
 ```bash
-codex mcp list
+claude mcp list
 ```
 
 You should see all five names above in `enabled` state.

@@ -10,7 +10,7 @@ usage() {
 Inject PM orchestrator workflow into a target repository (no submodule, no symlink).
 
 This script copies orchestrator assets from a source directory into the target repo.
-It is safe for repos that already have .codex folders:
+It is safe for repos that already have .claude folders:
 - only managed PM skill folders are replaced
 - replaced paths are moved into a timestamped backup directory
 
@@ -154,7 +154,7 @@ replace_dir_from_source() {
   log "Installed: $dst"
 }
 
-install_codex_runtime() {
+install_claude_runtime() {
   local runtime_root="$1"
 
   if [ -e "$runtime_root" ] && [ ! -d "$runtime_root" ]; then
@@ -166,12 +166,12 @@ install_codex_runtime() {
   for s in "${SKILLS[@]}"; do
     local src="$SOURCE_ROOT/skills/$s"
     local dst="$runtime_root/$s"
-    local bkp="$BACKUP_ROOT/codex/skills/$s"
+    local bkp="$BACKUP_ROOT/claude/skills/$s"
     replace_dir_from_source "$src" "$dst" "$bkp"
   done
 }
 
-install_codex_runtime "$REPO_PATH/.codex/skills"
+install_claude_runtime "$REPO_PATH/.claude/skills"
 
 if [ "$COPY_WORKFLOW" -eq 1 ]; then
   WORKFLOW_SRC="$SOURCE_ROOT/instructions/pm_workflow.md"

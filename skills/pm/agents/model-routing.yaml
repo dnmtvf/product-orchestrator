@@ -1,0 +1,87 @@
+# Model Routing Configuration
+# Hybrid Claude Opus 4.6 + Droid MiniMax-M2.5 architecture
+# This file documents which model each role uses in the orchestrator
+
+# Lead roles - use Claude Opus 4.6 via Claude Code
+lead_roles:
+  - name: "Project Manager"
+    model: "claude-opus-4-6"
+    runtime: "claude-code"
+    description: "Main orchestrator for PM workflow"
+
+  - name: "Team Lead"
+    model: "claude-opus-4-6"
+    runtime: "claude-code"
+    description: "Orchestrates implementation subagents"
+
+  - name: "Senior Engineer"
+    model: "claude-opus-4-6"
+    runtime: "claude-code"
+    description: "Codebase analysis and feasibility"
+
+  - name: "Researcher"
+    model: "claude-opus-4-6"
+    runtime: "claude-code"
+    description: "Complex research questions"
+
+  - name: "Jazz Reviewer"
+    model: "claude-opus-4-6"
+    runtime: "claude-code"
+    description: "Critical code review"
+
+# Worker roles - use Droid CLI with MiniMax-M2.5
+worker_roles:
+  - name: "Librarian"
+    model: "MiniMax-M2.5"
+    runtime: "droid"
+    autonomy: "high"
+    description: "External docs and research"
+
+  - name: "Smoke Test Planner"
+    model: "MiniMax-M2.5"
+    runtime: "droid"
+    autonomy: "medium"
+    description: "Test planning"
+
+  - name: "Alternative PM"
+    model: "MiniMax-M2.5"
+    runtime: "droid"
+    autonomy: "medium"
+    description: "Alternative solution analysis"
+
+  - name: "Backend Engineer"
+    model: "MiniMax-M2.5"
+    runtime: "droid"
+    autonomy: "high"
+    description: "Backend implementation"
+
+  - name: "Frontend Engineer"
+    model: "MiniMax-M2.5"
+    runtime: "droid"
+    autonomy: "high"
+    description: "Frontend implementation"
+
+  - name: "Security Engineer"
+    model: "MiniMax-M2.5"
+    runtime: "droid"
+    autonomy: "high"
+    description: "Security review and implementation"
+
+  - name: "AGENTS Compliance Reviewer"
+    model: "MiniMax-M2.5"
+    runtime: "droid"
+    autonomy: "medium"
+    description: "Repo rules compliance"
+
+  - name: "Manual QA"
+    model: "MiniMax-M2.5"
+    runtime: "droid"
+    autonomy: "medium"
+    description: "Smoke test execution"
+
+# Droid MCP server configuration
+droid_config:
+  model: "MiniMax-M2.5"
+  auto_level: "high"
+  output_format: "json"
+  mcp_server_command: "claude mcp add droid-worker -- <path-to-droid-mcp-server>"

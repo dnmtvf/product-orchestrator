@@ -1,0 +1,203 @@
+#!/bin/bash
+# Droid MCP Server Wrapper
+# This script wraps droid exec --headless as an MCP server for worker task execution
+# Usage: claude mcp add droid-worker -- ./scripts/droid-mcp-server
+#
+# Environment setup required:
+#   export ANTHROPIC_BASE_URL="https://api.minimax.io/anthropic"
+#   export ANTHROPIC_AUTH_TOKEN="your-minimax-api-key"
+#   export DROID_CONFIG="--model MiniMax-M2.5 --auto high"
+
+set -e
+
+# Session storage (in-memory for simplicity, can be extended to files)
+declare -A SESSIONS
+
+# Generate session ID
+generate_session_id() {
+    echo "session-$(date +%s)-$RANDOM"
+}
+
+# Run droid task and return JSON
+run_droid_task() {
+    local prompt="$1"
+    local repo_path="${2:-.}"
+    local model="${3:-MiniMax-M2.5}"
+    local auto_level="${4:-high}"
+
+    local session_id
+    session_id=$(generate_session_id)
+
+    # Run droid in headless mode with JSON output
+    local output
+    output=$(droid exec \
+        --model "$model" \
+        --auto "$auto_level" \
+        --output-format json \
+        --headless \
+        --prompt "$prompt" \
+        "$repo_path" 2>&1) || true
+
+    # Store session result
+    SESSIONS["$session_id"]="$output"
+
+    # Parse and format output as JSON
+    local changed_files
+    local diff_summary
+    local commands_run
+    local tests_run
+    local risks
+
+    # Extract information from droid output (simplified parsing)
+    # In production, this would parse the actual JSON from droid
+    changed_files=$(echo "$output" | jq -r '.changed_files // []' 2>/dev/null || echo "[]")
+    diff_summary=$(echo "$output" | jq -r '.diff_summary // .summary // ""' 2>/dev/null || echo "")
+    commands_run=$(echo "$output" | jq -r '.commands_run // []' 2>/dev/null || echo "[]")
+    tests_run=$(echo "$output" | jq -r '.tests_run // {}' 2>/dev/null || echo "{}")
+    risks=$(echo "$output" | jq -r '.risks // []' 2>/dev/null || echo "[]")
+
+    # Build response JSON
+    cat <<EOF
+{
+  "session_id": "$session_id",
+  "status": "completed",
+  "changed_files": $changed_files,
+  "diff_summary": "$diff_summary",
+  "commands_run": $commands_run,
+  "tests_run": $tests_run,
+  "risks": $risks,
+  "full_output": $(echo "$output" | jq -Rs .)
+}
+EOF
+}
+
+# Continue a session with additional prompt
+continue_session() {
+    local session_id="$1"
+    local prompt="$2"
+
+    if [[ -z "${SESSIONS[$session_id]}" ]]; then
+        echo "{\"error\": \"Session not found: $session_id\"}"
+        return 1
+    fi
+
+    # For continued sessions, append to previous context
+    local previous_output="${SESSIONS[$session_id]}"
+    local new_prompt="$prompt (Previous context: $previous_output)"
+
+    local output
+    output=$(droid exec \
+        --model MiniMax-M2.5 \
+        --auto high \
+        --output-format json \
+        --headless \
+        --prompt "$new_prompt" . 2>&1) || true
+
+    SESSIONS["$session_id"]="$output"
+
+    echo "$output"
+}
+
+# Get session result
+get_session_result() {
+    local session_id="$1"
+
+    if [[ -z "${SESSIONS[$session_id]}" ]]; then
+        echo "{\"error\": \"Session not found: $session_id\"}"
+        return 1
+    fi
+
+    echo "${SESSIONS[$session_id]}"
+}
+
+# MCP server main loop (JSON-RPC over stdio)
+mcp_server() {
+    while read -r line; do
+        # Skip empty lines
+        [[ -z "$line" ]] && continue
+
+        # Parse JSON-RPC request (simplified)
+        local method
+        local id
+
+        method=$(echo "$line" | jq -r '.method // empty' 2>/dev/null)
+        id=$(echo "$line" | jq -r '.id // empty' 2>/dev/null)
+
+        case "$method" in
+            "initialize")
+                cat <<EOF
+{"jsonrpc":"2.0","id":$id,"result":{"protocolVersion":"2024-11-05","capabilities":{"tools":{}},"serverInfo":{"name":"droid-worker","version":"1.0.0"}}}
+EOF
+                ;;
+            "tools/list")
+                cat <<EOF
+{"jsonrpc":"2.0","id":$id,"result":{"tools":[{"name":"droid_run_task","description":"Run a task using Droid CLI with MiniMax-M2.5","inputSchema":{"type":"object","properties":{"prompt":{"type":"string","description":"Task prompt for the worker"},"repo_path":{"type":"string","description":"Repository path (default: .)"},"model":{"type":"string","description":"Model to use (default: MiniMax-M2.5)"},"auto_level":{"type":"string","description":"Autonomy level (default: high)"}},"required":["prompt"]}},{"name":"droid_continue","description":"Continue a session with additional prompt","inputSchema":{"type":"object","properties":{"session_id":{"type":"string"},"prompt":{"type":"string"}},"required":["session_id","prompt"]}},{"name":"droid_get_result","description":"Get the result of a previous session","inputSchema":{"type":"object","properties":{"session_id":{"type":"string"}},"required":["session_id"]}}]}}}
+EOF
+                ;;
+            "tools/call")
+                local tool_name
+                tool_name=$(echo "$line" | jq -r '.params.name // empty')
+
+                case "$tool_name" in
+                    "droid_run_task")
+                        local prompt repo_path model auto_level
+                        prompt=$(echo "$line" | jq -r '.params.arguments.prompt // ""')
+                        repo_path=$(echo "$line" | jq -r '.params.arguments.repo_path // "."')
+                        model=$(echo "$line" | jq -r '.params.arguments.model // "MiniMax-M2.5"')
+                        auto_level=$(echo "$line" | jq -r '.params.arguments.auto_level // "high"')
+
+                        local result
+                        result=$(run_droid_task "$prompt" "$repo_path" "$model" "$auto_level")
+                        echo "{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{\"content\":[{\"type\":\"text\",\"text\":$(echo "$result" | jq -Rs .)}]}}"
+                        ;;
+                    "droid_continue")
+                        local session_id prompt
+                        session_id=$(echo "$line" | jq -r '.params.arguments.session_id // ""')
+                        prompt=$(echo "$line" | jq -r '.params.arguments.prompt // ""')
+
+                        local result
+                        result=$(continue_session "$session_id" "$prompt")
+                        echo "{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{\"content\":[{\"type\":\"text\",\"text\":$(echo "$result" | jq -Rs .)}]}}"
+                        ;;
+                    "droid_get_result")
+                        local session_id
+                        session_id=$(echo "$line" | jq -r '.params.arguments.session_id // ""')
+
+                        local result
+                        result=$(get_session_result "$session_id")
+                        echo "{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{\"content\":[{\"type\":\"text\",\"text\":$(echo "$result" | jq -Rs .)}]}}"
+                        ;;
+                    *)
+                        echo "{\"jsonrpc\":\"2.0\",\"id\":$id,\"error\":{\"code\":-32601,\"message\":\"Unknown method: $tool_name\"}}"
+                        ;;
+                esac
+                ;;
+            *)
+                echo "{\"jsonrpc\":\"2.0\",\"id\":$id,\"error\":{\"code\":-32600,\"message\":\"Invalid request\"}}"
+                ;;
+        esac
+    done
+}
+
+# Check if running as MCP server or direct command
+if [[ "$1" == "--mcp" ]]; then
+    mcp_server
+else
+    # Direct invocation mode
+    case "${1:-}" in
+        run)
+            run_droid_task "$2" "${3:-.}" "${4:-MiniMax-M2.5}" "${5:-high}"
+            ;;
+        continue)
+            continue_session "$2" "$3"
+            ;;
+        result)
+            get_session_result "$2"
+            ;;
+        *)
+            echo "Usage: $0 <run|continue|result> [args...]"
+            echo "       $0 --mcp  # Run as MCP server"
+            exit 1
+            ;;
+    esac
+fi

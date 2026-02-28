@@ -7,7 +7,7 @@ DEFAULT_CHANGELOG_URL="https://developers.openai.com/codex/changelog/"
 DEFAULT_RELEASE_URL="https://github.com/openai/codex/releases/latest"
 DEFAULT_NPM_TAGS_URL="https://registry.npmjs.org/-/package/@openai/codex/dist-tags"
 DEFAULT_PLAN_TRIGGER="/pm plan: Inspect latest Codex changes and align orchestrator behavior with Codex-only runtime policy."
-STATE_RELATIVE_PATH=".codex/pm-self-update-state.json"
+STATE_RELATIVE_PATH=".claude/pm-self-update-state.json"
 SEMVER_PATTERN='v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?'
 
 usage() {

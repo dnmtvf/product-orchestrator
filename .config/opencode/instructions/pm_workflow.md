@@ -30,10 +30,10 @@ This workflow is the source of truth for PM orchestration in OpenCode.
     - `PM_SELF_UPDATE_INCLUDE_PRERELEASE=0|1`
     - `PM_SELF_UPDATE_STRICT_MISMATCH=0|1`
 - Helper script path resolution:
-  - preferred in installed target repos: `./.codex/skills/pm/scripts/pm-command.sh`
+  - preferred in installed target repos: `./.claude/skills/pm/scripts/pm-command.sh`
   - source-repo fallback: `./skills/pm/scripts/pm-command.sh`
 - Self-update completion gate is explicit and manual:
-  - `./.codex/skills/pm/scripts/pm-command.sh self-update complete --approval approved --prd-approval approved --beads-approval approved --prd-path docs/prd/<approved-prd>.md`
+  - `./.claude/skills/pm/scripts/pm-command.sh self-update complete --approval approved --prd-approval approved --beads-approval approved --prd-path docs/prd/<approved-prd>.md`
   - or `./skills/pm/scripts/pm-command.sh self-update complete --approval approved --prd-approval approved --beads-approval approved --prd-path docs/prd/<approved-prd>.md`
   - completion requires PRD coverage evidence for all pending batch versions and empty `Open Questions`
 - Big-feature planning must require explicit mode selection:

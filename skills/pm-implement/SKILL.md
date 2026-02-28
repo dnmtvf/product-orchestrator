@@ -29,7 +29,7 @@ If any precondition fails:
 ## Claude MCP Contract (mandatory for external Claude agents)
 - Use Claude through MCP server `claude-code` (not direct CLI/app invocation).
 - Required environment setup (once):
-  - `codex mcp add claude-code -- claude mcp serve`
+  - `claude mcp add claude-code -- claude mcp serve`
 - Start a new Claude interaction via `claude-code` MCP tool call with the full prompt.
 - Continue follow-ups/answers in the same Claude interaction using the returned conversation/session identifier from the MCP response.
 - If `claude-code` MCP is unavailable, report a blocked state with exact reason.

@@ -1,4 +1,5 @@
 # Security Engineer Agent Prompt
+**Model: MiniMax-M2.5** (via Droid CLI, autonomy: high)
 
 Use this prompt for security-focused implementation and review subagent work.
 
