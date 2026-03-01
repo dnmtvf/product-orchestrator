@@ -10,7 +10,7 @@ From the PM skill contract, these are required:
 - `deepwiki`
 - `firecrawl`
 
-## Install commands (Codex CLI)
+## Install commands (Claude Code CLI)
 
 ```bash
 claude mcp add claude-code -- claude mcp serve
@@ -32,6 +32,48 @@ You should see all five names above in `enabled` state.
 - `firecrawl` requires `FIRECRAWL_API_KEY`.
 - `exa` may require org/account authorization depending your setup.
 - `claude-code` requires `claude` CLI available in PATH and usable by the runtime.
+
+## Droid Worker Setup (hybrid architecture)
+
+The PM workflow uses a hybrid model: Claude Code (Opus 4.6) for lead roles, Droid CLI + MiniMax-M2.5 for cost-effective worker tasks.
+
+### Prerequisites
+- Droid CLI installed and available in PATH
+- A MiniMax API key (or compatible provider)
+
+### Environment variables
+```bash
+export ANTHROPIC_BASE_URL="https://api.minimax.io/anthropic"
+export ANTHROPIC_AUTH_TOKEN="your-minimax-api-key"
+```
+
+### Register Droid as MCP worker
+```bash
+claude mcp add droid-worker -- ./scripts/droid-mcp-server --mcp
+# Or: the script auto-detects non-TTY stdin when launched by Claude Code
+```
+
+### Model enforcement for lead roles
+Start your orchestrator session with `--model claude-opus-4-6` to ensure lead roles (PM, Team Lead, Senior Engineer, Researcher, Jazz) run on Opus 4.6. The `claude mcp serve` command inherits the ambient session model — no per-call override is available.
+
+```bash
+claude --model claude-opus-4-6
+```
+
+### Role-to-model table
+| Role | Model | Runtime |
+|---|---|---|
+| Project Manager | claude-opus-4-6 | Claude Code |
+| Team Lead | claude-opus-4-6 | Claude Code |
+| Senior Engineer | claude-opus-4-6 | Claude Code |
+| Researcher | claude-opus-4-6 | Claude Code |
+| Jazz Reviewer | claude-opus-4-6 | Claude Code |
+| Backend/Frontend/Security Engineers | MiniMax-M2.5 | Droid CLI |
+| Librarian | MiniMax-M2.5 | Droid CLI |
+| Smoke Test Planner | MiniMax-M2.5 | Droid CLI |
+| Alternative PM | MiniMax-M2.5 | Droid CLI |
+| AGENTS Compliance Reviewer | MiniMax-M2.5 | Droid CLI |
+| Manual QA | MiniMax-M2.5 | Droid CLI |
 
 ## Optional but recommended MCP servers
 Not hard-required by PM contract, but commonly useful in real runs:

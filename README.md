@@ -45,6 +45,33 @@ claude mcp add exa --url https://mcp.exa.ai/mcp
 claude mcp list
 ```
 
+## Hybrid Architecture: Droid Worker Setup
+
+The PM workflow uses Claude Code (Opus 4.6) for lead roles and Droid CLI + MiniMax-M2.5 for cost-effective worker tasks (Backend/Frontend/Security Engineers, Librarian, QA, etc.).
+
+### Droid prerequisites
+- Droid CLI installed and available in PATH
+
+### Environment variables (add to shell profile)
+```bash
+export ANTHROPIC_BASE_URL="https://api.minimax.io/anthropic"
+export ANTHROPIC_AUTH_TOKEN="your-minimax-api-key"
+```
+
+### Register Droid worker MCP
+```bash
+claude mcp add droid-worker -- ./scripts/droid-mcp-server --mcp
+```
+
+### Model enforcement
+Start your Claude Code session with `--model claude-opus-4-6` for lead role quality:
+```bash
+claude --model claude-opus-4-6
+```
+Note: `claude mcp serve` inherits the ambient session model. No per-call override is available.
+
+See [docs/MCP_PREREQUISITES.md](docs/MCP_PREREQUISITES.md) for the full role-to-model table and detailed setup.
+
 ## Setup
 
 ### Option A: Direct injection (no submodule)
@@ -138,7 +165,7 @@ Manual self-update mode:
   - `./.claude/skills/pm/scripts/pm-command.sh self-update check`
   - source-repo fallback: `./skills/pm/scripts/pm-command.sh self-update check`
 - The command outputs a required planning trigger in this format:
-  - `/pm plan: Inspect latest Codex changes and align orchestrator behavior with Codex-only runtime policy.`
+  - `/pm plan: Inspect latest Claude Code changes and align orchestrator behavior with Claude Code runtime policy.`
 - After full PM completion gate succeeds, finalize processed version checkpoint:
   - `./.claude/skills/pm/scripts/pm-command.sh self-update complete --approval approved --prd-approval approved --beads-approval approved --prd-path docs/prd/<approved-prd>.md`
   - source-repo fallback: `./skills/pm/scripts/pm-command.sh self-update complete --approval approved --prd-approval approved --beads-approval approved --prd-path docs/prd/<approved-prd>.md`

@@ -58,16 +58,42 @@ Claude prompt quality requirements (mandatory):
 - Always append this instruction:
   - `If you have missing or ambiguous context, ask specific clarifying questions before final recommendations.`
 
-Claude MCP contract (mandatory):
-- Use Claude through MCP server `claude-code` (not direct CLI/app invocation).
-- Required environment setup (once):
-  - `claude mcp add claude-code -- claude mcp serve`
-- Start via `claude-code` MCP tool call with the full prompt.
-- Continue follow-ups/answers in the same Claude MCP conversation/session using its returned identifier.
-- For Jazz Reviewer specifically:
-  - spawn as generic `default` with role-labeled prompt (`[Role: Jazz Reviewer]`)
-  - run review via `claude-code` MCP (not as launcher type)
-  - start Jazz prompt with `use agent swarm for jazz review: <scope + changed files + constraints>`
+Droid worker spawn context (mandatory):
+- Every Droid worker prompt must include this structured block:
+  ```
+  --- CONTEXT ---
+  Task: <task title from Beads>
+  Task ID: <beads task id>
+  PRD: <path to PRD file>
+  DoD: <exact definition of done from Beads task>
+  In-scope files/modules: <list of files or modules this task touches>
+  Constraints: <performance, security, compatibility, rollout constraints>
+  Current state: <brief summary of what exists today in affected areas>
+  --- END CONTEXT ---
+
+  If anything is unclear or you need additional context before proceeding, ask your specific questions now — do not guess or make assumptions.
+  ```
+- Collect Droid worker output and verify against DoD before closing the task.
+- If the worker asks questions, answer them before it proceeds.
+
+Claude invocation contract (mandatory):
+- **Primary path (Claude Code runtime):** Use the native Task tool (`spawn_agent`) to spawn Claude subagents — no MCP bridge needed.
+- **Fallback path (non-Claude-Code runtimes):** Use Claude through MCP server `claude-code`.
+  - Required setup (once): `claude mcp add claude-code -- claude mcp serve`
+  - Start via `claude-code` MCP tool call with the full prompt.
+  - Continue follow-ups in the same Claude MCP session using its returned identifier.
+- For Jazz Reviewer (always Claude, not Droid):
+  - Primary: spawn as generic `default` via Task tool with role-labeled prompt (`[Role: Jazz Reviewer]`)
+  - Fallback: spawn `default`, then invoke via `claude-code` MCP
+  - Start Jazz prompt with `use agent swarm for jazz review: <scope + changed files + constraints>`
+
+Session completion (mandatory — do not skip):
+- At session end, before declaring work complete:
+  - `git pull --rebase`
+  - `bd sync`
+  - `git push`
+  - Verify `git status` shows "up to date with origin"
+- Work is NOT complete until `git push` succeeds. Never stop before pushing.
 
 Operating rules:
 - Delegate coding tasks; do not write implementation patches yourself.

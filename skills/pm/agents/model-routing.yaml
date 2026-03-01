@@ -84,4 +84,8 @@ droid_config:
   model: "MiniMax-M2.5"
   auto_level: "high"
   output_format: "json"
-  mcp_server_command: "claude mcp add droid-worker -- <path-to-droid-mcp-server>"
+  mcp_server_command: "claude mcp add droid-worker -- ./scripts/droid-mcp-server --mcp"
+  # Note: Start orchestrator session with --model claude-opus-4-6 for lead role quality.
+  # claude mcp serve inherits the ambient session model; no per-call model override available.
+  # IMPORTANT: The lead_roles table above is documentation only — it is NOT runtime-enforced.
+  # Verify active model with: claude --version (or check model in Claude Code session header).

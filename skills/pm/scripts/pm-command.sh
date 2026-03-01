@@ -3,16 +3,16 @@ set -euo pipefail
 
 SCRIPT_NAME="$(basename "$0")"
 APPROVAL_TOKEN="approved"
-DEFAULT_CHANGELOG_URL="https://developers.openai.com/codex/changelog/"
-DEFAULT_RELEASE_URL="https://github.com/openai/codex/releases/latest"
-DEFAULT_NPM_TAGS_URL="https://registry.npmjs.org/-/package/@openai/codex/dist-tags"
-DEFAULT_PLAN_TRIGGER="/pm plan: Inspect latest Codex changes and align orchestrator behavior with Codex-only runtime policy."
+DEFAULT_CHANGELOG_URL="https://github.com/anthropics/claude-code/releases"
+DEFAULT_RELEASE_URL="https://github.com/anthropics/claude-code/releases/latest"
+DEFAULT_NPM_TAGS_URL="https://registry.npmjs.org/-/package/@anthropic-ai/claude-code/dist-tags"
+DEFAULT_PLAN_TRIGGER="/pm plan: Inspect latest Claude Code changes and align orchestrator behavior with Claude Code runtime policy."
 STATE_RELATIVE_PATH=".claude/pm-self-update-state.json"
 SEMVER_PATTERN='v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?'
 
 usage() {
   cat <<'EOF'
-Codex-only PM command helper.
+Claude Code PM command helper.
 
 Usage:
   pm-command.sh help
@@ -686,8 +686,8 @@ Self-update policy:
 - Completion requires PRD evidence coverage for all pending versions
 
 Runtime policy:
-- Codex-only runtime execution path
-- Claude usage is permitted only through claude-code MCP
+- Claude Code runtime execution path (Claude Code is primary orchestrator)
+- Droid/MiniMax-M2.5 handles cost-effective worker tasks
 EOF
 }
 

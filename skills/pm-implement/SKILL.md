@@ -27,13 +27,14 @@ If any precondition fails:
 - If not queue-ready, do not start implementation for that PRD and report blocked reason.
 
 ## Claude MCP Contract (mandatory for external Claude agents)
-- Use Claude through MCP server `claude-code` (not direct CLI/app invocation).
-- Required environment setup (once):
-  - `claude mcp add claude-code -- claude mcp serve`
-- Start a new Claude interaction via `claude-code` MCP tool call with the full prompt.
-- Continue follow-ups/answers in the same Claude interaction using the returned conversation/session identifier from the MCP response.
-- If `claude-code` MCP is unavailable, report a blocked state with exact reason.
-- For Claude MCP agents, prompt must start with:
+- **Primary path (Claude Code runtime):** When running inside Claude Code, use the **native Task tool** (`spawn_agent`) to spawn Claude subagents — no MCP bridge needed.
+- **Fallback path (non-Claude-Code runtimes):** Use Claude through MCP server `claude-code` when the outer runtime is not Claude Code.
+  - Required environment setup (once):
+    - `claude mcp add claude-code -- claude mcp serve`
+  - Start a new Claude interaction via `claude-code` MCP tool call with the full prompt.
+  - Continue follow-ups/answers in the same Claude interaction using the returned conversation/session identifier from the MCP response.
+  - If `claude-code` MCP is unavailable, report a blocked state with exact reason.
+- For Claude MCP agents (fallback path), prompt must start with:
   - `use agent swarm for <objective>`
 
 ## Subagent Launcher Compatibility (mandatory across implementation phases)
@@ -45,8 +46,8 @@ If any precondition fails:
   - `explorer`: Senior Engineer read/analyze checks and codebase triage.
   - `default`: Team Lead, Task Verification wrapper, AGENTS Compliance Reviewer, Jazz reviewer, and Manual QA Smoke agent.
 - For Task Verification and Jazz reviewer workflows that call Claude:
-  - spawn a generic `default` subagent first
-  - then invoke `claude-code` MCP per Claude MCP Contract
+  - Primary: spawn via native Task tool as generic `default` subagent (when inside Claude Code)
+  - Fallback: spawn a generic `default` subagent first, then invoke `claude-code` MCP per Claude MCP Contract
   - do not treat `claude-code` as a launcher type
 
 ## Team Lead Orchestration (mandatory before coding)

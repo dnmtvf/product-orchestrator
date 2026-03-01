@@ -20,6 +20,26 @@ Referencing a path from `AGENTS.md` is not enough to make `/skill` invocable. Th
 ## Prerequisites
 - MCP requirements: `docs/MCP_PREREQUISITES.md`
 
+## Hybrid Architecture: Droid Worker Setup
+The PM workflow runs Claude Code (Opus 4.6) for lead roles and Droid CLI + MiniMax-M2.5 for cost-effective workers.
+
+1. Install Droid CLI and ensure it is in PATH.
+2. Set environment variables:
+   ```bash
+   export ANTHROPIC_BASE_URL="https://api.minimax.io/anthropic"
+   export ANTHROPIC_AUTH_TOKEN="your-minimax-api-key"
+   ```
+3. Register Droid as an MCP server:
+   ```bash
+   claude mcp add droid-worker -- ./scripts/droid-mcp-server --mcp
+   ```
+4. Start Claude Code with Opus 4.6 for lead role quality:
+   ```bash
+   claude --model claude-opus-4-6
+   ```
+
+See `docs/MCP_PREREQUISITES.md` for the full role-to-model table.
+
 ## Installation modes
 
 1. Direct injection (no submodule, no symlink):

@@ -1,7 +1,8 @@
 #!/bin/bash
 # Droid MCP Server Wrapper
 # This script wraps droid exec --headless as an MCP server for worker task execution
-# Usage: claude mcp add droid-worker -- ./scripts/droid-mcp-server
+# Usage: claude mcp add droid-worker -- ./scripts/droid-mcp-server --mcp
+#        Or pipe stdin (best-effort: auto-detects non-TTY stdin; may not work with PTY-based MCP hosts)
 #
 # Environment setup required:
 #   export ANTHROPIC_BASE_URL="https://api.minimax.io/anthropic"
@@ -56,19 +57,17 @@ run_droid_task() {
     tests_run=$(echo "$output" | jq -r '.tests_run // {}' 2>/dev/null || echo "{}")
     risks=$(echo "$output" | jq -r '.risks // []' 2>/dev/null || echo "[]")
 
-    # Build response JSON
-    cat <<EOF
-{
-  "session_id": "$session_id",
-  "status": "completed",
-  "changed_files": $changed_files,
-  "diff_summary": "$diff_summary",
-  "commands_run": $commands_run,
-  "tests_run": $tests_run,
-  "risks": $risks,
-  "full_output": $(echo "$output" | jq -Rs .)
-}
-EOF
+    # Build response JSON (use jq for all string fields to prevent injection)
+    jq -n \
+        --arg session_id "$session_id" \
+        --arg status "completed" \
+        --arg diff_summary "$diff_summary" \
+        --argjson changed_files "$changed_files" \
+        --argjson commands_run "$commands_run" \
+        --argjson tests_run "$tests_run" \
+        --argjson risks "$risks" \
+        --arg full_output "$output" \
+        '{session_id: $session_id, status: $status, changed_files: $changed_files, diff_summary: $diff_summary, commands_run: $commands_run, tests_run: $tests_run, risks: $risks, full_output: $full_output}'
 }
 
 # Continue a session with additional prompt
@@ -77,7 +76,7 @@ continue_session() {
     local prompt="$2"
 
     if [[ -z "${SESSIONS[$session_id]}" ]]; then
-        echo "{\"error\": \"Session not found: $session_id\"}"
+        jq -n --arg id "$session_id" '{"error": ("Session not found: " + $id)}'
         return 1
     fi
 
@@ -103,7 +102,7 @@ get_session_result() {
     local session_id="$1"
 
     if [[ -z "${SESSIONS[$session_id]}" ]]; then
-        echo "{\"error\": \"Session not found: $session_id\"}"
+        jq -n --arg id "$session_id" '{"error": ("Session not found: " + $id)}'
         return 1
     fi
 
@@ -125,8 +124,10 @@ mcp_server() {
 
         case "$method" in
             "initialize")
+                # protocolVersion: "2025-03-26" — verified against MCP spec as of 2025-03-26.
+                # Re-verify at https://spec.modelcontextprotocol.io if Claude Code rejects this handshake.
                 cat <<EOF
-{"jsonrpc":"2.0","id":$id,"result":{"protocolVersion":"2024-11-05","capabilities":{"tools":{}},"serverInfo":{"name":"droid-worker","version":"1.0.0"}}}
+{"jsonrpc":"2.0","id":$id,"result":{"protocolVersion":"2025-03-26","capabilities":{"tools":{}},"serverInfo":{"name":"droid-worker","version":"1.0.0"}}}
 EOF
                 ;;
             "tools/list")
@@ -168,19 +169,25 @@ EOF
                         echo "{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{\"content\":[{\"type\":\"text\",\"text\":$(echo "$result" | jq -Rs .)}]}}"
                         ;;
                     *)
-                        echo "{\"jsonrpc\":\"2.0\",\"id\":$id,\"error\":{\"code\":-32601,\"message\":\"Unknown method: $tool_name\"}}"
+                        jq -n --argjson id "$id" --arg name "$tool_name" \
+                            '{"jsonrpc":"2.0","id":$id,"error":{"code":-32601,"message":("Unknown method: " + $name)}}'
                         ;;
                 esac
                 ;;
+            "notifications/initialized")
+                # MCP lifecycle notification — no response required, silently ignore
+                ;;
             *)
-                echo "{\"jsonrpc\":\"2.0\",\"id\":$id,\"error\":{\"code\":-32600,\"message\":\"Invalid request\"}}"
+                jq -n --argjson id "$id" \
+                    '{"jsonrpc":"2.0","id":$id,"error":{"code":-32600,"message":"Invalid request"}}'
                 ;;
         esac
     done
 }
 
 # Check if running as MCP server or direct command
-if [[ "$1" == "--mcp" ]]; then
+# Auto-detect: if stdin is not a TTY (e.g. launched by Claude Code MCP client), default to MCP mode
+if [[ "$1" == "--mcp" ]] || [[ ! -t 0 && -z "$1" ]]; then
     mcp_server
 else
     # Direct invocation mode
