@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/opt/homebrew/bin/bash
 # Droid MCP Server Wrapper
 # This script wraps droid exec --headless as an MCP server for worker task execution
 # Usage: claude mcp add droid-worker -- ./scripts/droid-mcp-server --mcp
@@ -12,9 +12,8 @@
 # Note: set -e is intentionally NOT used. The MCP server loop must survive
 # individual tool call errors without crashing the entire server process.
 
-# Session storage (temp directory — compatible with Bash 3.2 on macOS)
-SESSION_DIR=$(mktemp -d)
-trap 'rm -rf "$SESSION_DIR"' EXIT
+# Session storage (in-memory associative array; requires Bash 4+)
+declare -A SESSIONS
 
 # Generate session ID
 generate_session_id() {
@@ -31,18 +30,18 @@ run_droid_task() {
     local session_id
     session_id=$(generate_session_id)
 
-    # Run droid in headless mode with JSON output
+    # Run droid in non-interactive mode with JSON output
+    # Redirect stdin from /dev/null to prevent droid from consuming MCP server's stdin
     local output
     output=$(droid exec \
-        --model "$model" \
+        -m "$model" \
         --auto "$auto_level" \
-        --output-format json \
-        --headless \
-        --prompt "$prompt" \
-        "$repo_path" 2>&1) || true
+        -o json \
+        --cwd "$repo_path" \
+        "$prompt" </dev/null 2>&1) || true
 
     # Store session result
-    printf '%s' "$output" > "$SESSION_DIR/$session_id"
+    SESSIONS["$session_id"]="$output"
 
     # Parse and format output as JSON
     local changed_files
@@ -77,25 +76,24 @@ continue_session() {
     local session_id="$1"
     local prompt="$2"
 
-    if [[ ! -f "$SESSION_DIR/$session_id" ]]; then
+    if [[ -z "${SESSIONS[$session_id]+x}" ]]; then
         jq -n --arg id "$session_id" '{"error": ("Session not found: " + $id)}'
         return 0
     fi
 
     # For continued sessions, append to previous context
-    local previous_output
-    previous_output=$(cat "$SESSION_DIR/$session_id")
+    local previous_output="${SESSIONS[$session_id]}"
     local new_prompt="$prompt (Previous context: $previous_output)"
 
     local output
     output=$(droid exec \
-        --model MiniMax-M2.5 \
+        -m MiniMax-M2.5 \
         --auto high \
-        --output-format json \
-        --headless \
-        --prompt "$new_prompt" . 2>&1) || true
+        -o json \
+        --cwd . \
+        "$new_prompt" </dev/null 2>&1) || true
 
-    printf '%s' "$output" > "$SESSION_DIR/$session_id"
+    SESSIONS["$session_id"]="$output"
 
     echo "$output"
 }
@@ -104,17 +102,19 @@ continue_session() {
 get_session_result() {
     local session_id="$1"
 
-    if [[ ! -f "$SESSION_DIR/$session_id" ]]; then
+    if [[ -z "${SESSIONS[$session_id]+x}" ]]; then
         jq -n --arg id "$session_id" '{"error": ("Session not found: " + $id)}'
         return 0
     fi
 
-    cat "$SESSION_DIR/$session_id"
+    echo "${SESSIONS[$session_id]}"
 }
 
 # MCP server main loop (JSON-RPC over stdio)
+# Read from fd 3 to prevent droid subprocesses from consuming MCP stdin
 mcp_server() {
-    while read -r line; do
+    exec 3<&0  # duplicate stdin to fd 3
+    while read -r line <&3; do
         # Skip empty lines
         [[ -z "$line" ]] && continue
 
