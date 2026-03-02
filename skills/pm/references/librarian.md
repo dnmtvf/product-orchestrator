@@ -1,4 +1,5 @@
 # Librarian Agent Prompt
+**Model: MiniMax-M2.5** (via Droid CLI, autonomy: high)
 
 Use this prompt for PM's external research sub-agent.
 

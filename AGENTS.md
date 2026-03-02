@@ -10,7 +10,7 @@ This workspace follows a strict PM workflow for feature delivery.
 - PRD `Open Questions` must be empty before execution starts.
 
 ## Workflow Source
-- Primary workflow rules: `.config/opencode/instructions/pm_workflow.md`
+- Primary workflow rules: `instructions/pm_workflow.md`
 
 ## Landing the Plane (Session Completion)
 

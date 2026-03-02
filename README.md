@@ -1,6 +1,6 @@
 # Product Orchestrator
 
-`product-orchestrator` is a strict PM workflow package for Codex workspaces.
+`product-orchestrator` is a strict PM workflow package for Claude Code workspaces.
 It installs PM skills plus a workflow policy file into target repositories so feature delivery follows fixed gates:
 
 - Discovery before PRD
@@ -32,18 +32,45 @@ The workflow source of truth in this repo is:
 
 ## Prerequisites
 
-1. Codex CLI and Git installed.
+1. Claude Code CLI and Git installed.
 2. Target repository is a Git repo.
 3. Required MCP servers are configured:
 
 ```bash
-codex mcp add claude-code -- claude mcp serve
-codex mcp add context7 -- npx -y @upstash/context7-mcp
-codex mcp add firecrawl --env FIRECRAWL_API_KEY=YOUR_KEY -- npx -y firecrawl-mcp
-codex mcp add deepwiki --url https://mcp.deepwiki.com/mcp
-codex mcp add exa --url https://mcp.exa.ai/mcp
-codex mcp list
+claude mcp add claude-code -- claude mcp serve
+claude mcp add context7 -- npx -y @upstash/context7-mcp
+claude mcp add firecrawl --env FIRECRAWL_API_KEY=YOUR_KEY -- npx -y firecrawl-mcp
+claude mcp add deepwiki --url https://mcp.deepwiki.com/mcp
+claude mcp add exa --url https://mcp.exa.ai/mcp
+claude mcp list
 ```
+
+## Hybrid Architecture: Droid Worker Setup
+
+The PM workflow uses Claude Code (Opus 4.6) for lead roles and Droid CLI + MiniMax-M2.5 for cost-effective worker tasks (Backend/Frontend/Security Engineers, Librarian, QA, etc.).
+
+### Droid prerequisites
+- Droid CLI installed and available in PATH
+
+### Environment variables (add to shell profile)
+```bash
+export ANTHROPIC_BASE_URL="https://api.minimax.io/anthropic"
+export ANTHROPIC_AUTH_TOKEN="your-minimax-api-key"
+```
+
+### Register Droid worker MCP
+```bash
+claude mcp add droid-worker -- ./scripts/droid-mcp-server --mcp
+```
+
+### Model enforcement
+Start your Claude Code session with `--model claude-opus-4-6` for lead role quality:
+```bash
+claude --model claude-opus-4-6
+```
+Note: `claude mcp serve` inherits the ambient session model. No per-call override is available.
+
+See [docs/MCP_PREREQUISITES.md](docs/MCP_PREREQUISITES.md) for the full role-to-model table and detailed setup.
 
 ## Setup
 
@@ -91,7 +118,7 @@ git -C /path/to/target-repo submodule update --init --recursive .orchestrator
 
 ## What gets installed into the target repo
 
-- `.codex/skills/{pm,pm-discovery,pm-create-prd,pm-beads-plan,pm-implement,agent-browser}`
+- `.claude/skills/{pm,pm-discovery,pm-create-prd,pm-beads-plan,pm-implement,agent-browser}`
 - `.config/opencode/instructions/pm_workflow.md`
 - Backup snapshots under `.orchestrator-backups/<timestamp>/`
 
@@ -135,12 +162,12 @@ Big-feature mode selector:
 
 Manual self-update mode:
 - Check latest Codex changes and stage pending version:
-  - `./.codex/skills/pm/scripts/pm-command.sh self-update check`
+  - `./.claude/skills/pm/scripts/pm-command.sh self-update check`
   - source-repo fallback: `./skills/pm/scripts/pm-command.sh self-update check`
 - The command outputs a required planning trigger in this format:
-  - `/pm plan: Inspect latest Codex changes and align orchestrator behavior with Codex-only runtime policy.`
+  - `/pm plan: Inspect latest Claude Code changes and align orchestrator behavior with Claude Code runtime policy.`
 - After full PM completion gate succeeds, finalize processed version checkpoint:
-  - `./.codex/skills/pm/scripts/pm-command.sh self-update complete --approval approved --prd-approval approved --beads-approval approved --prd-path docs/prd/<approved-prd>.md`
+  - `./.claude/skills/pm/scripts/pm-command.sh self-update complete --approval approved --prd-approval approved --beads-approval approved --prd-path docs/prd/<approved-prd>.md`
   - source-repo fallback: `./skills/pm/scripts/pm-command.sh self-update complete --approval approved --prd-approval approved --beads-approval approved --prd-path docs/prd/<approved-prd>.md`
 
 ## Fixed phase order
@@ -151,7 +178,7 @@ Manual self-update mode:
 
 Execution is tracked in Beads (`bd`) and `.beads/` should stay committed in Git.
 For big-feature queue mode, persist queue state in `docs/prd/_queue/<feature-slug>.json` using the contract in `docs/QUEUE_WORKFLOW.md`.
-Runtime policy is Codex-first; external Claude usage is allowed only via `claude-code` MCP.
+Runtime policy is Claude-first; external agents (via Droid MCP) can be used for worker tasks.
 Smoke evidence for dual planning modes is tracked in `docs/smoke/2026-02-26-big-feature-planning-modes.md`.
 Common commands:
 
@@ -164,10 +191,10 @@ bd graph <epic-id> --compact
 ## Troubleshooting
 
 - `/pm` does not invoke:
-  - confirm skill folders exist under `.codex/skills`
-  - restart Codex session so skill indexes reload
+  - confirm skill folders exist under `.claude/skills`
+  - restart Claude session so skill indexes reload
 - Workflow blocks on missing tooling:
-  - run `codex mcp list` and confirm required MCP servers are enabled
+  - run `claude mcp list` and confirm required MCP servers are enabled
 - Beads planning issues in worktrees:
   - initialize Beads in main repo first, then continue in worktree
 

@@ -73,7 +73,7 @@ assert_contains "$help_out" '$pm plan: <feature request>'
 assert_contains "$help_out" '$pm self-update'
 assert_contains "$help_out" 'Self-update policy:'
 
-STATE_FILE="$TMPDIR/.codex/pm-self-update-state.json"
+STATE_FILE="$TMPDIR/.claude/pm-self-update-state.json"
 PRD_PATH="$TMPDIR/docs/prd/self-update.md"
 
 BOOTSTRAP_CHANGELOG=$'Codex CLI 0.104.0'
@@ -182,7 +182,7 @@ latest_commit_msg="$(git log -1 --pretty=%s)"
 assert_contains "$latest_commit_msg" 'chore(pm-self-update): checkpoint codex version 0.106.0-alpha.2'
 
 commit_files="$(git show --name-only --pretty=format: HEAD)"
-assert_contains "$commit_files" '.codex/pm-self-update-state.json'
+assert_contains "$commit_files" '.claude/pm-self-update-state.json'
 if grep -Fq 'unrelated.txt' <<<"$commit_files"; then
   fail "checkpoint commit included unrelated staged file"
 fi

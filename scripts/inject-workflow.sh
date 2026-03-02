@@ -10,7 +10,7 @@ usage() {
 Inject PM orchestrator workflow into a target repository (no submodule, no symlink).
 
 This script copies orchestrator assets from a source directory into the target repo.
-It is safe for repos that already have .codex folders:
+It is safe for repos that already have .claude folders:
 - only managed PM skill folders are replaced
 - replaced paths are moved into a timestamped backup directory
 
@@ -22,7 +22,7 @@ Required:
 
 Options:
   --source PATH                  Source orchestrator root (default: script parent dir)
-  --skip-workflow-file           Do not copy pm_workflow.md to .config/opencode/instructions
+  --skip-workflow-file           Do not copy pm_workflow.md to target repo
   --if-exists MODE               How to handle existing managed skill dirs: replace|skip (default: replace)
   --dry-run                      Print actions only
   -h, --help                     Show this help
@@ -71,7 +71,7 @@ while [ $# -gt 0 ]; do
       shift 2
       ;;
     --no-claude|--no-codex)
-      err "Legacy runtime flag '$1' is not supported. This injector is Codex-only."
+      err "Legacy runtime flag '$1' is not supported."
       shift
       ;;
     --skip-workflow-file)
@@ -154,7 +154,7 @@ replace_dir_from_source() {
   log "Installed: $dst"
 }
 
-install_codex_runtime() {
+install_claude_runtime() {
   local runtime_root="$1"
 
   if [ -e "$runtime_root" ] && [ ! -d "$runtime_root" ]; then
@@ -166,16 +166,16 @@ install_codex_runtime() {
   for s in "${SKILLS[@]}"; do
     local src="$SOURCE_ROOT/skills/$s"
     local dst="$runtime_root/$s"
-    local bkp="$BACKUP_ROOT/codex/skills/$s"
+    local bkp="$BACKUP_ROOT/claude/skills/$s"
     replace_dir_from_source "$src" "$dst" "$bkp"
   done
 }
 
-install_codex_runtime "$REPO_PATH/.codex/skills"
+install_claude_runtime "$REPO_PATH/.claude/skills"
 
 if [ "$COPY_WORKFLOW" -eq 1 ]; then
   WORKFLOW_SRC="$SOURCE_ROOT/instructions/pm_workflow.md"
-  WORKFLOW_DST="$REPO_PATH/.config/opencode/instructions/pm_workflow.md"
+  WORKFLOW_DST="$REPO_PATH/instructions/pm_workflow.md"
 
   if [ -e "$WORKFLOW_DST" ] || [ -L "$WORKFLOW_DST" ]; then
     if [ "$IF_EXISTS" = "skip" ]; then
@@ -218,8 +218,7 @@ if [ "$DRY_RUN" -eq 0 ]; then
   "source_remote": "$SOURCE_REMOTE",
   "source_dirty": "$SOURCE_DIRTY",
   "managed_skills": ["pm", "pm-discovery", "pm-create-prd", "pm-beads-plan", "pm-implement", "agent-browser"],
-  "runtime_mode": "codex-only",
-  "install_codex": 1,
+  "runtime_mode": "claude-code",
   "copied_workflow_file": $COPY_WORKFLOW
 }
 EOF
@@ -234,4 +233,4 @@ echo "Backups: $BACKUP_ROOT"
 echo "Next steps:"
 echo "  1) Review: git -C \"$REPO_PATH\" status"
 echo "  2) Commit copied skills/workflow/manifest"
-echo "  3) Restart Codex session in target repo"
+echo "  3) Restart Claude Code session in target repo"

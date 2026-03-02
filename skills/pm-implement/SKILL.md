@@ -27,26 +27,25 @@ If any precondition fails:
 - If not queue-ready, do not start implementation for that PRD and report blocked reason.
 
 ## Claude MCP Contract (mandatory for external Claude agents)
-- Use Claude through MCP server `claude-code` (not direct CLI/app invocation).
-- Required environment setup (once):
-  - `codex mcp add claude-code -- claude mcp serve`
-- Start a new Claude interaction via `claude-code` MCP tool call with the full prompt.
-- Continue follow-ups/answers in the same Claude interaction using the returned conversation/session identifier from the MCP response.
-- If `claude-code` MCP is unavailable, report a blocked state with exact reason.
-- For Claude MCP agents, prompt must start with:
-  - `use agent swarm for <objective>`
+- **Primary path (Claude Code runtime):** When running inside Claude Code, use the **native Task tool** to spawn Claude subagents — no MCP bridge needed. Use `subagent_type: "default"` for most roles or `subagent_type: "Explore"` for codebase analysis roles.
+- **Fallback path (non-Claude-Code runtimes):** Use Claude through MCP server `claude-code` when the outer runtime is not Claude Code.
+  - Required environment setup (once):
+    - `claude mcp add claude-code -- claude mcp serve`
+  - Start a new Claude interaction via `claude-code` MCP tool call with the full prompt.
+  - Continue follow-ups/answers in the same Claude interaction using the returned conversation/session identifier from the MCP response.
+  - If `claude-code` MCP is unavailable, report a blocked state with exact reason.
 
 ## Subagent Launcher Compatibility (mandatory across implementation phases)
-- Spawn only supported generic agent types: `default`, `explorer`, `worker`.
+- Spawn only supported Claude Code Task tool `subagent_type` values: `default`, `Explore`, `Plan`.
 - Encode role in prompt payload for every spawned subagent (for example: `[Role: Backend Engineer]`).
 - Do not rely on custom named subagent launchers.
 - Recommended launcher mapping:
-  - `worker`: Backend Engineer, Frontend Engineer, Security Engineer implementation work.
-  - `explorer`: Senior Engineer read/analyze checks and codebase triage.
-  - `default`: Team Lead, Task Verification wrapper, AGENTS Compliance Reviewer, Jazz reviewer, and Manual QA Smoke agent.
-- For Task Verification and Jazz reviewer workflows that call Claude:
-  - spawn a generic `default` subagent first
-  - then invoke `claude-code` MCP per Claude MCP Contract
+  - `default`: Backend Engineer, Frontend Engineer, Security Engineer (implementation via Task tool), Team Lead, Task Verification, AGENTS Compliance Reviewer, Jazz reviewer, Manual QA Smoke agent.
+  - `Explore`: Senior Engineer read/analyze checks and codebase triage.
+- Droid worker roles: spawn via `droid-worker` MCP tool call (not via Task tool).
+- For Task Verification and Jazz reviewer workflows:
+  - Primary: spawn via native Task tool with `subagent_type: "default"` and role-labeled prompt
+  - Fallback: invoke `claude-code` MCP per Claude MCP Contract
   - do not treat `claude-code` as a launcher type
 
 ## Team Lead Orchestration (mandatory before coding)
@@ -58,13 +57,13 @@ If any precondition fails:
   - Security Engineer (`references/security-engineer.md`)
 - Launcher compatibility rule (CLI/Desktop):
   - do not assume custom named subagent launchers exist
-  - spawn supported generic agent types only (`worker`, `explorer`, or `default`)
+  - spawn supported Task tool `subagent_type` values only (`default`, `Explore`)
   - assign role via prompt payload (for example: `[Role: Backend Engineer] ...`)
-  - use `explorer` for read/analyze tasks and `worker` for implementation tasks
+  - use `Explore` for read/analyze tasks and `default` for implementation tasks
 - Team Lead also runs a Task Verification agent after each implemented task:
   - `references/task-verification.md`
-  - invoke via `claude-code` MCP using the Claude MCP Contract
-  - mandatory prompt prefix: `use agent swarm for <task verification objective>`
+  - primary: spawn via native Task tool with `subagent_type: "default"` and role-labeled prompt
+  - fallback: invoke via `claude-code` MCP using the Claude MCP Contract
 - Team Lead responsibilities:
   - split implementation into parallelizable streams
   - assign and sequence work across subagents
@@ -93,8 +92,8 @@ Whenever Team Lead invokes any external Claude agent, the prompt must include su
 
 ## Per-Task Verification Gate (mandatory before review)
 - After each task implementation, Team Lead must run Task Verification agent with:
-  - first call via `claude-code` MCP: prompt starts with `use agent swarm for verify task <task-id>: <acceptance criteria + changed files>`
-  - follow-up clarifications via same `claude-code` MCP conversation/session
+  - primary: spawn via native Task tool with `subagent_type: "default"` and prompt including task ID, acceptance criteria, and changed files
+  - fallback: invoke via `claude-code` MCP with the same prompt
 - Include the full Claude Invocation Context Pack in that prompt.
 - If verification passes:
   - mark task as verified and continue.
@@ -107,7 +106,7 @@ Whenever Team Lead invokes any external Claude agent, the prompt must include su
 
 ## Implementation Rules
 - Keep paired support agents available:
-  - **Senior Engineer** (`explorer`) for proactive code-level guidance and risk checks.
+  - **Senior Engineer** (`Explore`) for proactive code-level guidance and risk checks.
   - **Librarian** (`default`) for external docs/compatibility checks when implementation touches APIs/platform specifics.
 - Execute coding work through Team Lead-managed subagents:
   - Backend Engineer owns backend tasks
@@ -142,15 +141,14 @@ After implementation tasks are complete, automatically run both reviewers:
    - Load prompt from `references/jazz.md`.
    - Persona: grumpy, nitpicky old fart.
    - Behavior: doubt assumptions, challenge weak logic, call out edge cases and missing rigor.
-   - Runner: invoke via `claude-code` MCP using the Claude MCP Contract.
-   - Mandatory prompt prefix: `use agent swarm for jazz review: <scope + changed files + constraints>`.
+   - Runner: spawn via native Task tool with `subagent_type: "default"` and role-labeled prompt (primary); fallback is `claude-code` MCP.
    - Return concrete defects and demanded fixes.
 
 Run both reviewers in parallel when possible.
 
 Preferred orchestration calls:
-- Spawn compliance reviewer agent from `references/agents-compliance.md` as generic `default` with role-labeled context (`[Role: AGENTS Compliance Reviewer]`).
-- Spawn `Jazz` reviewer agent from `references/jazz.md` as generic `default` with role-labeled context (`[Role: Jazz Reviewer]`), then invoke via `claude-code` MCP with prefix `use agent swarm for ...`.
+- Spawn compliance reviewer via Task tool with `subagent_type: "default"` and role-labeled context (`[Role: AGENTS Compliance Reviewer]`).
+- Spawn Jazz via Task tool with `subagent_type: "default"` and role-labeled context (`[Role: Jazz Reviewer]`).
 - Team Lead must collect both review outputs and wait for both to complete before creating iteration tasks.
 
 ## Review Output Handling (mandatory)

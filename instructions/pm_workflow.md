@@ -1,6 +1,6 @@
-# OpenCode PM Workflow (Strict)
+# Claude Code PM Workflow (Strict)
 
-This workflow is the source of truth for PM orchestration in OpenCode.
+This workflow is the source of truth for PM orchestration in Claude Code.
 
 ## Required Phase Order
 `Discovery -> PRD -> Awaiting PRD Approval -> Beads Planning -> Awaiting Beads Approval -> Team Lead Orchestration -> Implementation -> Post-Implementation Reviews -> Review Iteration -> Manual QA Smoke Tests -> Awaiting Final Review`
@@ -20,13 +20,13 @@ This workflow is the source of truth for PM orchestration in OpenCode.
 - `/pm plan: ...` and `$pm plan: ...` map to default single-PRD planning flow.
 - `/pm plan big feature: ...` and `$pm plan big feature: ...` map to big-feature planning flow.
 - `/pm help` and `$pm help` print command invocations, required phase order, and approval-gate reminders.
-- `/pm self-update` and `$pm self-update` are manual-only and must run the Codex self-update check flow, then trigger:
-  - `/pm plan: Inspect latest Codex changes and align orchestrator behavior with Codex-only runtime policy.`
+- `/pm self-update` and `$pm self-update` are manual-only and must run the Claude Code self-update check flow, then trigger:
+  - `/pm plan: Inspect latest Claude Code changes and align orchestrator behavior with Claude Code runtime policy.`
 - Helper script path resolution:
-  - preferred in installed target repos: `./.codex/skills/pm/scripts/pm-command.sh`
+  - preferred in installed target repos: `./.claude/skills/pm/scripts/pm-command.sh`
   - source-repo fallback: `./skills/pm/scripts/pm-command.sh`
 - Self-update completion gate is explicit and manual:
-  - `./.codex/skills/pm/scripts/pm-command.sh self-update complete --approval approved --prd-approval approved --beads-approval approved --prd-path docs/prd/<approved-prd>.md`
+  - `./.claude/skills/pm/scripts/pm-command.sh self-update complete --approval approved --prd-approval approved --beads-approval approved --prd-path docs/prd/<approved-prd>.md`
   - or `./skills/pm/scripts/pm-command.sh self-update complete --approval approved --prd-approval approved --beads-approval approved --prd-path docs/prd/<approved-prd>.md`
 - Big-feature planning must require explicit mode selection:
   - `conflict-aware`
@@ -71,11 +71,10 @@ This workflow is the source of truth for PM orchestration in OpenCode.
 - Report blocked items with explicit reason and next action.
 
 ## Model Routing Policy
-- Planning/discovery/docs/research/QA/review orchestration: `openai/gpt-5.3-codex` (variant: `high`)
-- Implementation coding tasks: `openai/gpt-5.3-codex` (variant: `xhigh`)
-- Workflow runtime is Codex-first.
-- External Claude agents are allowed only through `claude-code` MCP contract.
-- Direct Claude CLI/app orchestration is not allowed.
+- Lead roles (PM, Team Lead, Senior Engineer, Researcher, Jazz Reviewer): `claude-opus-4-6` via Claude Code native Task tool.
+- Worker roles (Backend/Frontend/Security Engineers, Librarian, Smoke Test Planner, Alternative PM, Manual QA): `MiniMax-M2.5` via Droid MCP worker.
+- Workflow runtime is Claude Code-native with Droid hybrid workers for cost-effective tasks.
+- Direct Claude CLI/app orchestration is not allowed; use the native Task tool for Claude subagents.
 
 ## Git / Shipping Policy
 - No `git commit` or `git push` during PM execution phases (Discovery through Awaiting Final Review).
@@ -85,20 +84,25 @@ This workflow is the source of truth for PM orchestration in OpenCode.
 - Self-update checkpoint commits from `pm-command.sh self-update complete ...` are explicitly outside active PM execution phases.
 
 ## Subagent Orchestration Policy
-- PM must use `Task(...)` subagent calls for parallel support work.
-- Mandatory prompt prefix for delegation objectives: `use agent swarm for <objective>`.
-- In OpenCode, "agent swarm" means parallel `Task(...)` fan-out to specialized subagents.
-- Required support subagents in discovery:
-  - `pm-research`
-  - `pm-docs`
-  - `pm-qa` (for smoke-test planning)
-- Implementation must run through `pm-team-lead`, which delegates coding to:
-  - `pm-backend`
-  - `pm-frontend`
-  - `pm-security`
-- Verification/review subagents:
-  - `pm-verify`
-  - `pm-jazz-review`
+- PM must use the Claude Code Task tool for parallel support work.
+- In Claude Code, parallel subagent work means multiple Task tool calls in a single response.
+- Supported Task tool `subagent_type` values: `default`, `Explore`, `Plan`.
+- Encode functional role in prompt payload (e.g., `[Role: Senior Engineer]`).
+- Required support agents in discovery:
+  - Senior Engineer (`Explore` subagent) — codebase analysis
+  - Librarian (`default` subagent) — external docs via MCP tools
+  - Smoke Test Planner (`default` subagent) — test planning
+  - Researcher (`default` subagent) — complex research questions
+  - Alternative PM (`default` subagent) — alternative solution analysis
+- Implementation must run through Team Lead (`default` subagent), which delegates coding to:
+  - Backend Engineer (`default` subagent with `[Role: Backend Engineer]`)
+  - Frontend Engineer (`default` subagent with `[Role: Frontend Engineer]`)
+  - Security Engineer (`default` subagent with `[Role: Security Engineer]`)
+- Verification/review agents:
+  - Task Verification (`default` subagent)
+  - Jazz Reviewer (`default` subagent)
+  - AGENTS Compliance Reviewer (`default` subagent)
+- Droid worker roles (Librarian, Smoke Test Planner, Alternative PM, implementation engineers) are spawned via `droid-worker` MCP tool call with structured context block, not via the Task tool.
 
 ## Dual-Mode Smoke Coverage
 - For big-feature workflows, smoke planning and QA must cover both planning modes:

@@ -33,8 +33,8 @@ description: Strict PM orchestration workflow for any repo. Trigger when user in
 - Self-update route (manual only):
   - Trigger: `/pm self-update` or `$pm self-update`
   - Behavior:
-    1. Run Codex self-update check helper:
-       - `./.codex/skills/pm/scripts/pm-command.sh self-update check`
+    1. Run Claude Code self-update check helper:
+       - `./.claude/skills/pm/scripts/pm-command.sh self-update check`
        - source-repo fallback: `./skills/pm/scripts/pm-command.sh self-update check`
     2. Interpret check results with these rules:
        - changelog website is source of truth
@@ -44,9 +44,9 @@ description: Strict PM orchestration workflow for any repo. Trigger when user in
          - `PM_SELF_UPDATE_INCLUDE_PRERELEASE=0|1`
          - `PM_SELF_UPDATE_STRICT_MISMATCH=0|1`
     3. If update is available, immediately trigger default planning route:
-       - `/pm plan: Inspect latest Codex changes and align orchestrator behavior with Codex-only runtime policy.`
+       - `/pm plan: Inspect latest Claude Code changes and align orchestrator behavior with Claude Code runtime policy.`
     4. After full PM flow completion gate, advance processed version with:
-       - `./.codex/skills/pm/scripts/pm-command.sh self-update complete --approval approved --prd-approval approved --beads-approval approved --prd-path docs/prd/<approved-prd>.md`
+       - `./.claude/skills/pm/scripts/pm-command.sh self-update complete --approval approved --prd-approval approved --beads-approval approved --prd-path docs/prd/<approved-prd>.md`
        - source-repo fallback: `./skills/pm/scripts/pm-command.sh self-update complete --approval approved --prd-approval approved --beads-approval approved --prd-path docs/prd/<approved-prd>.md`
        - completion requires PRD evidence covering all pending batch versions and empty `Open Questions`
   - Do not run in background/scheduled mode.
@@ -100,28 +100,30 @@ description: Strict PM orchestration workflow for any repo. Trigger when user in
 - Include per-PRD blocked/failed reasons and required next action.
 
 ## Subagent Launcher Compatibility (mandatory across all phases)
-- PM must launch only supported generic agent types: `default`, `explorer`, `worker`.
+- PM must launch only supported Claude Code Task tool `subagent_type` values: `default`, `Explore`, `Plan`.
 - PM must encode functional role in prompt payload (for example: `[Role: Senior Engineer]`).
 - PM must not depend on custom named launcher types being available.
 - Recommended launcher mapping:
-  - `explorer`: Senior Engineer and codebase read/analyze subagents.
-  - `default`: Librarian, Smoke Test Planner, Researcher, Alternative PM, Team Lead, AGENTS compliance reviewer, Jazz reviewer, and Manual QA.
-  - `worker`: Backend/Frontend/Security implementation subagents.
-- For Smoke Test Planner, Researcher, Alternative PM, and Jazz Reviewer roles that run on Claude:
-  - spawn a generic `default` subagent first
-  - then invoke `claude-code` MCP from that subagent per the Claude MCP Contract
+  - `Explore`: Senior Engineer and codebase read/analyze subagents.
+  - `default`: Researcher, Team Lead, AGENTS compliance reviewer, Jazz reviewer, and Manual QA (Claude-native roles).
+- For Researcher and Jazz Reviewer roles that run on Claude:
+  - spawn via native Task tool with `subagent_type: "default"` and role-labeled prompt (primary path)
+  - fallback: invoke `claude-code` MCP from a `default` subagent per the Claude MCP Contract
   - do not treat `claude-code` as a launcher type
+- For Librarian, Smoke Test Planner, and Alternative PM roles that run on Droid:
+  - spawn via `droid-worker` MCP tool call (not via Task tool)
+  - include full context block per Droid Worker Context Contract
+  - do not treat `droid-worker` as a native launcher type
 
 ## Claude MCP Contract (mandatory for external Claude agents)
-- PM orchestration runtime remains Codex-first; Claude is external and optional.
-- Use Claude through MCP server `claude-code` (do not run Claude as app/interactive CLI for pipeline orchestration).
-- Required environment setup (once):
-  - `codex mcp add claude-code -- claude mcp serve`
-- Start a new Claude interaction via `claude-code` MCP tool call with the full prompt.
-- Continue follow-ups/answers in the same Claude interaction using the returned conversation/session identifier from the MCP response.
-- If `claude-code` MCP is unavailable, report a blocked state with exact reason instead of silently switching invocation mode.
-- For Claude MCP agents, prompt must start with:
-  - `use agent swarm for <objective>`
+- PM orchestration runtime is Claude Code (Opus 4.6 for lead roles); Droid/MiniMax-M2.5 handles cost-effective worker tasks.
+- **Primary path (Claude Code runtime):** When PM is running inside Claude Code, use the **native Task tool** to spawn Claude subagents — no MCP bridge needed. This is the idiomatic and preferred approach. Use `subagent_type: "default"` for most roles or `subagent_type: "Explore"` for codebase analysis roles.
+- **Fallback path (non-Claude-Code runtimes):** Use Claude through MCP server `claude-code` when the outer runtime is not Claude Code (do not run Claude as app/interactive CLI for pipeline orchestration).
+  - Required environment setup (once):
+    - `claude mcp add claude-code -- claude mcp serve`
+  - Start a new Claude interaction via `claude-code` MCP tool call with the full prompt.
+  - Continue follow-ups/answers in the same Claude interaction using the returned conversation/session identifier from the MCP response.
+  - If `claude-code` MCP is unavailable, report a blocked state with exact reason instead of silently switching invocation mode.
 
 ## Paired Support Agents (mandatory)
 For every phase, run two support agents in parallel before asking user follow-ups, unless information is already sufficient:
@@ -146,9 +148,8 @@ During Discovery, run an additional agent:
 3. **Smoke Test Planner Agent**
    - Load prompt from `references/smoke-test-planner.md`.
    - Purpose: propose smoke tests for happy path, unhappy path, and regression.
-   - Launcher type: spawn as generic `default` with role-labeled prompt context (`[Role: Smoke Test Planner Agent]`).
-   - Runner: invoke via `claude-code` MCP using the Claude MCP Contract.
-   - Mandatory key phrase: start prompt with `use agent swarm for smoke test planning: <feature objective + constraints>`.
+   - Runtime: Droid/MiniMax-M2.5 worker via `droid-worker` MCP tool call.
+   - Include full context block per Droid Worker Context Contract (feature objective, scope, constraints).
    - Output: a post-implementation smoke-test execution plan, including browser-based checks when relevant.
 
 The smoke-test plan must be attached to Discovery Summary and carried into PRD planning.
@@ -159,9 +160,8 @@ During Discovery, run an additional agent for non-obvious or research-heavy ques
 4. **Researcher Agent**
    - Load prompt from `references/researcher.md`.
    - Purpose: answer complex questions that do not have a straight answer and require deeper investigation/synthesis.
-   - Launcher type: spawn as generic `default` with role-labeled prompt context (`[Role: Researcher Agent]`).
-   - Runner: invoke via `claude-code` MCP tool call; continue in same MCP conversation/session for follow-ups.
-   - Advanced mode: invoke with exact prefix `use agent swarm for <research objective>`.
+   - Launcher type: spawn via native Task tool with `subagent_type: "default"` and role-labeled prompt context (`[Role: Researcher Agent]`).
+   - Runner: primary path is native Task tool; fallback is `claude-code` MCP tool call.
    - Output: researched findings, tradeoffs, risks, and recommendation with evidence.
 
 ## Discovery Alternative PM Agent (mandatory every discovery step)
@@ -170,9 +170,8 @@ During Discovery, run an additional second-PM agent to challenge solution framin
 5. **Alternative PM Agent**
    - Load prompt from `references/alternative-pm.md`.
    - Purpose: provide alternative solution paths and critical reasoning for how the problem could be solved differently.
-   - Launcher type: spawn as generic `default` with role-labeled prompt context (`[Role: Alternative PM Agent]`).
-   - Runner: invoke via `claude-code` MCP using the Claude MCP Contract.
-   - Mandatory key phrase: start prompt with `use agent swarm for <problem statement and constraints>`.
+   - Runtime: Droid/MiniMax-M2.5 worker via `droid-worker` MCP tool call.
+   - Include full context block per Droid Worker Context Contract (problem statement, constraints, current solution framing).
    - Output: alternatives matrix with options, tradeoffs, risks, assumptions, and recommendation.
 
 ## Implementation Team Lead Agent (mandatory after beads approval)
@@ -191,23 +190,42 @@ After user approves implementation handoff at the Beads approval gate, create:
      - assign tasks to subagents
      - manage dependency order and integration points
      - collect progress, unblock bottlenecks, and maintain execution pace
-     - after each implemented task, run task-verification agent via Claude MCP Contract + mandatory `use agent swarm for ...`
+     - after each implemented task, run task-verification agent via native Task tool (primary) or Claude MCP Contract (fallback)
      - if verification fails, create a new Beads fix/reimplementation ticket and ensure it is completed before review
+
+## Droid Worker Context Contract (mandatory)
+Every prompt spawning a Droid worker must include a structured context block. Workers must have enough context to act independently and must be explicitly invited to ask clarifying questions before executing.
+
+**Required context block template** (include verbatim in every Droid worker spawn):
+```
+--- CONTEXT ---
+Task: <task title from Beads>
+Task ID: <beads task id>
+PRD: <path to PRD file>
+DoD: <exact definition of done from Beads task>
+In-scope files/modules: <list of files or modules this task touches>
+Constraints: <performance, security, compatibility, rollout constraints>
+Current state: <brief summary of what exists today in affected areas>
+--- END CONTEXT ---
+
+If anything is unclear or you need additional context before proceeding, ask your specific questions now — do not guess or make assumptions.
+```
+
+Droid worker output must be collected and verified by Team Lead before marking the task complete.
 
 ## Paired-Agent Execution Loop
 At each phase transition and whenever ambiguity appears:
-1. Spawn Senior Engineer (`explorer`) and Librarian (`default`) agents in parallel (`spawn_agent`).
-2. Wait for both (`wait`) and collect findings.
-3. If either response is incomplete, send targeted follow-up (`send_input`) and wait again.
+1. Spawn Senior Engineer (`Explore`) and Librarian (`default`) agents in parallel via Task tool.
+2. Wait for both to complete and collect findings.
+3. If either response is incomplete, spawn a targeted follow-up Task and wait again.
 4. Ensure Librarian completed required multi-source review and version resolution (when library-specific).
 5. Update PM phase output using their findings.
 6. Ask user only unresolved product decisions.
 
 Discovery extension:
-1. Spawn Smoke Test Planner (`default`) in parallel with Senior Engineer and Librarian, then invoke via `claude-code` MCP with prefix `use agent swarm for ...`.
-2. Spawn Researcher (`default`) for complex/no-straight-answer discovery questions.
-3. For deep investigations, use Researcher advanced mode with `use agent swarm for ...`.
-4. Spawn Alternative PM (`default`) on every discovery step using Claude MCP Contract + `use agent swarm for ...`.
+1. Spawn Smoke Test Planner via `droid-worker` MCP in parallel with Senior Engineer and Librarian; include full Droid context block.
+2. Spawn Researcher (`default`) for complex/no-straight-answer discovery questions via native Task tool (or claude-code MCP fallback).
+4. Spawn Alternative PM via `droid-worker` MCP on every discovery step; include full Droid context block.
 5. Merge smoke-test proposals, research findings, and alternatives analysis into Discovery Summary and PRD test plan.
 
 ## Phase Rules
@@ -233,7 +251,7 @@ Discovery extension:
 - Wait for exact `approved`.
 - If user requests edits, update PRD and ask for approval again.
 - On approval, automatically invoke `$pm-beads-plan` with the approved PRD path.
-- Preferred orchestration path: invoke via generic `default` `spawn_agent` with role-labeled context (`[Role: PM Beads Plan Handoff]`) and wait for completion.
+- Preferred orchestration path: invoke via Task tool with `subagent_type: "default"` and role-labeled context (`[Role: PM Beads Plan Handoff]`) and wait for completion.
 
 ### 4) Beads Planning
 - Validate task decomposition with Senior Engineer and dependency/standards constraints with Librarian.
@@ -254,8 +272,8 @@ Discovery extension:
 - If edits are requested, update beads plan and ask for approval again.
 - On approval, automatically create Team Lead agent and start team orchestration.
 - Preferred orchestration path:
-  - spawn Team Lead (`default`) agent first with role-labeled context (`[Role: Team Lead Agent]`)
-  - then invoke `$pm-implement` (Team Lead-supervised execution) via generic `default` `spawn_agent` with role-labeled context (`[Role: PM Implement Handoff]`) and wait for completion.
+  - spawn Team Lead (`default`) agent first via Task tool with role-labeled context (`[Role: Team Lead Agent]`)
+  - then invoke `$pm-implement` (Team Lead-supervised execution) via Task tool with `subagent_type: "default"` and role-labeled context (`[Role: PM Implement Handoff]`) and wait for completion.
 
 ### 6) Team Lead Orchestration
 - Team Lead does not write implementation code.
@@ -264,7 +282,7 @@ Discovery extension:
   - Frontend Engineer
   - Security Engineer
 - Launcher compatibility rule (CLI/Desktop):
-  - Team Lead must launch only supported generic agent types (`worker`, `explorer`, `default`)
+  - Team Lead must launch only supported Task tool `subagent_type` values (`default`, `Explore`)
   - Team Lead must assign functional role via prompt context (Backend/Frontend/Security)
   - Team Lead must not depend on custom named launcher types being present
 - Team Lead runs subagents in parallel where possible, coordinates integration, and enforces delivery sequence.
@@ -293,15 +311,14 @@ Immediately after implementation completion, run both reviewers:
 2. **Jazz Reviewer**
    - Agent name: `Jazz`.
    - Persona: grumpy, nitpicky, skeptical reviewer who questions assumptions and weak reasoning.
-   - Runner: invoke via `claude-code` MCP using the Claude MCP Contract.
-   - Mandatory key phrase: start prompt with `use agent swarm for jazz review: <scope + changed files + constraints>`.
+   - Runner: spawn via native Task tool with `subagent_type: "default"` and role-labeled prompt (primary); fallback is `claude-code` MCP.
    - Output: strict critique with concrete defects, edge cases, and ambiguity callouts.
 
 Both reviewers must post actionable comments before continuing.
 Use parallel sub-agents for this step whenever available.
 - Reviewer launcher compatibility:
-  - spawn AGENTS Compliance Reviewer as generic `default` subagent with role-labeled prompt
-  - spawn Jazz as generic `default` subagent with role-labeled prompt, then invoke via `claude-code` MCP with prefix `use agent swarm for ...`
+  - spawn AGENTS Compliance Reviewer via Task tool with `subagent_type: "default"` and role-labeled prompt
+  - spawn Jazz via Task tool with `subagent_type: "default"` and role-labeled prompt
   - do not rely on custom reviewer launcher names
 
 ### 9) Review Iteration (mandatory)

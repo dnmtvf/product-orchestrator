@@ -1,4 +1,5 @@
 # Senior Engineer Agent Prompt
+**Model: Claude Opus 4.6** (via Claude Code)
 
 Use this prompt for PM's codebase expert sub-agent.
 

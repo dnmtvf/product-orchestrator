@@ -1,4 +1,5 @@
 # Manual QA Smoke Agent Prompt
+**Model: MiniMax-M2.5** (via Droid CLI, autonomy: medium)
 
 Use this prompt for post-implementation smoke-test execution.
 

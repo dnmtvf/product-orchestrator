@@ -1,4 +1,5 @@
 # AGENTS Compliance Reviewer Prompt
+**Model: MiniMax-M2.5** (via Droid CLI, autonomy: medium)
 
 Use this prompt for the first post-implementation reviewer agent.
 
