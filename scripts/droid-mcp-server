@@ -43,32 +43,25 @@ run_droid_task() {
     # Store session result
     SESSIONS["$session_id"]="$output"
 
-    # Parse and format output as JSON
-    local changed_files
-    local diff_summary
-    local commands_run
-    local tests_run
-    local risks
+    # Parse droid output format:
+    # {"type":"result","subtype":"success","result":"...","session_id":"...","usage":{...}}
+    local result_content
+    local droid_session_id
+    local is_error
 
-    # Extract information from droid output (simplified parsing)
-    # In production, this would parse the actual JSON from droid
-    changed_files=$(echo "$output" | jq -r '.changed_files // []' 2>/dev/null || echo "[]")
-    diff_summary=$(echo "$output" | jq -r '.diff_summary // .summary // ""' 2>/dev/null || echo "")
-    commands_run=$(echo "$output" | jq -r '.commands_run // []' 2>/dev/null || echo "[]")
-    tests_run=$(echo "$output" | jq -r '.tests_run // {}' 2>/dev/null || echo "{}")
-    risks=$(echo "$output" | jq -r '.risks // []' 2>/dev/null || echo "[]")
+    result_content=$(echo "$output" | jq -r '.result // ""' 2>/dev/null || echo "")
+    droid_session_id=$(echo "$output" | jq -r '.session_id // ""' 2>/dev/null || echo "")
+    is_error=$(echo "$output" | jq -r '.is_error // false' 2>/dev/null || echo "false")
 
-    # Build response JSON (use jq for all string fields to prevent injection)
+    # Build response JSON
+    # Use --arg for strings and @base64 for the full output to handle any content
     jq -n \
         --arg session_id "$session_id" \
-        --arg status "completed" \
-        --arg diff_summary "$diff_summary" \
-        --argjson changed_files "$changed_files" \
-        --argjson commands_run "$commands_run" \
-        --argjson tests_run "$tests_run" \
-        --argjson risks "$risks" \
+        --arg droid_session_id "$droid_session_id" \
+        --arg status "$([[ "$is_error" == "true" ]] && echo "error" || echo "completed")" \
+        --arg result "$result_content" \
         --arg full_output "$output" \
-        '{session_id: $session_id, status: $status, changed_files: $changed_files, diff_summary: $diff_summary, commands_run: $commands_run, tests_run: $tests_run, risks: $risks, full_output: $full_output}'
+        '{session_id: $session_id, droid_session_id: $droid_session_id, status: $status, result: $result, full_output: $full_output}'
 }
 
 # Continue a session with additional prompt
@@ -83,7 +76,9 @@ continue_session() {
 
     # For continued sessions, append to previous context
     local previous_output="${SESSIONS[$session_id]}"
-    local new_prompt="$prompt (Previous context: $previous_output)"
+    local previous_result
+    previous_result=$(echo "$previous_output" | jq -r '.result // ""' 2>/dev/null || echo "")
+    local new_prompt="$prompt\n\nPrevious context: $previous_result"
 
     local output
     output=$(droid exec \
@@ -95,7 +90,19 @@ continue_session() {
 
     SESSIONS["$session_id"]="$output"
 
-    echo "$output"
+    # Parse droid output
+    local result_content
+    local is_error
+
+    result_content=$(echo "$output" | jq -r '.result // ""' 2>/dev/null || echo "")
+    is_error=$(echo "$output" | jq -r '.is_error // false' 2>/dev/null || echo "false")
+
+    jq -n \
+        --arg session_id "$session_id" \
+        --arg status "$([[ "$is_error" == "true" ]] && echo "error" || echo "completed")" \
+        --arg result "$result_content" \
+        --arg full_output "$output" \
+        '{session_id: $session_id, status: $status, result: $result, full_output: $full_output}'
 }
 
 # Get session result
