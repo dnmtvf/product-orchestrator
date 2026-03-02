@@ -4,10 +4,10 @@
 # Usage: claude mcp add droid-worker -- ./scripts/droid-mcp-server --mcp
 #        Or pipe stdin (best-effort: auto-detects non-TTY stdin; may not work with PTY-based MCP hosts)
 #
-# Environment setup required:
-#   export ANTHROPIC_BASE_URL="https://api.minimax.io/anthropic"
-#   export ANTHROPIC_AUTH_TOKEN="your-minimax-api-key"
-#   export DROID_CONFIG="--model MiniMax-M2.5 --auto high"
+# Prerequisites:
+#   - droid CLI installed (~/.local/bin/droid)
+#   - MiniMax-M2.5 model configured in ~/.factory/settings.json (customModels array)
+#   - jq installed
 
 # Note: set -e is intentionally NOT used. The MCP server loop must survive
 # individual tool call errors without crashing the entire server process.

@@ -12,13 +12,8 @@ Invocation model:
 - Launcher compatibility:
   - Spawn this role as generic `default` and pass role context (for example: `[Role: Smoke Test Planner Agent]`).
   - Do not treat `claude-code` as a subagent launcher type.
-- Use Claude through MCP server `claude-code` (not direct CLI/app invocation).
-- Required environment setup (once):
-  - `claude mcp add claude-code -- claude mcp serve`
-- Start via `claude-code` MCP tool call with the full prompt.
-- Continue follow-ups/answers in the same Claude MCP conversation/session using its returned identifier.
-- Prompt must start with:
-  - `use agent swarm for smoke test planning: <feature objective + constraints>`
+- Spawn via `droid-worker` MCP tool call with structured context block.
+- Include feature objective, scope, and constraints in the context block.
 
 Required outputs:
 1. Happy-path smoke tests

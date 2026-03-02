@@ -14,30 +14,28 @@ description: Strict PM Discovery Mode. Trigger on $pm-discovery for questions-on
 - Do not skip ambiguous or unanswered areas.
 
 ## Subagent Launcher Compatibility (mandatory)
-- Spawn only supported generic agent types: `default`, `explorer`, `worker`.
+- Spawn only supported Claude Code Task tool `subagent_type` values: `default`, `Explore`, `Plan`.
 - Encode role in prompt payload for every spawned subagent (for example: `[Role: Senior Engineer]`).
 - Do not rely on custom named subagent launchers.
 - Recommended launcher mapping for discovery:
-  - `explorer`: Senior Engineer codebase analysis.
-  - `default`: Librarian, Smoke Test Planner, Alternative PM, and handoff helper agents.
-- For Smoke Test Planner and Alternative PM Claude runs:
-  - spawn generic `default` first
-  - then invoke `claude-code` MCP
-  - do not treat `claude-code` as a launcher type
+  - `Explore`: Senior Engineer codebase analysis.
+  - `default`: Researcher, handoff helper agents, and Claude-native roles.
+- For Droid worker roles (Smoke Test Planner, Alternative PM, Librarian):
+  - spawn via `droid-worker` MCP tool call with structured context block
+  - do not use Task tool for Droid workers
 
 ## Claude MCP Contract (mandatory for external Claude agents)
-- Use Claude through MCP server `claude-code` (not direct CLI/app invocation).
-- Required environment setup (once):
-  - `claude mcp add claude-code -- claude mcp serve`
-- Start a new Claude interaction via `claude-code` MCP tool call with the full prompt.
-- Continue follow-ups/answers in the same Claude interaction using the returned conversation/session identifier from the MCP response.
-- If `claude-code` MCP is unavailable, report a blocked state with exact reason.
-- For Claude MCP agents, prompt must start with:
-  - `use agent swarm for <objective>`
+- **Primary path (Claude Code runtime):** Use the native Task tool to spawn Claude subagents — no MCP bridge needed.
+- **Fallback path (non-Claude-Code runtimes):** Use Claude through MCP server `claude-code` (not direct CLI/app invocation).
+  - Required environment setup (once):
+    - `claude mcp add claude-code -- claude mcp serve`
+  - Start a new Claude interaction via `claude-code` MCP tool call with the full prompt.
+  - Continue follow-ups/answers in the same Claude interaction using the returned conversation/session identifier from the MCP response.
+  - If `claude-code` MCP is unavailable, report a blocked state with exact reason.
 
 ## Paired Support Agents (recommended)
 Before asking user follow-ups, proactively consult:
-1. **Senior Engineer** (`explorer`) for codebase-derived clarifications.
+1. **Senior Engineer** (`Explore`) for codebase-derived clarifications.
 2. **Librarian** (`default`) for external doc/API clarifications via MCP/browser (`exa`, `context7`, `deepwiki`, `firecrawl`, and `$agent-browser` when needed).
 3. **Smoke Test Planner** (`default`) for discovery-phase smoke-test planning (happy/unhappy/regression) and post-implementation QA plan.
 4. **Alternative PM** (`default`) for critical alternative-solution analysis on every discovery step.
@@ -46,11 +44,7 @@ Only ask the user questions that remain unresolved after those checks.
 
 ## Smoke Test Planner (mandatory)
 - Load prompt from `references/smoke-test-planner.md`.
-- Launcher type: spawn as generic `default` with role-labeled prompt context (`[Role: Smoke Test Planner Agent]`).
-- Invoke via `claude-code` MCP using the Claude MCP Contract.
-- Prompt must start with:
-  - `use agent swarm for smoke test planning: <feature objective + constraints>`
-- Do not treat `claude-code` as a subagent launcher type.
+- Launcher type: spawn via `droid-worker` MCP tool call with role-labeled prompt context (`[Role: Smoke Test Planner Agent]`) and structured context block.
 - During discovery, generate:
   - happy-path smoke tests
   - unhappy-path smoke tests
@@ -65,11 +59,7 @@ Only ask the user questions that remain unresolved after those checks.
 
 ## Alternative PM (mandatory every discovery step)
 - Load prompt from `references/alternative-pm.md`.
-- Launcher type: spawn as generic `default` with role-labeled prompt context (`[Role: Alternative PM Agent]`).
-- Invoke via `claude-code` MCP using the Claude MCP Contract.
-- Do not treat `claude-code` as a subagent launcher type.
-- Prompt must start with:
-  - `use agent swarm for <problem statement and constraints>`
+- Launcher type: spawn via `droid-worker` MCP tool call with role-labeled prompt context (`[Role: Alternative PM Agent]`) and structured context block.
 - On every discovery step, request alternatives matrix:
   - multiple solution options
   - tradeoffs/risks
@@ -143,7 +133,7 @@ Output exactly this structure:
 - Immediately invoke: `$pm-create-prd Use the Discovery Summary above`.
 - Do not ask the user to manually type the next command.
 - Pass the full Discovery Summary (including smoke tests and alternatives matrix) and proposed slug.
-- Preferred orchestration path: create a generic `default` sub-agent with role-labeled context (`[Role: PM Create PRD Handoff]`) for the `$pm-create-prd` step and wait for completion.
+- Preferred orchestration path: create a Task tool call with `subagent_type: "default"` and role-labeled context (`[Role: PM Create PRD Handoff]`) for the `$pm-create-prd` step and wait for completion.
 - If direct skill invocation is unavailable, continue directly into PRD creation flow in the same interaction and mark handoff as blocked with the concrete reason.
 
 ## Response Contract (every run)

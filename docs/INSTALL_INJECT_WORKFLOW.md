@@ -2,7 +2,7 @@
 
 Use this mode when you want to copy the current orchestrator version directly into a target repo.
 
-## Behavior with existing `.codex`
+## Behavior with existing `.claude`
 The injector is safe for repos that already contain these folders:
 - It only manages these skill folders:
   - `pm`
@@ -57,7 +57,6 @@ To avoid replacing existing managed paths:
 ## What gets copied
 - `.claude/skills/{pm,pm-discovery,pm-create-prd,pm-beads-plan,pm-implement,agent-browser}`
 - PM helper script is included under `.claude/skills/pm/scripts/pm-command.sh`
-- `.config/opencode/instructions/pm_workflow.md`
 - `.orchestrator-injected.json` (metadata: source path, commit, timestamp)
 
 ## Backups and rollback

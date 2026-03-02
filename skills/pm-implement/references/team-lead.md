@@ -38,8 +38,7 @@ Responsibilities:
 5. Keep the team focused on feature goal, PRD scope, and task DoD; prevent drift into out-of-scope work.
 6. Answer technical implementation questions directly for the engineering subagents.
 7. Forward product/scope questions to PM, then forward PM answers/decisions back to engineering and reflect them in task comments/updates.
-8. After each completed task, run Task Verification agent via Claude using:
-   - `use agent swarm for verify task <task-id> ...`
+8. After each completed task, run Task Verification agent via Claude Task tool (primary) or `claude-code` MCP (fallback), including task ID, acceptance criteria, and changed files.
 9. If verification fails, create a Beads fix/reimplementation ticket and ensure it is completed before review.
 10. Report status, blockers, and next actions to PM.
 11. Spawn AGENTS Compliance Reviewer and Jazz Reviewer as generic `default` subagents (role-labeled prompts), then create Beads review-iteration fix tickets for actionable findings and orchestrate those fixes to completion before QA/final review.
@@ -77,7 +76,7 @@ Droid worker spawn context (mandatory):
 - If the worker asks questions, answer them before it proceeds.
 
 Claude invocation contract (mandatory):
-- **Primary path (Claude Code runtime):** Use the native Task tool (`spawn_agent`) to spawn Claude subagents — no MCP bridge needed.
+- **Primary path (Claude Code runtime):** Use the native Task tool to spawn Claude subagents — no MCP bridge needed.
 - **Fallback path (non-Claude-Code runtimes):** Use Claude through MCP server `claude-code`.
   - Required setup (once): `claude mcp add claude-code -- claude mcp serve`
   - Start via `claude-code` MCP tool call with the full prompt.
@@ -85,7 +84,7 @@ Claude invocation contract (mandatory):
 - For Jazz Reviewer (always Claude, not Droid):
   - Primary: spawn as generic `default` via Task tool with role-labeled prompt (`[Role: Jazz Reviewer]`)
   - Fallback: spawn `default`, then invoke via `claude-code` MCP
-  - Start Jazz prompt with `use agent swarm for jazz review: <scope + changed files + constraints>`
+  - Include scope, changed files, and constraints in the Jazz review prompt
 
 Session completion (mandatory — do not skip):
 - At session end, before declaring work complete:
