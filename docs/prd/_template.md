@@ -1,70 +1,77 @@
-# PRD
+# PRD Template
 
-## 1. Title, Date, Owner
-- Title: <Title>
-- Date: <YYYY-MM-DD>
-- Owner: <Owner>
+## Title
+[Feature/Product Name]
 
-## 2. Problem
-<Describe the problem to solve.>
+## Date
+YYYY-MM-DD
 
-## 3. Context / Current State
-<Describe how things work today and why change is needed.>
+## Owner
+[Name/Role]
 
-## 4. User / Persona
-<Who is this for?>
+## Problem
+[What problem are we solving? Why is it important?]
 
-## 5. Goals
-- <Goal 1>
-- <Goal 2>
+## Context / Current State
+[What exists today? What are the pain points?]
 
-## 6. Non-Goals
-- <Non-goal 1>
-- <Non-goal 2>
+## User / Persona
+[Who is the user? What are their goals and constraints?]
 
-## 7. Scope (In/Out)
-### In Scope
-- <Item>
+## Goals
+[What are we trying to achieve? List concrete objectives.]
 
-### Out of Scope
-- <Item>
+## Non-Goals
+[What are we explicitly NOT doing? Why?]
 
-## 8. User Flow
+## Scope
+
+### In-Scope
+- [Feature 1]
+- [Feature 2]
+- ...
+
+### Out-of-Scope
+- [Feature not included]
+- [Feature deferred]
+- ...
+
+## User Flow
+
 ### Happy Path
-1. <Step>
+[Step-by-step user journey for successful scenario]
 
 ### Failure Paths
-1. <Failure case>
+[What can go wrong? How is it handled?]
 
-## 9. Acceptance Criteria (testable)
-1. <Criterion>
-2. <Criterion>
+## Acceptance Criteria
+[Testable criteria that define completion]
 
-## 10. Success Metrics (measurable)
-- <Metric>: <Target>
+## Success Metrics
+[Measurable indicators of success]
 
-## 11. BEADS
+## BEADS
+
 ### Business
-- <Impact>
+[Business goals, success indicators, ROI]
 
 ### Experience
-- <UX expectation>
+[User experience goals, UX principles]
 
 ### Architecture
-- <System design requirement>
+[Technical approach, system design considerations]
 
 ### Data
-- <Data requirement>
+[Data models, schemas, storage]
 
 ### Security
-- <Security requirement>
+[Security requirements, auth, permissions, data handling]
 
-## 12. Rollout / Migration / Rollback
-- Rollout: <Plan>
-- Migration: <Plan>
-- Rollback: <Plan>
+## Rollout / Migration / Rollback
+[Deployment strategy, data migration, rollback plan]
 
-## 13. Risks & Edge Cases
-- <Risk>
+## Risks & Edge Cases
+[What could go wrong? How do we mitigate?]
 
-## 14. Open Questions
+## Open Questions
+[Any unanswered questions that block implementation - must be empty before execution]

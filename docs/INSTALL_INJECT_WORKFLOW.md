@@ -2,6 +2,16 @@
 
 Use this mode when you want to copy the current orchestrator version directly into a target repo.
 
+## Global Skill Convention
+
+The PM orchestrator skills are installed globally at `~/.claude/skills/` and **must always point to the `main` branch** for stable production use.
+
+The stable reference workspace is:
+- `/Users/d/conductor/workspaces/product-orchestrator/main` (tracks `main` branch)
+
+**Only point symlinks to a worktree or other branch when explicitly asked for testing/unstable versions.**
+After development/testing, always point back to `main`.
+
 ## Behavior with existing `.claude`
 The injector is safe for repos that already contain these folders:
 - It only manages these skill folders:
