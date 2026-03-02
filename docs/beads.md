@@ -1,17 +1,33 @@
-# Beads Planning Rules
+# Beads Convention
 
-## PRD Slug Format
-- Use `YYYY-MM-DD--kebab-slug` for PRD filenames in `docs/prd/`.
+This document defines the Beads tracking conventions used in this project.
+
+## PRD Slugs
+
+PRD slugs follow the format: `YYYY-MM-DD--kebab-slug`
+
+Example: `2025-03-02--mcp-config-sync`
 
 ## Epic Naming
-- Epic title must include the PRD slug and PRD path.
-- Example: `Epic: 2026-02-26--example-feature (docs/prd/2026-02-26--example-feature.md)`.
 
-## Task Decomposition
-- Create atomic tasks only.
-- Every task must include a clear Definition of Done (DoD).
-- Every task must be linked with explicit dependencies using `bd dep` when order matters.
+Each PRD gets an epic named: `<prd-slug> - <prd-path>`
 
-## Source Of Truth
-- Use Beads (`bd`) as the execution source of truth.
-- Keep `.beads/` committed in git.
+Example: `2025-03-02--mcp-config-sync - docs/prd/2025-03-02--mcp-config-sync.md`
+
+## Task Guidelines
+
+- Tasks must be **atomic** - single-purpose with clear definition of done
+- Each task must have explicit **DoD (Definition of Done)**
+- Dependencies between tasks must be declared with `bd dep`
+- Task titles should be imperative verbs (e.g., "Implement X", "Add Y")
+
+## Beads Repository
+
+- `.beads/` directory should be committed to git
+- Use `bd init` to initialize (not in git worktrees)
+- Use `bd graph <epic-id> --compact` to visualize execution
+- Use `bd list --parent <epic-id> --pretty` for task view
+
+## Git Worktree Note
+
+Do not run `bd init` in git worktrees. Initialize in the main repository first.

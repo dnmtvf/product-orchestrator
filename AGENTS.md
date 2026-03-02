@@ -1,39 +1,38 @@
-# Project Agent Rules
+# AGENTS.md
 
-This workspace follows a strict PM workflow for feature delivery.
+## Project Management Workflow
 
-## Required Rules
-- No implicit assumptions.
-- Discovery must happen before PRD creation.
-- PRD approval is required before implementation.
-- Beads is required for execution tracking.
-- PRD `Open Questions` must be empty before execution starts.
+This project follows a strict PM (Project Management) orchestration workflow with mandatory phases and approval gates.
 
-## Workflow Source
-- Primary workflow rules: `instructions/pm_workflow.md`
+### Mandatory Workflow Order
 
-## Landing the Plane (Session Completion)
+1. **Discovery** → 2. **PRD** → 3. **Awaiting PRD Approval** → 4. **Beads Planning** → 5. **Awaiting Beads Approval** → 6. **Team Lead Orchestration** → 7. **Implementation** → 8. **Post-Implementation Reviews** → 9. **Review Iteration** → 10. **Manual QA Smoke Tests** → 11. **Awaiting Final Review**
 
-**When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.
+### Key Rules
 
-**MANDATORY WORKFLOW:**
+- **No assumptions**: If anything is ambiguous, ask clarifying questions.
+- **Discovery before PRD**: All technical and product questions must be resolved before PRD creation.
+- **PRD required before implementation**: No code changes without approved PRD.
+- **Beads required for tracking**: All implementation tasks must be tracked via Beads CLI.
+- **Open Questions must be empty**: PRD cannot proceed to implementation if Open Questions section has any items.
 
-1. **File issues for remaining work** - Create issues for anything that needs follow-up
-2. **Run quality gates** (if code changed) - Tests, linters, builds
-3. **Update issue status** - Close finished work, update in-progress items
-4. **PUSH TO REMOTE** - This is MANDATORY:
-   ```bash
-   git pull --rebase
-   bd sync
-   git push
-   git status  # MUST show "up to date with origin"
-   ```
-5. **Clean up** - Clear stashes, prune remote branches
-6. **Verify** - All changes committed AND pushed
-7. **Hand off** - Provide context for next session
+### Approval Gates
 
-**CRITICAL RULES:**
-- Work is NOT complete until `git push` succeeds
-- NEVER stop before pushing - that leaves work stranded locally
-- NEVER say "ready to push when you are" - YOU must push
-- If push fails, resolve and retry until it succeeds
+Two hard human gates require the exact reply `approved`:
+1. PRD Approval Gate
+2. Beads Approval Gate
+
+### Paired Support Agents
+
+Every phase runs support agents in parallel before asking user questions:
+- **Senior Engineer**: Technical/codebase feasibility
+- **Librarian**: External docs/API verification
+- **Smoke Test Planner**: Test planning for Discovery
+- **Alternative PM**: Alternative solution approaches
+- **Researcher**: Complex question analysis (when needed)
+
+### Beads Convention
+
+- PRD slug format: `YYYY-MM-DD--kebab-slug`
+- Epic naming includes slug + PRD path
+- `.beads/` directory should be committed to git
