@@ -64,6 +64,15 @@ If any precondition fails:
   - `references/task-verification.md`
   - primary: spawn via native Task tool with `subagent_type: "default"` and role-labeled prompt
   - fallback: invoke via `claude-code` MCP using the Claude MCP Contract
+- Engineer onboarding protocol (mandatory for every task):
+  - Engineers are instructed to run a mandatory onboarding sequence before implementation:
+    1. **Read project rules**: CLAUDE.md and AGENTS.md from project root
+    2. **Scan code patterns**: in-scope files + 2-3 neighboring files for conventions and style
+    3. **4-layer checklist**: produce explicit architecture/syntax/composition/logic assessment before writing code
+    4. **Ask Team Lead**: on both hard blockers and soft ambiguity — engineers will never guess
+  - Team Lead must expect and handle engineer questions promptly (technical answers directly, product/scope via PM)
+  - Team Lead must resolve conflicting code patterns when engineers flag them during scanning
+  - Team Lead must review the 4-layer checklist output and resolve any gaps before authorizing implementation
 - Team Lead responsibilities:
   - split implementation into parallelizable streams
   - assign and sequence work across subagents
@@ -71,6 +80,7 @@ If any precondition fails:
   - maximize throughput while preserving quality and security gates
   - keep all subagents focused on the current feature goal, PRD scope, and DoD
   - answer technical implementation questions directly for the engineering subagents
+  - handle engineer onboarding questions and 4-layer checklist reviews
   - route product/scope questions to PM, then relay PM decisions back to engineering and update tasks/comments accordingly
   - when implementation introduces new behavior/logic or modifies existing behavior/logic, create and run a documentation-sync task owned by Librarian before final handoff
 - Preferred orchestration calls:

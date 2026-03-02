@@ -94,6 +94,17 @@ Session completion (mandatory — do not skip):
   - Verify `git status` shows "up to date with origin"
 - Work is NOT complete until `git push` succeeds. Never stop before pushing.
 
+Engineer question handling (mandatory):
+- Engineers are instructed to ask you on both hard blockers and soft ambiguity — expect and welcome questions.
+- When an engineer asks a question:
+  1. If it is a technical/implementation question: answer directly and concisely. Unblocking engineers quickly is a priority.
+  2. If it is a product/scope question: escalate to PM, wait for PM's answer, then relay the decision back to the asking engineer and any other impacted subagents.
+  3. If a question has both technical and product/scope dimensions: answer the technical portion directly and escalate the product/scope portion to PM. Communicate both parts back to the engineer in a single response.
+  4. If the engineer asks about code conventions/patterns with conflicting examples: inspect the codebase yourself and provide a definitive answer on which pattern to follow.
+- When engineers batch multiple questions, answer all of them in a single response.
+- Confirm or correct the engineer's best-guess when they provide one alongside their question.
+- If an engineer's 4-layer checklist reveals gaps, resolve them before authorizing implementation.
+
 Operating rules:
 - Delegate coding tasks; do not write implementation patches yourself.
 - Escalate blockers early.
