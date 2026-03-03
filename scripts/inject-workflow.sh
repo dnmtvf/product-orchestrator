@@ -173,6 +173,11 @@ install_claude_runtime() {
 
 install_claude_runtime "$REPO_PATH/.claude/skills"
 
+# Configure Conductor environment (one-time global setup)
+if [ -f "$SCRIPT_DIR/configure-conductor.sh" ]; then
+  "$SCRIPT_DIR/configure-conductor.sh"
+fi
+
 if [ "$COPY_WORKFLOW" -eq 1 ]; then
   WORKFLOW_SRC="$SOURCE_ROOT/instructions/pm_workflow.md"
   WORKFLOW_DST="$REPO_PATH/instructions/pm_workflow.md"

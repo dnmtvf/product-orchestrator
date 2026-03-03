@@ -48,10 +48,38 @@ export ANTHROPIC_AUTH_TOKEN="your-minimax-api-key"
 ```
 
 ### Register Droid as MCP worker
-```bash
-claude mcp add droid-worker -- ./scripts/droid-mcp-server --mcp
-# Or: the script auto-detects non-TTY stdin when launched by Claude Code
+
+**Option A: Project-level registration (recommended for team sharing)**
+
+Add to your project's `.mcp.json`:
+```json
+{
+  "mcpServers": {
+    "droid-worker": {
+      "type": "stdio",
+      "command": "./scripts/droid-mcp-server",
+      "args": ["--mcp"]
+    }
+  }
+}
 ```
+
+**Option B: User-level registration (personal use only)**
+```bash
+claude mcp add droid-worker -s user -- ./scripts/droid-mcp-server --mcp
+```
+
+**Conductor Note**: Project-level `.mcp.json` servers require interactive approval in native Claude Code. In Conductor's non-interactive workspaces, you **must** enable auto-approval for project MCP servers:
+
+```bash
+# Option 1: Run the configuration script
+./scripts/configure-conductor.sh
+
+# Option 2: Manual configuration
+claude config set -g enableAllProjectMcpServers true
+```
+
+The `install-workflow.sh` and `inject-workflow.sh` scripts call `configure-conductor.sh` automatically during installation.
 
 ### Model enforcement for lead roles
 Start your orchestrator session with `--model claude-opus-4-6` to ensure lead roles (PM, Team Lead, Senior Engineer, Researcher, Jazz) run on Opus 4.6. The `claude mcp serve` command inherits the ambient session model — no per-call override is available.
