@@ -7,6 +7,7 @@ This is the **PM Orchestrator** — a strict project management skill set for Cl
 ## Architecture
 
 - **Lead roles** (Claude Opus 4.6 via Claude Code native Task tool): PM, Team Lead, Senior Engineer, Researcher, Jazz Reviewer
+- **Codex reviewer** (gpt-5.3-codex xhigh via Codex CLI MCP server): 4-layer post-implementation review (architecture, syntax, composition, logic)
 - **Worker roles** (MiniMax-M2.5 via Droid MCP): Backend/Frontend/Security Engineers, Librarian, Smoke Test Planner, Alternative PM, Manual QA
 - **Execution tracking**: Beads CLI (`bd`) with `.beads/` committed to git
 - **Workflow spec**: `instructions/pm_workflow.md` is the source of truth
@@ -41,6 +42,7 @@ Only these skills are available:
 - Beads (`bd`) is the execution source of truth
 - Claude Code Task tool `subagent_type` values: `default`, `Explore`, `Plan`
 - Droid workers are spawned via `droid-worker` MCP tool call with structured context blocks
+- Codex reviewer is spawned via `codex-reviewer` MCP tool call (`codex mcp-server`)
 
 ## Git Policy
 
