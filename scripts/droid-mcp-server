@@ -136,14 +136,14 @@ mcp_server() {
             "initialize")
                 # protocolVersion: "2025-03-26" — verified against MCP spec as of 2025-03-26.
                 # Re-verify at https://spec.modelcontextprotocol.io if Claude Code rejects this handshake.
-                cat <<EOF
-{"jsonrpc":"2.0","id":$id,"result":{"protocolVersion":"2025-03-26","capabilities":{"tools":{}},"serverInfo":{"name":"droid-worker","version":"1.0.0"}}}
-EOF
+                jq -n \
+                    --arg id "${id:-null}" \
+                    '{"jsonrpc":"2.0","id":($id | tonumber? // null),"result":{"protocolVersion":"2025-03-26","capabilities":{"tools":{}},"serverInfo":{"name":"droid-worker","version":"1.0.0"}}}'
                 ;;
             "tools/list")
-                cat <<EOF
-{"jsonrpc":"2.0","id":$id,"result":{"tools":[{"name":"droid_run_task","description":"Run a task using Droid CLI with MiniMax-M2.5","inputSchema":{"type":"object","properties":{"prompt":{"type":"string","description":"Task prompt for the worker"},"repo_path":{"type":"string","description":"Repository path (default: .)"},"model":{"type":"string","description":"Model to use (default: MiniMax-M2.5)"},"auto_level":{"type":"string","description":"Autonomy level (default: high)"}},"required":["prompt"]}},{"name":"droid_continue","description":"Continue a session with additional prompt","inputSchema":{"type":"object","properties":{"session_id":{"type":"string"},"prompt":{"type":"string"}},"required":["session_id","prompt"]}},{"name":"droid_get_result","description":"Get the result of a previous session","inputSchema":{"type":"object","properties":{"session_id":{"type":"string"}},"required":["session_id"]}}]}}}
-EOF
+                jq -n \
+                    --arg id "${id:-null}" \
+                    '{"jsonrpc":"2.0","id":($id | tonumber? // null),"result":{"tools":[{"name":"droid_run_task","description":"Run a task using Droid CLI with MiniMax-M2.5","inputSchema":{"type":"object","properties":{"prompt":{"type":"string","description":"Task prompt for the worker"},"repo_path":{"type":"string","description":"Repository path (default: .)"},"model":{"type":"string","description":"Model to use (default: MiniMax-M2.5)"},"auto_level":{"type":"string","description":"Autonomy level (default: high)"}},"required":["prompt"]}},{"name":"droid_continue","description":"Continue a session with additional prompt","inputSchema":{"type":"object","properties":{"session_id":{"type":"string"},"prompt":{"type":"string"}},"required":["session_id","prompt"]}},{"name":"droid_get_result","description":"Get the result of a previous session","inputSchema":{"type":"object","properties":{"session_id":{"type":"string"}},"required":["session_id"]}}]}}'
                 ;;
             "tools/call")
                 local tool_name
@@ -159,7 +159,11 @@ EOF
 
                         local result
                         result=$(run_droid_task "$prompt" "$repo_path" "$model" "$auto_level")
-                        echo "{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{\"content\":[{\"type\":\"text\",\"text\":$(echo "$result" | jq -Rs .)}]}}"
+                        # Build JSON response properly using jq to avoid escaping issues
+                        jq -n \
+                            --arg id "${id:-null}" \
+                            --arg result "$result" \
+                            '{"jsonrpc":"2.0","id":($id | tonumber? // null),"result":{"content":[{"type":"text","text":$result}]}}'
                         ;;
                     "droid_continue")
                         local session_id prompt
@@ -168,7 +172,10 @@ EOF
 
                         local result
                         result=$(continue_session "$session_id" "$prompt")
-                        echo "{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{\"content\":[{\"type\":\"text\",\"text\":$(echo "$result" | jq -Rs .)}]}}"
+                        jq -n \
+                            --arg id "${id:-null}" \
+                            --arg result "$result" \
+                            '{"jsonrpc":"2.0","id":($id | tonumber? // null),"result":{"content":[{"type":"text","text":$result}]}}'
                         ;;
                     "droid_get_result")
                         local session_id
@@ -176,11 +183,15 @@ EOF
 
                         local result
                         result=$(get_session_result "$session_id")
-                        echo "{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{\"content\":[{\"type\":\"text\",\"text\":$(echo "$result" | jq -Rs .)}]}}"
+                        jq -n \
+                            --arg id "${id:-null}" \
+                            --arg result "$result" \
+                            '{"jsonrpc":"2.0","id":($id | tonumber? // null),"result":{"content":[{"type":"text","text":$result}]}}'
                         ;;
                     *)
-                        jq -n --argjson id "$id" --arg name "$tool_name" \
-                            '{"jsonrpc":"2.0","id":$id,"error":{"code":-32601,"message":("Unknown method: " + $name)}}'
+                        # Use --arg for id to handle empty/null cases, convert to number in jq
+                        jq -n --arg id "${id:-null}" --arg name "$tool_name" \
+                            '{"jsonrpc":"2.0","id":($id | tonumber? // null),"error":{"code":-32601,"message":("Unknown tool: " + $name)}}'
                         ;;
                 esac
                 ;;
@@ -188,8 +199,8 @@ EOF
                 # MCP lifecycle notification — no response required, silently ignore
                 ;;
             *)
-                jq -n --argjson id "$id" \
-                    '{"jsonrpc":"2.0","id":$id,"error":{"code":-32600,"message":"Invalid request"}}'
+                jq -n --arg id "${id:-null}" \
+                    '{"jsonrpc":"2.0","id":($id | tonumber? // null),"error":{"code":-32600,"message":"Invalid request"}}'
                 ;;
         esac
     done
