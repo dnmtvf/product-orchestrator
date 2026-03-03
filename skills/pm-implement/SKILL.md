@@ -35,6 +35,24 @@ If any precondition fails:
   - Continue follow-ups/answers in the same Claude interaction using the returned conversation/session identifier from the MCP response.
   - If `claude-code` MCP is unavailable, report a blocked state with exact reason.
 
+## Codex MCP Contract (mandatory for Codex reviewer)
+- Codex reviewer runs gpt-5.3-codex at xhigh reasoning effort via Codex CLI MCP server.
+- **Setup (once):**
+  - `claude mcp add codex-reviewer -- codex mcp-server`
+  - Configure model and reasoning effort in project `.codex/config.toml` or global `~/.codex/config.toml`:
+    ```toml
+    model = "gpt-5.3-codex"
+    model_reasoning_effort = "xhigh"
+    ```
+- **MCP tool names** exposed by `codex mcp-server`:
+  - `codex` — start a new review conversation (first layer pass)
+  - `codex-reply` — continue an existing review conversation (subsequent layer passes)
+- **Invocation:** Use `codex-reviewer` MCP `codex` tool to start the review, then `codex-reply` for each subsequent layer pass. Do not spawn Codex via Task tool or Bash.
+- **Verify registration:** `claude mcp list | grep codex-reviewer`
+- **Timeout:** 10 minutes total for all 4 layer passes. If any individual pass exceeds 3 minutes, skip remaining passes and report partial findings.
+- **Graceful degradation:** If `codex-reviewer` MCP is unavailable (not configured, CLI not installed, auth failure, timeout), log a warning with the exact reason and continue the review phase with existing reviewers (Jazz + AGENTS Compliance). Do not block the pipeline.
+- **Cascading failure policy:** If 2 or more reviewers fail (any combination of Jazz, AGENTS Compliance, Codex), the review phase must block and report the failure to PM rather than proceeding with zero or minimal review coverage. A single reviewer failure triggers graceful degradation; multiple reviewer failures trigger a hard block.
+
 ## Subagent Launcher Compatibility (mandatory across implementation phases)
 - Spawn only supported Claude Code Task tool `subagent_type` values: `default`, `Explore`, `Plan`.
 - Encode role in prompt payload for every spawned subagent (for example: `[Role: Backend Engineer]`).
@@ -42,7 +60,9 @@ If any precondition fails:
 - Recommended launcher mapping:
   - `default`: Backend Engineer, Frontend Engineer, Security Engineer (implementation via Task tool), Team Lead, Task Verification, AGENTS Compliance Reviewer, Jazz reviewer, Manual QA Smoke agent.
   - `Explore`: Senior Engineer read/analyze checks and codebase triage.
+  - `codex-reviewer` MCP: Codex reviewer (gpt-5.3-codex, 4-layer post-implementation review).
 - Droid worker roles: spawn via `droid-worker` MCP tool call (not via Task tool).
+- Codex reviewer: spawn via `codex-reviewer` MCP tool call (not via Task tool). If unavailable, log warning and continue with Jazz + AGENTS Compliance.
 - For Task Verification and Jazz reviewer workflows:
   - Primary: spawn via native Task tool with `subagent_type: "default"` and role-labeled prompt
   - Fallback: invoke `claude-code` MCP per Claude MCP Contract
@@ -139,8 +159,8 @@ Whenever Team Lead invokes any external Claude agent, the prompt must include su
 - Close completed tasks:
   - `bd close <task-id>`
 
-## Automatic Dual-Agent Post-Implementation Review
-After implementation tasks are complete, automatically run both reviewers:
+## Automatic Triple-Agent Post-Implementation Review
+After implementation tasks are complete, automatically run all three reviewers in parallel:
 
 1. **AGENTS Compliance Reviewer**
    - Load prompt from `references/agents-compliance.md`.
@@ -154,12 +174,21 @@ After implementation tasks are complete, automatically run both reviewers:
    - Runner: spawn via native Task tool with `subagent_type: "default"` and role-labeled prompt (primary); fallback is `claude-code` MCP.
    - Return concrete defects and demanded fixes.
 
-Run both reviewers in parallel when possible.
+3. **Codex Reviewer**
+   - Load prompt from `references/codex-reviewer.md`.
+   - Model: gpt-5.3-codex at xhigh reasoning effort via Codex CLI MCP server.
+   - Behavior: 4-layer sequential review (architecture → syntax → composition → logic). Later passes may reference earlier findings.
+   - Runner: spawn via `codex-reviewer` MCP tool call per Codex MCP Contract.
+   - Return findings grouped by layer with Finding ID, Layer, Severity, File path, Critique, and Required fix.
+   - Graceful degradation: if `codex-reviewer` MCP is unavailable, log a warning with the exact reason and continue with Jazz + AGENTS Compliance only. Do not block the review phase.
+
+Run all three reviewers in parallel when possible.
 
 Preferred orchestration calls:
 - Spawn compliance reviewer via Task tool with `subagent_type: "default"` and role-labeled context (`[Role: AGENTS Compliance Reviewer]`).
 - Spawn Jazz via Task tool with `subagent_type: "default"` and role-labeled context (`[Role: Jazz Reviewer]`).
-- Team Lead must collect both review outputs and wait for both to complete before creating iteration tasks.
+- Spawn Codex Reviewer via `codex-reviewer` MCP tool call with changed files, feature summary, PRD constraints, and task DoD.
+- Team Lead must collect all three review outputs (or two if Codex is unavailable) and wait for all to complete before creating iteration tasks.
 
 ## Review Output Handling (mandatory)
 Team Lead is the explicit owner of review-fix orchestration.
