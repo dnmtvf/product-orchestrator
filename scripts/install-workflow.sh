@@ -153,10 +153,10 @@ install_claude_skills() {
 
 install_claude_skills "$REPO_PATH/.claude/skills"
 
-# Configure Conductor environment (one-time global setup)
+# Setup Droid MCP server at user level (one-time global setup)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [ -f "$SCRIPT_DIR/configure-conductor.sh" ]; then
-  "$SCRIPT_DIR/configure-conductor.sh"
+if [ -f "$SCRIPT_DIR/setup-droid-user.sh" ]; then
+  "$SCRIPT_DIR/setup-droid-user.sh"
 fi
 
 WORKFLOW_SRC="$REPO_PATH/$SUBMODULE_PATH/instructions/pm_workflow.md"
