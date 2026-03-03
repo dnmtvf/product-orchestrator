@@ -173,9 +173,9 @@ install_claude_runtime() {
 
 install_claude_runtime "$REPO_PATH/.claude/skills"
 
-# Configure Conductor environment (one-time global setup)
-if [ -f "$SCRIPT_DIR/configure-conductor.sh" ]; then
-  "$SCRIPT_DIR/configure-conductor.sh"
+# Setup Droid MCP server at user level (one-time global setup)
+if [ -f "$SCRIPT_DIR/setup-droid-user.sh" ]; then
+  "$SCRIPT_DIR/setup-droid-user.sh"
 fi
 
 if [ "$COPY_WORKFLOW" -eq 1 ]; then

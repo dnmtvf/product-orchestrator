@@ -1,13 +1,6 @@
 #!/opt/homebrew/bin/bash
 # Droid MCP Server Wrapper
-# This script wraps droid exec --headless as an MCP server for worker task execution
-# Usage: claude mcp add droid-worker -- ./scripts/droid-mcp-server --mcp
-#        Or pipe stdin (best-effort: auto-detects non-TTY stdin; may not work with PTY-based MCP hosts)
-#
-# Prerequisites:
-#   - droid CLI installed (~/.local/bin/droid)
-#   - MiniMax-M2.5 model configured in ~/.factory/settings.json (customModels array)
-#   - jq installed
+# Uses MCP protocol version 2024-11-05 (official spec)
 
 # Note: set -e is intentionally NOT used. The MCP server loop must survive
 # individual tool call errors without crashing the entire server process.
@@ -30,21 +23,12 @@ run_droid_task() {
     local session_id
     session_id=$(generate_session_id)
 
-    # Run droid in non-interactive mode with JSON output
-    # Redirect stdin from /dev/null to prevent droid from consuming MCP server's stdin
     local output
-    output=$(droid exec \
-        -m "$model" \
-        --auto "$auto_level" \
-        -o json \
-        --cwd "$repo_path" \
-        "$prompt" </dev/null 2>&1) || true
+    # Use env to pass variables to avoid complex quoting
+    output=$(env DROID_PROMPT="$prompt" DROID_REPO="$repo_path" DROID_MODEL="$model" DROID_AUTO="$auto_level" bash -c 'droid exec -m "$DROID_MODEL" --auto "$DROID_AUTO" -o json --cwd "$DROID_REPO" "$DROID_PROMPT"')
 
-    # Store session result
     SESSIONS["$session_id"]="$output"
 
-    # Parse droid output format:
-    # {"type":"result","subtype":"success","result":"...","session_id":"...","usage":{...}}
     local result_content
     local droid_session_id
     local is_error
@@ -53,8 +37,6 @@ run_droid_task() {
     droid_session_id=$(echo "$output" | jq -r '.session_id // ""' 2>/dev/null || echo "")
     is_error=$(echo "$output" | jq -r '.is_error // false' 2>/dev/null || echo "false")
 
-    # Build response JSON
-    # Use --arg for strings and @base64 for the full output to handle any content
     jq -n \
         --arg session_id "$session_id" \
         --arg droid_session_id "$droid_session_id" \
@@ -64,7 +46,7 @@ run_droid_task() {
         '{session_id: $session_id, droid_session_id: $droid_session_id, status: $status, result: $result, full_output: $full_output}'
 }
 
-# Continue a session with additional prompt
+# Continue a session
 continue_session() {
     local session_id="$1"
     local prompt="$2"
@@ -74,23 +56,16 @@ continue_session() {
         return 0
     fi
 
-    # For continued sessions, append to previous context
     local previous_output="${SESSIONS[$session_id]}"
     local previous_result
     previous_result=$(echo "$previous_output" | jq -r '.result // ""' 2>/dev/null || echo "")
     local new_prompt="$prompt\n\nPrevious context: $previous_result"
 
     local output
-    output=$(droid exec \
-        -m MiniMax-M2.5 \
-        --auto high \
-        -o json \
-        --cwd . \
-        "$new_prompt" </dev/null 2>&1) || true
+    output=$(env DROID_PROMPT="$new_prompt" bash -c 'droid exec -m MiniMax-M2.5 --auto high -o json --cwd . "$DROID_PROMPT"')
 
     SESSIONS["$session_id"]="$output"
 
-    # Parse droid output
     local result_content
     local is_error
 
@@ -117,15 +92,11 @@ get_session_result() {
     echo "${SESSIONS[$session_id]}"
 }
 
-# MCP server main loop (JSON-RPC over stdio)
-# Read from fd 3 to prevent droid subprocesses from consuming MCP stdin
+# MCP server main loop
 mcp_server() {
-    exec 3<&0  # duplicate stdin to fd 3
-    while read -r line <&3; do
-        # Skip empty lines
+    while IFS= read -r line; do
         [[ -z "$line" ]] && continue
 
-        # Parse JSON-RPC request (simplified)
         local method
         local id
 
@@ -134,11 +105,9 @@ mcp_server() {
 
         case "$method" in
             "initialize")
-                # protocolVersion: "2025-03-26" — verified against MCP spec as of 2025-03-26.
-                # Re-verify at https://spec.modelcontextprotocol.io if Claude Code rejects this handshake.
                 jq -n \
                     --arg id "${id:-null}" \
-                    '{"jsonrpc":"2.0","id":($id | tonumber? // null),"result":{"protocolVersion":"2025-03-26","capabilities":{"tools":{}},"serverInfo":{"name":"droid-worker","version":"1.0.0"}}}'
+                    '{"jsonrpc":"2.0","id":($id | tonumber? // null),"result":{"protocolVersion":"2024-11-05","capabilities":{"tools":{}},"serverInfo":{"name":"droid-worker","version":"1.0.0"}}}'
                 ;;
             "tools/list")
                 jq -n \
@@ -159,7 +128,6 @@ mcp_server() {
 
                         local result
                         result=$(run_droid_task "$prompt" "$repo_path" "$model" "$auto_level")
-                        # Build JSON response properly using jq to avoid escaping issues
                         jq -n \
                             --arg id "${id:-null}" \
                             --arg result "$result" \
@@ -189,14 +157,13 @@ mcp_server() {
                             '{"jsonrpc":"2.0","id":($id | tonumber? // null),"result":{"content":[{"type":"text","text":$result}]}}'
                         ;;
                     *)
-                        # Use --arg for id to handle empty/null cases, convert to number in jq
                         jq -n --arg id "${id:-null}" --arg name "$tool_name" \
                             '{"jsonrpc":"2.0","id":($id | tonumber? // null),"error":{"code":-32601,"message":("Unknown tool: " + $name)}}'
                         ;;
                 esac
                 ;;
             "notifications/initialized")
-                # MCP lifecycle notification — no response required, silently ignore
+                # No response required
                 ;;
             *)
                 jq -n --arg id "${id:-null}" \
@@ -207,11 +174,9 @@ mcp_server() {
 }
 
 # Check if running as MCP server or direct command
-# Auto-detect: if stdin is not a TTY (e.g. launched by Claude Code MCP client), default to MCP mode
 if [[ "$1" == "--mcp" ]] || [[ ! -t 0 && -z "$1" ]]; then
     mcp_server
 else
-    # Direct invocation mode
     case "${1:-}" in
         run)
             run_droid_task "$2" "${3:-.}" "${4:-MiniMax-M2.5}" "${5:-high}"

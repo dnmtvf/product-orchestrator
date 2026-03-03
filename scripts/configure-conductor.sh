@@ -1,80 +1,18 @@
 #!/usr/bin/env bash
-# Configure Conductor environment for PM orchestrator workflow
-# This script sets up global Claude Code settings required for Conductor workspaces
+# DEPRECATED: This script is deprecated in favor of setup-droid-user.sh
+# The PM orchestrator now uses user-level droid-worker configuration.
+# This script is kept for backward compatibility but redirects to the new script.
 
 set -euo pipefail
 
-SCRIPT_NAME="$(basename "$0")"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-log() {
-  echo "[$SCRIPT_NAME] $*"
-}
+# Delegate to new setup script if it exists
+if [ -f "$SCRIPT_DIR/setup-droid-user.sh" ]; then
+  exec "$SCRIPT_DIR/setup-droid-user.sh"
+fi
 
-configure_mcp_approval() {
-  local settings_file="$HOME/.claude/settings.json"
-
-  log "Configuring MCP auto-approval for all project servers..."
-
-  if ! command -v jq >/dev/null 2>&1; then
-    log "Warning: jq not found. Cannot auto-configure MCP approval."
-    echo "Manual step required: Run this command to enable all project MCP servers in Conductor:"
-    echo "  claude config set -g enableAllProjectMcpServers true"
-    return 0
-  fi
-
-  # Create settings.json if it doesn't exist
-  if [ ! -f "$settings_file" ]; then
-    mkdir -p "$(dirname "$settings_file")"
-    echo '{"enableAllProjectMcpServers":true}' > "$settings_file"
-    log "Created $settings_file with enableAllProjectMcpServers: true"
-    return 0
-  fi
-
-  # Check if already enabled
-  if jq -e '.enableAllProjectMcpServers == true' "$settings_file" >/dev/null 2>&1; then
-    log "enableAllProjectMcpServers already true (skipping)"
-    return 0
-  fi
-
-  # Add/enable the setting
-  local updated
-  updated=$(jq '.enableAllProjectMcpServers = true' "$settings_file")
-  echo "$updated" > "$settings_file"
-  log "Set enableAllProjectMcpServers: true in $settings_file"
-}
-
-usage() {
-  cat <<'EOF'
-Configure Conductor environment for PM orchestrator workflow.
-
-Usage:
-  configure-conductor.sh [options]
-
-Options:
-  -h, --help    Show this help message
-
-This script configures global Claude Code settings required for running
-PM orchestrator workflows in Conductor workspaces:
-
-  - enableAllProjectMcpServers: true (allows .mcp.json servers to load
-    without interactive approval in Conductor's non-interactive environment)
-
-Run this script once per machine/user account.
-EOF
-}
-
-case "${1:-}" in
-  -h|--help)
-    usage
-    exit 0
-    ;;
-  "")
-    configure_mcp_approval
-    log "Configuration complete"
-    ;;
-  *)
-    echo "Unknown argument: $1" >&2
-    usage >&2
-    exit 1
-    ;;
-esac
+# Fallback: do nothing (user-level config is now the default)
+echo "[configure-conductor] DEPRECATED: User-level droid configuration is now automatic."
+echo "[configure-conductor] No action needed. Use ./scripts/setup-droid-user.sh if you need to reconfigure."
+exit 0

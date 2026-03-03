@@ -29,21 +29,15 @@ The PM workflow runs Claude Code (Opus 4.6) for lead roles and Droid CLI + MiniM
    export ANTHROPIC_BASE_URL="https://api.minimax.io/anthropic"
    export ANTHROPIC_AUTH_TOKEN="your-minimax-api-key"
    ```
-3. Register Droid as an MCP server:
+3. Register Droid as an MCP server (one-time user-level setup):
    ```bash
-   # Option A: Project-level (recommended, shared with team via .mcp.json)
-   # Add to your project's .mcp.json file
-
-   # Option B: User-level (personal only)
-   claude mcp add droid-worker -s user -- ./scripts/droid-mcp-server --mcp
+   /pm install droid mcp
    ```
-
-   **Conductor Note**: Project-level `.mcp.json` servers require interactive approval by default. In Conductor's non-interactive workspaces, enable auto-approval for all project MCP servers:
+   Or run the script directly:
    ```bash
-   # Run the configuration script (called automatically by install/inject scripts)
-   ./scripts/configure-conductor.sh
+   ./scripts/setup-droid-user.sh
    ```
-   Or manually: `claude config set -g enableAllProjectMcpServers true`
+   This copies `droid-mcp-server` to `~/.local/bin/` and adds it to `~/.claude.json`. After this one-time setup, droid-worker works in all repos (new and existing) without any additional configuration.
 4. Start Claude Code with Opus 4.6 for lead role quality:
    ```bash
    claude --model claude-opus-4-6

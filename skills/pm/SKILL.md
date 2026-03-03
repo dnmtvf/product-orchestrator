@@ -29,7 +29,15 @@ description: Strict PM orchestration workflow for any repo. Trigger when user in
   - Behavior: big-feature planning workflow with multi-PRD decomposition.
 - Help route:
   - Trigger: `/pm help` or `$pm help`
-  - Behavior: print basic workflow invocations, required phase sequence, and exact approval gate token.
+  - Behavior: print basic workflow invocations, required phase sequence, exact approval gate token, and setup commands.
+  - Help output must include:
+    - `/pm plan: <description>` — Start single-PRD planning workflow
+    - `/pm plan big feature: <description>` — Start multi-PRD planning for large features
+    - `/pm install droid mcp` — Configure droid-worker MCP server (one-time user setup)
+    - `/pm self-update` — Check for PM orchestrator updates
+    - `/pm help` — Show this help
+    - Approval gate token: `approved` (exact spelling required)
+    - Phase sequence: Discovery → PRD → Approval → Beads Planning → Approval → Implementation → Reviews → QA
 - Self-update route (manual only):
   - Trigger: `/pm self-update` or `$pm self-update`
   - Behavior:
@@ -53,6 +61,13 @@ description: Strict PM orchestration workflow for any repo. Trigger when user in
 - Backward-compatibility rule:
   - `$pm plan:` must remain the default single-PRD route.
   - Big-feature mode is entered only with explicit `plan big feature` phrasing.
+- Install Droid MCP route:
+  - Trigger: `/pm install droid mcp` or `$pm install droid mcp`
+  - Behavior: run the user-level droid MCP setup automatically
+    1. Locate `scripts/setup-droid-user.sh` from skill installation path
+    2. Execute the script to configure droid-worker at user level
+    3. Report success/failure to user
+    4. If already configured, report "droid-worker already configured" and exit cleanly
 
 ## Big-Feature Mode Selector (mandatory)
 - In big-feature route, PM must capture planning mode before decomposition starts.
