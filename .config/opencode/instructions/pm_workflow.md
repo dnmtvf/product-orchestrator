@@ -1,0 +1,186 @@
+# OpenCode PM Workflow (Strict)
+
+This workflow is the source of truth for PM orchestration in OpenCode.
+
+## Required Phase Order
+`Discovery -> PRD -> Awaiting PRD Approval -> Beads Planning -> Awaiting Beads Approval -> Team Lead Orchestration -> Implementation -> Post-Implementation Reviews -> Review Iteration -> Manual QA Smoke Tests -> Awaiting Final Review`
+
+## Hard Rules
+- No assumptions.
+- Discovery must ask numbered clarification questions with `Why it matters:` until ambiguity is removed.
+- Two human gates require the exact reply `approved`:
+  - PRD approval gate
+  - Beads approval gate
+- Do not start implementation without approved PRD + approved Beads plan.
+- PRD must exist at `docs/prd/<slug>.md`.
+- PRD `Open Questions` must be empty before execution.
+- Beads (`bd`) is the execution source of truth and `.beads/` must stay in git.
+- No silent failures: when any issue/error appears at a step, report it explicitly to the user immediately.
+- Non-critical issues must not stop the workflow; continue execution while tracking impact and mitigation.
+- Critical errors may block the workflow; when blocked, include exact reason, impact, and required remediation.
+
+## Phase Error Reporting Policy
+- During any phase step, emit explicit issue reporting with:
+  - severity (`warning` or `critical`)
+  - phase and step
+  - impact
+  - next action / mitigation
+- At the end of every phase, include a `Phase Error Summary` section:
+  - `none` when no issues occurred
+  - otherwise list all phase issues (resolved and unresolved) with status.
+- End-of-phase summary is mandatory even when the workflow continues.
+
+## Command Routing
+- `/pm plan: ...` and `$pm plan: ...` map to default single-PRD planning flow.
+- `/pm plan big feature: ...` and `$pm plan big feature: ...` map to big-feature planning flow.
+- Both plan routes must execute the helper gate before Discovery:
+  - `./.codex/skills/pm/scripts/pm-command.sh plan gate --route default|big-feature [--lead-model full-codex|codex-main|claude-main]`
+- Before Discovery for both plan routes, run a mandatory lead-model selection gate with exactly three options:
+  - `Full Codex Orchestration`
+  - `Codex as Main Agent`
+  - `Claude as Main Orchestrator`
+- Codex-native orchestrator roles are pinned to `gpt-5.4` with `xhigh` reasoning effort.
+- Persist selected lead-model profile across sessions and reuse by default until changed.
+- Selected lead model must drive runtime/model for:
+  - `project_manager`
+  - `team_lead`
+  - `pm_beads_plan_handoff`
+  - `pm_implement_handoff`
+- `Full Codex Orchestration` must remain usable without Claude MCP.
+- `Codex as Main Agent` must check Claude MCP availability immediately after selection and, if unavailable, block with an explicit fallback offer to `Full Codex Orchestration`.
+- `Claude as Main Orchestrator` must check Claude MCP availability immediately after selection and block before Discovery if Claude is unavailable.
+- Claude availability requires both:
+  - healthy `claude-code` registration in `codex mcp list`
+  - an executable configured command in the actual PM runtime
+- PM must treat `[shell_environment_policy.set].PATH`, `[mcp_servers.claude-code.env].PATH`, or an absolute command path as valid ways to satisfy the executable-command requirement.
+- `mcp__claude-code__Agent` / implicit `general-purpose` agent launching is not a valid PM orchestration path.
+- Use `codex mcp add claude-code -- claude mcp serve` only when the server is actually missing; if the launcher reports `no supported agent type` or the command is not executable in the PM runtime, treat Claude runtime as unavailable for that session.
+- `/pm help` and `$pm help` print command invocations, required phase order, and approval-gate reminders.
+- `/pm lead-model show|set|reset` and `$pm lead-model show|set|reset` must route to:
+  - `./.codex/skills/pm/scripts/pm-command.sh lead-model show`
+  - `./.codex/skills/pm/scripts/pm-command.sh lead-model set --profile full-codex|codex-main|claude-main`
+  - `./.codex/skills/pm/scripts/pm-command.sh lead-model reset`
+- `/pm self-update` and `$pm self-update` are manual-only and must run the Codex self-update check flow, then trigger:
+  - `/pm plan: Inspect latest Codex changes and align orchestrator behavior with lead-model profile runtime policy.`
+- Self-update check policy:
+  - changelog website is source of truth
+  - release/npm signals are corroborative only
+  - pending updates are evaluated as one deterministic batch (stable + prerelease by default)
+  - changelog items must be split into pipeline-relevant vs non-relevant before planning approval
+  - for relevant items, output an integration plan item (`change -> orchestrator integration -> expected improvement`)
+  - configurable gates:
+    - `PM_SELF_UPDATE_INCLUDE_PRERELEASE=0|1`
+    - `PM_SELF_UPDATE_STRICT_MISMATCH=0|1`
+- Helper script path resolution:
+  - required path in target repos: `./.codex/skills/pm/scripts/pm-command.sh`
+- Self-update completion gate is explicit and manual:
+  - `./.codex/skills/pm/scripts/pm-command.sh self-update complete --approval approved --prd-approval approved --beads-approval approved --prd-path docs/prd/<approved-prd>.md`
+  - completion requires PRD coverage evidence for all pending batch versions and empty `Open Questions`
+- Big-feature planning must require explicit mode selection:
+  - `conflict-aware`
+  - `worktree-isolated`
+- If mode is missing in the initial request, discovery must ask for it before decomposition.
+
+## Queue Manifest And Idempotency
+- Persist big-feature queue state at `docs/prd/_queue/<feature-slug>.json`.
+- Per-PRD states must include at least:
+  - `pending`, `in_discovery`, `awaiting_prd_approval`, `awaiting_beads_approval`, `approved`, `queued`, `queue_failed`.
+- Canonical runnable queue handle is Beads epic ID.
+- Idempotency key format: `<prd_slug>:<approval_version>`.
+- Duplicate prevention invariants:
+  - never enqueue the same idempotency key twice
+  - never allow more than one active queue entry for the same PRD slug
+- Enqueue retry policy: one automatic retry, then manual intervention (`queue_failed`).
+- Queue-ready means `queued` + selectable work + passing preflight.
+
+## Runnable Promotion Gate
+- Promotion to `queued` is allowed only when all are true:
+  - PRD approval gate exact reply is `approved`
+  - Beads approval gate exact reply is `approved`
+  - PRD `Open Questions` is empty
+- If any condition fails, block promotion and keep explicit non-runnable state:
+  - missing PRD approval -> `awaiting_prd_approval`
+  - missing Beads approval -> `awaiting_beads_approval`
+  - open questions remaining -> `approved` with `blocked_reason=open_questions`
+
+## Async Enqueue Worker
+- Big-feature route must enqueue approved PRDs asynchronously with bounded concurrency: `worker_cap=2`.
+- Worker selection should operate on ready-approved PRDs only and must be deterministic.
+- Each enqueue attempt must be idempotent by `<prd_slug>:<approval_version>`.
+- Retry policy: one automatic retry per PRD; second failure transitions PRD to `queue_failed`.
+- `queue_failed` requires manual intervention before any additional enqueue attempts.
+
+## Queue Reconciliation Output
+- At end of big-feature planning, publish reconciliation summary with per-PRD status and counts:
+  - `discovered`
+  - `approved`
+  - `queued`
+  - `queue_failed`
+- Report blocked items with explicit reason and next action.
+
+## Model Routing Policy
+- Lead-model profiles:
+  - `codex-main` (default): Codex main roles, Claude support roles where configured.
+  - `full-codex`: Codex handles all orchestration and support roles without Claude.
+  - `claude-main`: Claude main roles, with Codex support roles where configured.
+- Planning/discovery/docs/research/QA/review orchestration model selection follows active profile routing matrix.
+- Implementation coding tasks follow active profile routing matrix.
+- External Claude agents are allowed only through `claude-code` MCP contract.
+- Direct Claude CLI/app orchestration is not allowed.
+
+## Git / Shipping Policy
+- No `git commit` or `git push` during PM execution phases (Discovery through Awaiting Final Review).
+- Shipping is a separate, user-triggered step after verification/final review.
+- Use `/ship <optional notes>` to run tests, then (only with user confirmation) commit and push.
+- AGENTS landing-plane rules apply at session completion after PM execution phases are finished.
+- Self-update checkpoint commits from `pm-command.sh self-update complete ...` are explicitly outside active PM execution phases.
+
+## Subagent Orchestration Policy
+- PM must use `Task(...)` subagent calls for parallel support work.
+- Mandatory prompt prefix for delegation objectives: `use agent swarm for <objective>`.
+- In OpenCode, "agent swarm" means parallel `Task(...)` fan-out to specialized subagents.
+- For every external-Claude delegation, PM/Team Lead must validate a context-pack JSON before invocation:
+  - `./.codex/skills/pm/scripts/pm-command.sh claude-contract validate-context --context-file <json> --role <role>`
+- Required context-pack keys:
+  - `feature_objective, prd_context, task_id, acceptance_criteria, implementation_status, changed_files, constraints, evidence, clarifying_instruction`
+- External-Claude responses must use missing-context handshake marker when blocked:
+  - `CONTEXT_REQUEST|needed_fields=<csv>|questions=<numbered items>`
+- PM/Team Lead must parse response handshake before accepting completion:
+  - `./.codex/skills/pm/scripts/pm-command.sh claude-contract evaluate-response --response-file <txt> --session-id <id> --role <role>`
+- Optional wrapper for multi-step sessions:
+  - `./.codex/skills/pm/scripts/pm-command.sh claude-contract run-loop --context-file <json> --response-file <txt> [--response-file <txt> ...] --session-id <id> --role <role>`
+- If handshake parser/wrapper returns `status=context_needed` or `status=awaiting_context`, orchestrator must gather requested context and continue in the same Claude session.
+- Required support subagents in discovery:
+  - `pm-research`
+  - `pm-docs`
+  - `pm-qa` (for smoke-test planning)
+- Implementation must run through `pm-team-lead`, which delegates coding to:
+  - `pm-backend`
+  - `pm-frontend`
+  - `pm-security`
+- Verification/review subagents:
+  - `pm-verify`
+  - `pm-jazz-review`
+
+## Dual-Mode Smoke Coverage
+- For big-feature workflows, smoke planning and QA must cover both planning modes:
+  - `conflict-aware`
+  - `worktree-isolated`
+- Required categories:
+  - happy path
+  - unhappy path
+  - regression
+- Smoke output must include pass/fail evidence and a regression checklist.
+
+## Bootstrap Requirements
+Ensure the repo has:
+- `AGENTS.md`
+- `docs/prd/_template.md`
+- `docs/beads.md`
+
+## Output Contract
+Each PM response must include:
+1. `Current phase: <...>`
+2. Phase-appropriate output
+3. `What I need from you next`
+4. `Phase Error Summary` (must be `none` or a list of issues with status)

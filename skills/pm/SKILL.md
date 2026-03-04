@@ -12,7 +12,21 @@ description: Strict PM orchestration workflow for any repo. Trigger when user in
 - Two hard human gates must use exact response: `approved`.
 - Do not jump phases unless prerequisites are satisfied.
 - Use Beads (`bd`) as the execution source of truth; keep `.beads/` tracked in git.
-- Invocation guard: when this skill is available, it must be invoked via the Skill tool before any PM-phase actions. Do not manually read this file and proceed as fallback.
+- Invocation guard: when this skill is available, it must be invoked via the Skill tool before any PM-phase actions. Do not manually read this file and proceed.
+- No silent failures: when any issue/error appears at a step, report it explicitly to the user immediately.
+- Non-critical issues must not stop workflow progression; continue and track mitigation.
+- Critical errors may block the phase only when execution cannot continue safely.
+
+## Phase Error Reporting (mandatory)
+- During any phase step with an issue, report:
+  - severity (`warning` or `critical`)
+  - phase + step
+  - impact
+  - mitigation / next action
+- At the end of every phase, include `Phase Error Summary`:
+  - `none` if no issues occurred
+  - otherwise list all issues with status (`resolved` or `unresolved`)
+- End-of-phase error summary is required even when no blocking errors occurred.
 
 ## Orchestrator Trigger Semantics
 - `/pm` is the orchestrator entrypoint for this workflow.
@@ -24,51 +38,67 @@ description: Strict PM orchestration workflow for any repo. Trigger when user in
 - Default planning route:
   - Trigger: `/pm plan: ...` or `$pm plan: ...`
   - Behavior: single-PRD planning workflow (existing default).
+  - Required pre-Discovery gate command:
+    - `./.codex/skills/pm/scripts/pm-command.sh plan gate --route default [--lead-model full-codex|codex-main|claude-main]`
 - Big-feature planning route:
   - Trigger: `/pm plan big feature: ...` or `$pm plan big feature: ...`
   - Behavior: big-feature planning workflow with multi-PRD decomposition.
+  - Required pre-Discovery gate command:
+    - `./.codex/skills/pm/scripts/pm-command.sh plan gate --route big-feature [--lead-model full-codex|codex-main|claude-main]`
+- Lead-model gate (applies to both plan routes before Discovery):
+  - Ask lead model with exactly three options:
+    - `Full Codex Orchestration`
+    - `Codex as Main Agent`
+    - `Claude as Main Orchestrator`
+  - Codex-native orchestrator roles are pinned to `gpt-5.4` with `xhigh` reasoning effort.
+  - Persist selected profile across sessions until explicitly changed.
+  - Re-echo active profile at workflow start on every invocation.
+  - Main roles must follow selected profile runtime/model:
+    - `project_manager`
+    - `team_lead`
+    - `pm_beads_plan_handoff`
+    - `pm_implement_handoff`
+  - `Full Codex Orchestration` must remain usable without Claude MCP.
+  - `Codex as Main Agent` must check Claude MCP availability immediately after selection and, if unavailable, block with an explicit fallback offer to `Full Codex Orchestration`.
+  - `Claude as Main Orchestrator` must check Claude MCP availability immediately after selection and block before Discovery if Claude is unavailable.
+  - Claude availability requires both:
+    - healthy `claude-code` registration in `codex mcp list`
+    - an executable configured command in the actual PM runtime
+  - PM must treat `[shell_environment_policy.set].PATH`, `[mcp_servers.claude-code.env].PATH`, or an absolute command path as valid ways to satisfy the executable-command requirement.
+  - If the server is actually missing, remediation is:
+    - `codex mcp add claude-code -- claude mcp serve`
 - Help route:
   - Trigger: `/pm help` or `$pm help`
-  - Behavior: print basic workflow invocations, required phase sequence, exact approval gate token, and setup commands.
-  - Help output must include:
-    - `/pm plan: <description>` — Start single-PRD planning workflow
-    - `/pm plan big feature: <description>` — Start multi-PRD planning for large features
-    - `/pm install codex` — Configure codex-worker MCP server (one-time user setup)
-    - `/pm self-update` — Check for PM orchestrator updates
-    - `/pm help` — Show this help
-    - Approval gate token: `approved` (exact spelling required)
-    - Phase sequence: Discovery → PRD → Approval → Beads Planning → Approval → Implementation → Reviews → QA
+  - Behavior: print basic workflow invocations, required phase sequence, and exact approval gate token.
+- Lead-model route:
+  - Trigger: `/pm lead-model show|set|reset` or `$pm lead-model show|set|reset`
+  - Behavior:
+    - `./.codex/skills/pm/scripts/pm-command.sh lead-model show`
+    - `./.codex/skills/pm/scripts/pm-command.sh lead-model set --profile full-codex|codex-main|claude-main`
+    - `./.codex/skills/pm/scripts/pm-command.sh lead-model reset`
 - Self-update route (manual only):
   - Trigger: `/pm self-update` or `$pm self-update`
   - Behavior:
-    1. Run Claude Code self-update check helper:
-       - `./.claude/skills/pm/scripts/pm-command.sh self-update check`
-       - source-repo fallback: `./skills/pm/scripts/pm-command.sh self-update check`
+    1. Run Codex self-update check helper:
+       - `./.codex/skills/pm/scripts/pm-command.sh self-update check`
     2. Interpret check results with these rules:
        - changelog website is source of truth
        - release/npm signals are corroborative only
        - pending updates are evaluated as one deterministic batch (stable + prerelease by default)
+       - split changelog entries into pipeline-relevant vs filtered non-relevant items
+       - produce integration plan items for relevant entries (`change -> integration -> expected improvement`)
        - feature flags may narrow/strictly gate behavior:
          - `PM_SELF_UPDATE_INCLUDE_PRERELEASE=0|1`
          - `PM_SELF_UPDATE_STRICT_MISMATCH=0|1`
     3. If update is available, immediately trigger default planning route:
-       - `/pm plan: Inspect latest Claude Code changes and align orchestrator behavior with Claude Code runtime policy.`
+       - `/pm plan: Inspect latest Codex changes and align orchestrator behavior with lead-model profile runtime policy.`
     4. After full PM flow completion gate, advance processed version with:
-       - `./.claude/skills/pm/scripts/pm-command.sh self-update complete --approval approved --prd-approval approved --beads-approval approved --prd-path docs/prd/<approved-prd>.md`
-       - source-repo fallback: `./skills/pm/scripts/pm-command.sh self-update complete --approval approved --prd-approval approved --beads-approval approved --prd-path docs/prd/<approved-prd>.md`
+       - `./.codex/skills/pm/scripts/pm-command.sh self-update complete --approval approved --prd-approval approved --beads-approval approved --prd-path docs/prd/<approved-prd>.md`
        - completion requires PRD evidence covering all pending batch versions and empty `Open Questions`
   - Do not run in background/scheduled mode.
 - Backward-compatibility rule:
   - `$pm plan:` must remain the default single-PRD route.
   - Big-feature mode is entered only with explicit `plan big feature` phrasing.
-- Install Codex route:
-  - Trigger: `/pm install codex` or `$pm install codex`
-  - Behavior: verify codex-worker MCP server is configured
-    1. Check that Codex CLI is installed (`codex --version`)
-    2. Verify `codex-worker` MCP is registered (`claude mcp list | grep codex-worker`)
-    3. If not registered, add it: `claude mcp add codex-worker -- codex mcp-server`
-    4. Report success/failure to user
-    5. If already configured, report "codex-worker already configured" and exit cleanly
 
 ## Big-Feature Mode Selector (mandatory)
 - In big-feature route, PM must capture planning mode before decomposition starts.
@@ -116,34 +146,44 @@ description: Strict PM orchestration workflow for any repo. Trigger when user in
 - Include per-PRD blocked/failed reasons and required next action.
 
 ## Subagent Launcher Compatibility (mandatory across all phases)
-- PM must launch only supported Claude Code Task tool `subagent_type` values: `default`, `Explore`, `Plan`.
+- PM must launch only supported generic agent types: `default`, `explorer`, `worker`.
 - PM must encode functional role in prompt payload (for example: `[Role: Senior Engineer]`).
 - PM must not depend on custom named launcher types being available.
 - Recommended launcher mapping:
-  - `default` (Task tool): Researcher, Team Lead, Librarian, AGENTS compliance reviewer, Codex Reviewer, Manual QA, Task Verification, and other Claude-native roles.
-  - `codex-worker` MCP: Senior Engineer, Smoke Test Planner, Alternative PM, Jazz Reviewer (gpt-5.3-codex xhigh specialized analysis/review).
-- For Codex Reviewer:
-  - spawn via Task tool with `subagent_type: "default"` and role-labeled prompt (`[Role: Codex Reviewer]`)
-  - load prompt from `$pm-implement` references (`codex-reviewer.md`)
-  - performs 4 sequential review passes (architecture, syntax, composition, logic) within a single subagent
-- For Researcher, Librarian, and other Claude-native roles:
-  - spawn via native Task tool with `subagent_type: "default"` and role-labeled prompt (primary path)
-  - fallback: invoke `claude-code` MCP from a `default` subagent per the Claude MCP Contract
+  - `explorer`: Senior Engineer and codebase read/analyze subagents.
+  - `default`: Librarian, Smoke Test Planner, Researcher, Alternative PM, Team Lead, AGENTS compliance reviewer, Jazz reviewer, and Manual QA.
+  - `worker`: Backend/Frontend/Security implementation subagents.
+- For Smoke Test Planner, Researcher, Alternative PM, and Jazz Reviewer roles when active profile maps runtime to `claude-code-mcp`:
+  - spawn a generic `default` subagent first
+  - then invoke `claude-code` MCP from that subagent per the Claude MCP Contract
   - do not treat `claude-code` as a launcher type
-- For Senior Engineer, Smoke Test Planner, and Alternative PM (codex-native roles):
-  - spawn via `codex-worker` MCP tool call (not via Task tool)
-  - include full context block per Codex Worker Context Contract
-  - do not treat `codex-worker` as a native launcher type
+  - do not use `mcp__claude-code__Agent` / implicit `general-purpose` agent launching as the PM Claude path
 
 ## Claude MCP Contract (mandatory for external Claude agents)
-- PM orchestration runtime is Claude Code (Opus 4.6 for lead roles); Codex CLI (gpt-5.3-codex) handles specialized analysis/review tasks.
-- **Primary path (Claude Code runtime):** When PM is running inside Claude Code, use the **native Task tool** to spawn Claude subagents — no MCP bridge needed. This is the idiomatic and preferred approach. Use `subagent_type: "default"` for Claude-native roles. Codex-native roles (Senior Engineer, Smoke Test Planner, Alternative PM, Jazz Reviewer) use `codex-worker` MCP instead.
-- **Fallback path (non-Claude-Code runtimes):** Use Claude through MCP server `claude-code` when the outer runtime is not Claude Code (do not run Claude as app/interactive CLI for pipeline orchestration).
-  - Required environment setup (once):
-    - `claude mcp add claude-code -- claude mcp serve`
-  - Start a new Claude interaction via `claude-code` MCP tool call with the full prompt.
-  - Continue follow-ups/answers in the same Claude interaction using the returned conversation/session identifier from the MCP response.
-  - If `claude-code` MCP is unavailable, report a blocked state with exact reason instead of silently switching invocation mode.
+- PM orchestration runtime is lead-model profile driven (`codex-main` default, plus `full-codex` and `claude-main`).
+- Use Claude through MCP server `claude-code` (do not run Claude as app/interactive CLI for pipeline orchestration).
+- Required environment setup (once):
+  - `codex mcp add claude-code -- claude mcp serve`
+- `codex mcp list` only verifies that `claude-code` is configured/enabled; it does not prove the current environment exposes a usable Claude launcher.
+- Only use a `claude-code` MCP tool that explicitly provides prompt/session semantics in the current environment. `mcp__claude-code__Agent` with implicit `general-purpose` is not the PM contract.
+- If the launcher reports `Agent type 'general-purpose' not found`, `no supported agent type`, or equivalent, treat `claude-code` runtime as unavailable for the current session.
+- In that case, continue with `codex-native` fallback for roles mapped to `claude-code-mcp` and emit explicit warning + remediation.
+- Remediation split:
+  - server missing/not configured -> `codex mcp add claude-code -- claude mcp serve`
+  - server enabled but launcher unusable -> report the launcher limitation and continue with fallback; do not loop on reinstall instructions
+- For Claude MCP agents, prompt must start with:
+  - `use agent swarm for <objective>`
+- Before each external-Claude call, validate a context-pack JSON with:
+  - `./.codex/skills/pm/scripts/pm-command.sh claude-contract validate-context --context-file <json> --role <role>`
+- Required context-pack fields:
+  - `feature_objective, prd_context, task_id, acceptance_criteria, implementation_status, changed_files, constraints, evidence, clarifying_instruction`
+- Claude missing-context handshake marker must be:
+  - `CONTEXT_REQUEST|needed_fields=<csv>|questions=<numbered items>`
+- After each Claude response, parse handshake status with:
+  - `./.codex/skills/pm/scripts/pm-command.sh claude-contract evaluate-response --response-file <txt> --session-id <id> --role <role>`
+- Optional wrapper for multi-step sessions:
+  - `./.codex/skills/pm/scripts/pm-command.sh claude-contract run-loop --context-file <json> --response-file <txt> [--response-file <txt> ...] --session-id <id> --role <role>`
+- If parser/wrapper returns `status=context_needed` or `status=awaiting_context`, PM must collect requested info from orchestrator/user and continue in the same Claude session.
 
 ## Paired Support Agents (mandatory)
 For every phase, run two support agents in parallel before asking user follow-ups, unless information is already sufficient:
@@ -151,7 +191,6 @@ For every phase, run two support agents in parallel before asking user follow-up
 1. **Senior Engineer Agent**
    - Load prompt from `references/senior-engineer.md`.
    - Purpose: proactively answer repo/codebase questions (architecture, constraints, feasibility, implementation impact, test impact).
-   - Runtime: Codex CLI via `codex-worker` MCP tool call.
    - Source priority: local codebase and repo docs first.
 
 2. **Librarian Agent**
@@ -169,8 +208,12 @@ During Discovery, run an additional agent:
 3. **Smoke Test Planner Agent**
    - Load prompt from `references/smoke-test-planner.md`.
    - Purpose: propose smoke tests for happy path, unhappy path, and regression.
-   - Runtime: Codex CLI via `codex-worker` MCP tool call.
-   - Include full context block per Codex Worker Context Contract (feature objective, scope, constraints).
+   - Launcher type: spawn as generic `default` with role-labeled prompt context (`[Role: Smoke Test Planner Agent]`).
+   - Runner: use active profile routing from `model-routing.yaml`:
+     - `full-codex`: run codex-native as configured.
+     - `codex-main`: invoke via `claude-code` MCP using the Claude MCP Contract.
+     - `claude-main`: run codex-native as configured.
+   - Mandatory key phrase: start prompt with `use agent swarm for smoke test planning: <feature objective + constraints>`.
    - Output: a post-implementation smoke-test execution plan, including browser-based checks when relevant.
 
 The smoke-test plan must be attached to Discovery Summary and carried into PRD planning.
@@ -181,8 +224,9 @@ During Discovery, run an additional agent for non-obvious or research-heavy ques
 4. **Researcher Agent**
    - Load prompt from `references/researcher.md`.
    - Purpose: answer complex questions that do not have a straight answer and require deeper investigation/synthesis.
-   - Launcher type: spawn via native Task tool with `subagent_type: "default"` and role-labeled prompt context (`[Role: Researcher Agent]`).
-   - Runner: primary path is native Task tool; fallback is `claude-code` MCP tool call.
+   - Launcher type: spawn as generic `default` with role-labeled prompt context (`[Role: Researcher Agent]`).
+   - Runner: invoke via `claude-code` MCP tool call; continue in same MCP conversation/session for follow-ups.
+   - Advanced mode: invoke with exact prefix `use agent swarm for <research objective>`.
    - Output: researched findings, tradeoffs, risks, and recommendation with evidence.
 
 ## Discovery Alternative PM Agent (mandatory every discovery step)
@@ -191,8 +235,12 @@ During Discovery, run an additional second-PM agent to challenge solution framin
 5. **Alternative PM Agent**
    - Load prompt from `references/alternative-pm.md`.
    - Purpose: provide alternative solution paths and critical reasoning for how the problem could be solved differently.
-   - Runtime: Codex CLI via `codex-worker` MCP tool call.
-   - Include full context block per Codex Worker Context Contract (problem statement, constraints, current solution framing).
+   - Launcher type: spawn as generic `default` with role-labeled prompt context (`[Role: Alternative PM Agent]`).
+   - Runner: use active profile routing from `model-routing.yaml`:
+     - `full-codex`: run codex-native as configured.
+     - `codex-main`: invoke via `claude-code` MCP using the Claude MCP Contract.
+     - `claude-main`: run codex-native as configured.
+   - Mandatory key phrase: start prompt with `use agent swarm for <problem statement and constraints>`.
    - Output: alternatives matrix with options, tradeoffs, risks, assumptions, and recommendation.
 
 ## Implementation Team Lead Agent (mandatory after beads approval)
@@ -211,42 +259,23 @@ After user approves implementation handoff at the Beads approval gate, create:
      - assign tasks to subagents
      - manage dependency order and integration points
      - collect progress, unblock bottlenecks, and maintain execution pace
-     - after each implemented task, run task-verification agent via native Task tool (primary) or Claude MCP Contract (fallback)
+     - after each implemented task, run task-verification agent as generic `default` subagent
      - if verification fails, create a new Beads fix/reimplementation ticket and ensure it is completed before review
-
-## Codex Worker Context Contract (mandatory)
-Every prompt spawning a codex-native role via `codex-worker` MCP must include a structured context block. Workers must have enough context to act independently and must be explicitly invited to ask clarifying questions before executing.
-
-**Required context block template** (include verbatim in every codex-worker spawn):
-```
---- CONTEXT ---
-Task: <task title from Beads>
-Task ID: <beads task id>
-PRD: <path to PRD file>
-DoD: <exact definition of done from Beads task>
-In-scope files/modules: <list of files or modules this task touches>
-Constraints: <performance, security, compatibility, rollout constraints>
-Current state: <brief summary of what exists today in affected areas>
---- END CONTEXT ---
-
-If anything is unclear or you need additional context before proceeding, ask your specific questions now — do not guess or make assumptions.
-```
-
-Codex worker output must be collected and verified by Team Lead before marking the task complete.
 
 ## Paired-Agent Execution Loop
 At each phase transition and whenever ambiguity appears:
-1. Spawn Senior Engineer via `codex-worker` MCP and Librarian (`default`) via Task tool in parallel.
-2. Wait for both to complete and collect findings.
-3. If either response is incomplete, spawn a targeted follow-up and wait again.
+1. Spawn Senior Engineer (`explorer`) and Librarian (`default`) agents in parallel (`spawn_agent`).
+2. Wait for both (`wait`) and collect findings.
+3. If either response is incomplete, send targeted follow-up (`send_input`) and wait again.
 4. Ensure Librarian completed required multi-source review and version resolution (when library-specific).
 5. Update PM phase output using their findings.
 6. Ask user only unresolved product decisions.
 
 Discovery extension:
-1. Spawn Smoke Test Planner via `codex-worker` MCP in parallel with Senior Engineer and Librarian; include full Codex context block.
-2. Spawn Researcher (`default`) for complex/no-straight-answer discovery questions via native Task tool (or claude-code MCP fallback).
-4. Spawn Alternative PM via `codex-worker` MCP on every discovery step; include full Codex context block.
+1. Spawn Smoke Test Planner (`default`) in parallel with Senior Engineer and Librarian, then invoke via `claude-code` MCP with prefix `use agent swarm for ...`.
+2. Spawn Researcher (`default`) for complex/no-straight-answer discovery questions.
+3. For deep investigations, use Researcher advanced mode with `use agent swarm for ...`.
+4. Spawn Alternative PM (`default`) on every discovery step using Claude MCP Contract + `use agent swarm for ...`.
 5. Merge smoke-test proposals, research findings, and alternatives analysis into Discovery Summary and PRD test plan.
 
 ## Phase Rules
@@ -272,7 +301,7 @@ Discovery extension:
 - Wait for exact `approved`.
 - If user requests edits, update PRD and ask for approval again.
 - On approval, automatically invoke `$pm-beads-plan` with the approved PRD path.
-- Preferred orchestration path: invoke via Task tool with `subagent_type: "default"` and role-labeled context (`[Role: PM Beads Plan Handoff]`) and wait for completion.
+- Preferred orchestration path: invoke via generic `default` `spawn_agent` with role-labeled context (`[Role: PM Beads Plan Handoff]`) and wait for completion.
 
 ### 4) Beads Planning
 - Validate task decomposition with Senior Engineer and dependency/standards constraints with Librarian.
@@ -285,7 +314,7 @@ Discovery extension:
 - Add explicit dependencies with `bd dep`.
 - Render execution view with `bd graph <epic-id> --compact`.
 - Present tasks in [bdui](https://github.com/assimelha/bdui) if available.
-- Always provide CLI fallback view: `bd list --parent <epic-id> --pretty`.
+- Always provide CLI view: `bd list --parent <epic-id> --pretty`.
 - Move to `Awaiting Beads Approval`.
 
 ### 5) Awaiting Beads Approval
@@ -293,8 +322,8 @@ Discovery extension:
 - If edits are requested, update beads plan and ask for approval again.
 - On approval, automatically create Team Lead agent and start team orchestration.
 - Preferred orchestration path:
-  - spawn Team Lead (`default`) agent first via Task tool with role-labeled context (`[Role: Team Lead Agent]`)
-  - then invoke `$pm-implement` (Team Lead-supervised execution) via Task tool with `subagent_type: "default"` and role-labeled context (`[Role: PM Implement Handoff]`) and wait for completion.
+  - spawn Team Lead (`default`) agent first with role-labeled context (`[Role: Team Lead Agent]`)
+  - then invoke `$pm-implement` (Team Lead-supervised execution) via generic `default` `spawn_agent` with role-labeled context (`[Role: PM Implement Handoff]`) and wait for completion.
 
 ### 6) Team Lead Orchestration
 - Team Lead does not write implementation code.
@@ -303,7 +332,7 @@ Discovery extension:
   - Frontend Engineer
   - Security Engineer
 - Launcher compatibility rule (CLI/Desktop):
-  - Team Lead must launch only supported Task tool `subagent_type` values (`default`, `Explore`)
+  - Team Lead must launch only supported generic agent types (`worker`, `explorer`, `default`)
   - Team Lead must assign functional role via prompt context (Backend/Frontend/Security)
   - Team Lead must not depend on custom named launcher types being present
 - Team Lead runs subagents in parallel where possible, coordinates integration, and enforces delivery sequence.
@@ -323,7 +352,7 @@ Discovery extension:
 - Continue until planned implementation tasks are complete.
 
 ### 8) Post-Implementation Reviews (automatic triple-agent run)
-Immediately after implementation completion, run all three reviewers in parallel:
+Immediately after implementation completion, run all three reviewers:
 
 1. **AGENTS Compliance Reviewer**
    - Purpose: verify implementation follows repo `AGENTS.md` rules and explicit workflow constraints.
@@ -332,20 +361,26 @@ Immediately after implementation completion, run all three reviewers in parallel
 2. **Jazz Reviewer**
    - Agent name: `Jazz`.
    - Persona: grumpy, nitpicky, skeptical reviewer who questions assumptions and weak reasoning.
-   - Runner: spawn via `codex-worker` MCP tool call with role-labeled prompt (`[Role: Jazz Reviewer]`).
+   - Runner: use active profile routing from `model-routing.yaml`:
+     - `full-codex`: run codex-native as configured.
+     - `codex-main`: invoke via `claude-code` MCP using the Claude MCP Contract.
+     - `claude-main`: run codex-native as configured.
+   - Mandatory key phrase: start prompt with `use agent swarm for jazz review: <scope + changed files + constraints>`.
    - Output: strict critique with concrete defects, edge cases, and ambiguity callouts.
 
 3. **Codex Reviewer**
-   - Purpose: 4-layer sequential review (architecture, syntax, composition, logic).
-   - Runner: spawn via Task tool with `subagent_type: "default"` and role-labeled prompt (`[Role: Codex Reviewer]`). Load prompt from `$pm-implement` references (`codex-reviewer.md`).
+   - Load prompt from `skills/pm-implement/references/codex-reviewer.md`.
+   - Model: Codex-native config-selected `model` and `model_reasoning_effort`.
+   - Runner: spawn as generic `default` with role-labeled prompt (`[Role: Codex Reviewer]`).
+   - Behavior: 4-layer sequential review (architecture -> syntax -> composition -> logic).
    - Output: findings grouped by layer with severity, file path, critique, and required fix.
 
-All three reviewers must post actionable comments before continuing.
+All reviewers must post actionable comments before continuing.
 Use parallel sub-agents for this step whenever available.
 - Reviewer launcher compatibility:
-  - spawn AGENTS Compliance Reviewer via Task tool with `subagent_type: "default"` and role-labeled prompt
-  - spawn Jazz via `codex-worker` MCP tool call with role-labeled prompt
-  - spawn Codex Reviewer via Task tool with `subagent_type: "default"` and role-labeled prompt
+  - spawn AGENTS Compliance Reviewer as generic `default` subagent with role-labeled prompt
+  - spawn Jazz as generic `default` subagent with role-labeled prompt, then invoke via `claude-code` MCP with prefix `use agent swarm for ...`
+  - spawn Codex Reviewer as generic `default` subagent with role-labeled prompt
   - do not rely on custom reviewer launcher names
 
 ### 9) Review Iteration (mandatory)
@@ -441,6 +476,7 @@ Always include:
 1. `Current phase: <...>`
 2. Phase-appropriate output
 3. `What I need from you next`
+4. `Phase Error Summary` (`none` or issue list with status)
 
 ## Invocation
 - Trigger strongly on explicit `/pm ...`.

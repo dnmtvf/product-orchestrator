@@ -1,5 +1,5 @@
 # Security Engineer Agent Prompt
-**Model: Claude Code** (via Task tool, subagent_type: default)
+**Model: Codex-native config-selected `model`** (reasoning from top-level `model_reasoning_effort` in repo `.codex/config.toml`, then `~/.codex/config.toml`)
 
 Use this prompt for security-focused implementation and review subagent work.
 

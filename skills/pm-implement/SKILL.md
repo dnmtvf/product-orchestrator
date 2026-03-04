@@ -27,36 +27,41 @@ If any precondition fails:
 - If not queue-ready, do not start implementation for that PRD and report blocked reason.
 
 ## Claude MCP Contract (mandatory for external Claude agents)
-- **Primary path (Claude Code runtime):** When running inside Claude Code, use the **native Task tool** to spawn Claude subagents — no MCP bridge needed. Use `subagent_type: "default"` for all Claude-code roles. For codex-native roles (Senior Engineer, Jazz Reviewer), use `codex-worker` MCP instead.
-- **Fallback path (non-Claude-Code runtimes):** Use Claude through MCP server `claude-code` when the outer runtime is not Claude Code.
-  - Required environment setup (once):
-    - `claude mcp add claude-code -- claude mcp serve`
-  - Start a new Claude interaction via `claude-code` MCP tool call with the full prompt.
-  - Continue follow-ups/answers in the same Claude interaction using the returned conversation/session identifier from the MCP response.
-  - If `claude-code` MCP is unavailable, report a blocked state with exact reason.
+- Use Claude through MCP server `claude-code` (not direct CLI/app invocation).
+- Required environment setup (once):
+  - `codex mcp add claude-code -- claude mcp serve`
+- `codex mcp list` only verifies that `claude-code` is configured/enabled; it does not prove the current environment exposes a usable Claude launcher.
+- Only use a `claude-code` MCP tool that explicitly provides prompt/session semantics in the current environment. `mcp__claude-code__Agent` with implicit `general-purpose` is not the implementation contract.
+- If the launcher reports `Agent type 'general-purpose' not found`, `no supported agent type`, or equivalent, treat `claude-code` runtime as unavailable for that step.
+- In that case, fallback to `codex-native` and emit a precise warning.
+- Remediation split:
+  - server missing/not configured -> `codex mcp add claude-code -- claude mcp serve`
+  - server enabled but launcher unusable -> report the launcher limitation and continue with fallback; do not loop on reinstall instructions
 
-## Codex Worker MCP Contract (mandatory for codex-native roles)
-- Senior Engineer and Jazz Reviewer run as codex-native roles via `codex-worker` MCP tool call.
-- **Setup (once):**
-  - `claude mcp add codex-worker -- codex mcp-server`
-- **Invocation:** Use `codex-worker` MCP tool call with structured Codex Worker Context Contract. Do not spawn codex-native roles via Task tool or Bash.
-- **Verify registration:** `claude mcp list | grep codex-worker`
-- **Timeout:** 10 minutes per invocation. If a call exceeds the timeout, log a warning and fall back to Task tool `default` with the same role-labeled prompt.
-- **Graceful degradation:** If `codex-worker` MCP is unavailable (not configured, CLI not installed, auth failure, timeout), log a warning with the exact reason and spawn the role via Task tool `default` as fallback. Do not block the pipeline.
-- **Cascading failure policy:** If 2 or more reviewers fail (any combination of Jazz, AGENTS Compliance, Codex Reviewer), the review phase must block and report the failure to PM rather than proceeding with zero or minimal review coverage. A single reviewer failure triggers graceful degradation; multiple reviewer failures trigger a hard block.
+## Codex Reviewer Contract (native-first)
+- Codex reviewer runs with the Codex-native `model` and `model_reasoning_effort` resolved from repo `.codex/config.toml`, then `~/.codex/config.toml`.
+- **Primary invocation:** spawn as generic `default` with role-labeled context (`[Role: Codex Reviewer]`) and load `references/codex-reviewer.md`.
+- **Session model:** keep one review session and run 4 sequential layer passes (architecture -> syntax -> composition -> logic).
+- **Availability policy:** if native reviewer execution is unavailable, block the review phase and report the exact reason to PM.
+- **Failure policy:** if any required reviewer fails (Jazz, AGENTS Compliance, or Codex), block the review phase and report the failure to PM.
 
 ## Subagent Launcher Compatibility (mandatory across implementation phases)
-- Spawn only supported Claude Code Task tool `subagent_type` values: `default`, `Plan`.
+- Spawn only supported generic agent types: `default`, `explorer`, `worker`.
 - Encode role in prompt payload for every spawned subagent (for example: `[Role: Backend Engineer]`).
 - Do not rely on custom named subagent launchers.
 - Recommended launcher mapping:
-  - `default` (Task tool): Team Lead, Backend Engineer, Frontend Engineer, Security Engineer, AGENTS Compliance Reviewer, Codex Reviewer, Librarian, Manual QA Smoke agent, Task Verification.
-  - `codex-worker` MCP: Senior Engineer, Jazz Reviewer.
-- Codex-native roles (Senior Engineer, Jazz Reviewer): spawn via `codex-worker` MCP tool call with structured Codex Worker Context Contract. If unavailable, fall back to Task tool `default` with the same role-labeled prompt.
+  - `worker`: Backend Engineer, Frontend Engineer, Security Engineer implementation work.
+  - `explorer`: Senior Engineer read/analyze checks and codebase triage.
+  - `default`: Team Lead, Task Verification, AGENTS Compliance Reviewer, Jazz reviewer, Manual QA Smoke agent.
+  - `default`: Codex reviewer (config-resolved Codex-native model, 4-layer post-implementation review).
 - For Task Verification workflows:
-  - Primary: spawn via native Task tool with `subagent_type: "default"` and role-labeled prompt
-  - Fallback: invoke `claude-code` MCP per Claude MCP Contract
+  - spawn as generic `default` with role-labeled prompt
+- For Jazz reviewer workflows:
+  - spawn as generic `default` with role-labeled prompt, then run via `claude-code` MCP per Claude MCP Contract
   - do not treat `claude-code` as a launcher type
+- For Codex reviewer:
+  - spawn as generic `default` with role-labeled prompt
+  - if unavailable, block review and report exact reason
 
 ## Team Lead Orchestration (mandatory before coding)
 - Create Team Lead agent from `references/team-lead.md`.
@@ -67,13 +72,12 @@ If any precondition fails:
   - Security Engineer (`references/security-engineer.md`)
 - Launcher compatibility rule (CLI/Desktop):
   - do not assume custom named subagent launchers exist
-  - spawn engineer subagents via Task tool with `subagent_type: "default"` and role-labeled prompts
+  - spawn supported generic agent types only (`default`, `explorer`, `worker`)
   - assign role via prompt payload (for example: `[Role: Backend Engineer] ...`)
-  - for Senior Engineer read/analyze tasks, use `codex-worker` MCP (see Codex Worker MCP Contract)
+  - use `explorer` for read/analyze tasks and `worker` for implementation tasks
 - Team Lead also runs a Task Verification agent after each implemented task:
   - `references/task-verification.md`
-  - primary: spawn via native Task tool with `subagent_type: "default"` and role-labeled prompt
-  - fallback: invoke via `claude-code` MCP using the Claude MCP Contract
+  - run as generic `default` with role-labeled prompt
 - Engineer onboarding protocol (mandatory for every task):
   - Engineers are instructed to run a mandatory onboarding sequence before implementation:
     1. **Read project rules**: CLAUDE.md and AGENTS.md from project root
@@ -90,12 +94,11 @@ If any precondition fails:
   - maximize throughput while preserving quality and security gates
   - keep all subagents focused on the current feature goal, PRD scope, and DoD
   - answer technical implementation questions directly for the engineering subagents
-  - handle engineer onboarding questions and 4-layer checklist reviews
   - route product/scope questions to PM, then relay PM decisions back to engineering and update tasks/comments accordingly
   - when implementation introduces new behavior/logic or modifies existing behavior/logic, create and run a documentation-sync task owned by Librarian before final handoff
 - Preferred orchestration calls:
   - spawn Team Lead first as generic `default` with role-labeled context (`[Role: Team Lead Agent]`)
-  - Team Lead spawns engineer subagents using generic launcher types and role-labeled prompts
+  - Team Lead spawns engineer subagents using role-labeled prompts (`worker` for implementation, `explorer` for read/analyze)
   - Team Lead runs task verification after each completed task
   - Team Lead reports status and blockers back to PM
 
@@ -109,11 +112,21 @@ Whenever Team Lead invokes any external Claude agent, the prompt must include su
 6. Relevant logs/test evidence (if available)
 7. Explicit instruction:
    - `If you have missing or ambiguous context, ask specific clarifying questions before final recommendations.`
+- Before each external-Claude call, Team Lead must validate the context-pack JSON:
+  - `./.codex/skills/pm/scripts/pm-command.sh claude-contract validate-context --context-file <json> --role <role>`
+- Context-pack JSON must include keys:
+  - `feature_objective, prd_context, task_id, acceptance_criteria, implementation_status, changed_files, constraints, evidence, clarifying_instruction`
+- Claude missing-context handshake marker must be:
+  - `CONTEXT_REQUEST|needed_fields=<csv>|questions=<numbered items>`
+- After each Claude response, Team Lead must parse handshake status:
+  - `./.codex/skills/pm/scripts/pm-command.sh claude-contract evaluate-response --response-file <txt> --session-id <id> --role <role>`
+- Optional wrapper for multi-step sessions:
+  - `./.codex/skills/pm/scripts/pm-command.sh claude-contract run-loop --context-file <json> --response-file <txt> [--response-file <txt> ...] --session-id <id> --role <role>`
+- If parser/wrapper returns `status=context_needed` or `status=awaiting_context`, Team Lead must gather requested details and continue in the same Claude session before accepting recommendations.
 
 ## Per-Task Verification Gate (mandatory before review)
 - After each task implementation, Team Lead must run Task Verification agent with:
-  - primary: spawn via native Task tool with `subagent_type: "default"` and prompt including task ID, acceptance criteria, and changed files
-  - fallback: invoke via `claude-code` MCP with the same prompt
+  - spawn as generic `default` with prompt including task ID, acceptance criteria, and changed files
 - Include the full Claude Invocation Context Pack in that prompt.
 - If verification passes:
   - mark task as verified and continue.
@@ -126,7 +139,7 @@ Whenever Team Lead invokes any external Claude agent, the prompt must include su
 
 ## Implementation Rules
 - Keep paired support agents available:
-  - **Senior Engineer** (`codex-worker` MCP) for proactive code-level guidance and risk checks.
+  - **Senior Engineer** (`explorer`) for proactive code-level guidance and risk checks.
   - **Librarian** (`default`) for external docs/compatibility checks when implementation touches APIs/platform specifics.
 - Execute coding work through Team Lead-managed subagents:
   - Backend Engineer owns backend tasks
@@ -161,27 +174,22 @@ After implementation tasks are complete, automatically run all three reviewers i
    - Load prompt from `references/jazz.md`.
    - Persona: grumpy, nitpicky old fart.
    - Behavior: doubt assumptions, challenge weak logic, call out edge cases and missing rigor.
-   - Runner: spawn via `codex-worker` MCP tool call with structured Codex Worker Context Contract (primary); fallback is Task tool `default` with role-labeled prompt.
+   - Runner: spawn as generic `default` with role-labeled prompt, then invoke via `claude-code` MCP.
    - Return concrete defects and demanded fixes.
 
 3. **Codex Reviewer**
    - Load prompt from `references/codex-reviewer.md`.
-   - Runner: spawn via native Task tool with `subagent_type: "default"` and role-labeled prompt (`[Role: Codex Reviewer]`).
-   - Behavior: 4-layer sequential review performed as 4 passes within a single subagent prompt:
-     1. **Architecture pass**: evaluate module boundaries, dependency direction, separation of concerns, and API contract consistency.
-     2. **Syntax pass**: check for language-specific anti-patterns, deprecated APIs, type safety gaps, and style violations against project conventions.
-     3. **Composition pass**: assess function/component composition, DRY violations, abstraction leaks, and integration seams.
-     4. **Logic pass**: verify correctness of business logic, edge case handling, error paths, concurrency safety, and data invariants. May reference findings from earlier passes.
+   - Model: Codex-native config-selected `model` and `model_reasoning_effort`.
+   - Behavior: 4-layer sequential review (architecture -> syntax -> composition -> logic).
+   - Runner: spawn as generic `default` with role-labeled prompt (`[Role: Codex Reviewer]`) per Codex Reviewer Contract.
    - Return findings grouped by layer with Finding ID, Layer, Severity, File path, Critique, and Required fix.
-   - Graceful degradation: if Codex Reviewer subagent fails, log a warning with the exact reason and continue with Jazz + AGENTS Compliance only. Do not block the review phase.
-
-Run all three reviewers in parallel when possible.
+   - Availability rule: if native spawn fails, block review phase and report exact reason.
 
 Preferred orchestration calls:
-- Spawn compliance reviewer via Task tool with `subagent_type: "default"` and role-labeled context (`[Role: AGENTS Compliance Reviewer]`).
-- Spawn Jazz via `codex-worker` MCP tool call with role-labeled context (`[Role: Jazz Reviewer]`), changed files, feature summary, PRD constraints, and task DoD.
-- Spawn Codex Reviewer via Task tool with `subagent_type: "default"` and role-labeled context (`[Role: Codex Reviewer]`) with changed files, feature summary, PRD constraints, and task DoD.
-- Team Lead must collect all three review outputs (or two if any single reviewer is unavailable) and wait for all to complete before creating iteration tasks.
+- Spawn compliance reviewer as generic `default` with role-labeled context (`[Role: AGENTS Compliance Reviewer]`).
+- Spawn Jazz as generic `default` with role-labeled context (`[Role: Jazz Reviewer]`), then invoke via `claude-code` MCP.
+- Spawn Codex Reviewer as generic `default` with role-labeled context (`[Role: Codex Reviewer]`) and include changed files, feature summary, PRD constraints, and task DoD.
+- Team Lead must collect all three review outputs before creating iteration tasks.
 
 ## Review Output Handling (mandatory)
 Team Lead is the explicit owner of review-fix orchestration.
@@ -253,6 +261,12 @@ Always include:
 9. `Human review fix status` (none/pending/in-progress/completed)
 10. `What I need from you next`
 11. `Queue reconciliation` (required for big-feature route; include per-PRD state and blocked/failed reasons)
+12. `Phase Error Summary` (`none` or issue list with status)
+
+Issue reporting rules:
+- Report step issues explicitly when they occur (severity, impact, next action).
+- Non-critical issues do not stop implementation/review/QA flow.
+- Critical blockers must include exact reason and remediation.
 
 ## Invocation
 - Trigger strongly on `$pm-implement ...`.

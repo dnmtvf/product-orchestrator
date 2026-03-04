@@ -9,6 +9,8 @@ DEFAULT_NPM_TAGS_URL="https://registry.npmjs.org/-/package/@anthropic-ai/claude-
 DEFAULT_PLAN_TRIGGER="/pm plan: Inspect latest Claude Code changes and align orchestrator behavior with Claude Code runtime policy."
 STATE_RELATIVE_PATH=".claude/pm-self-update-state.json"
 SEMVER_PATTERN='v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?'
+DEFAULT_RELEVANCE_INCLUDE_PATTERN='orchestrator|pipeline|workflow|pm|beads|approval|gate|state|checkpoint|self-update|agent|mcp|cli|command|test|qa|smoke|automation'
+DEFAULT_RELEVANCE_EXCLUDE_PATTERN='marketing|landing[[:space:]-]*page|pricing[[:space:]-]*page|branding|color[[:space:]-]*refresh|theme[[:space:]-]*refresh'
 
 usage() {
   cat <<'EOF'
@@ -30,6 +32,8 @@ Self-update modes:
 Environment toggles:
   PM_SELF_UPDATE_INCLUDE_PRERELEASE=1|0   Include prerelease entries from changelog (default: 1)
   PM_SELF_UPDATE_STRICT_MISMATCH=1|0      Fail check when corroborative sources disagree with changelog (default: 0)
+  PM_SELF_UPDATE_RELEVANCE_INCLUDE_REGEX   Override include regex for pipeline-relevant change filtering
+  PM_SELF_UPDATE_RELEVANCE_EXCLUDE_REGEX   Override exclude regex for non-pipeline change filtering
 
 Notes:
   - This workflow is manual-only. No scheduled/background triggers are provided.
@@ -211,7 +215,7 @@ semver_compare() {
 
 semver_sort_unique() {
   local line existing cmp inserted sorted_item
-  local -a raw sorted next
+  local -a raw=() sorted=() next=()
 
   while IFS= read -r line; do
     line="$(normalize_version "$line")"
@@ -336,10 +340,16 @@ latest_semver_from_text() {
   printf '%s' "$parsed"
 }
 
-extract_codex_versions_from_changelog() {
+normalize_text_line() {
+  local raw="$1"
+  printf '%s' "$raw" | tr '\r\t' '  ' | sed -E 's/[[:space:]]+/ /g; s/^[[:space:]]+//; s/[[:space:]]+$//'
+}
+
+extract_codex_entry_lines_from_changelog() {
   local payload="$1"
   local include_prerelease="$2"
   local normalized codex_cli_lines codex_lines parsed
+  local line version normalized_version
 
   normalized="$(printf '%s' "$payload" | sed 's/<[^>]*>/ /g' | tr '\r' '\n')"
 
@@ -352,21 +362,175 @@ extract_codex_versions_from_changelog() {
   fi
   [ -n "$codex_lines" ] || return 1
 
-  parsed="$({ printf '%s\n' "$codex_lines" | grep -Eo "$SEMVER_PATTERN" || true; } | sed 's/^v//')"
-  [ -n "$parsed" ] || return 1
+  while IFS= read -r line; do
+    line="$(normalize_text_line "$line")"
+    [ -n "$line" ] || continue
 
-  if [ -z "$codex_cli_lines" ]; then
-    # Fallback extraction is noisier; clamp to expected major range for Codex release identifiers.
-    parsed="$(printf '%s\n' "$parsed" | grep -E '^(0|1)\.' || true)"
-    [ -n "$parsed" ] || return 1
+    parsed="$(printf '%s\n' "$line" | grep -Eo "$SEMVER_PATTERN" || true)"
+    [ -n "$parsed" ] || continue
+
+    while IFS= read -r version; do
+      normalized_version="$(normalize_version "$version")"
+      [ -n "$normalized_version" ] || continue
+      semver_validate "$normalized_version" || continue
+
+      if [ -z "$codex_cli_lines" ]; then
+        # Fallback extraction is noisier; clamp to expected major range for Codex release identifiers.
+        if ! printf '%s' "$normalized_version" | grep -Eq '^(0|1)\.'; then
+          continue
+        fi
+      fi
+
+      if [ "$include_prerelease" -eq 0 ] && [[ "$normalized_version" == *-* ]]; then
+        continue
+      fi
+
+      printf '%s\t%s\n' "$normalized_version" "$line"
+    done <<<"$parsed"
+  done <<<"$codex_lines" | awk -F '\t' '!seen[$1 FS $2]++'
+}
+
+extract_codex_versions_from_changelog() {
+  local payload="$1"
+  local include_prerelease="$2"
+  local entries
+
+  entries="$(extract_codex_entry_lines_from_changelog "$payload" "$include_prerelease" || true)"
+  [ -n "$entries" ] || return 1
+
+  printf '%s\n' "$entries" | awk -F '\t' 'NF { print $1 }' | semver_sort_unique
+}
+
+filter_entries_by_versions() {
+  local entries="$1"
+  local versions="$2"
+  local version summary
+
+  while IFS=$'\t' read -r version summary; do
+    [ -n "$version" ] || continue
+    if version_in_list "$version" "$versions"; then
+      printf '%s\t%s\n' "$version" "$summary"
+    fi
+  done <<<"$entries"
+}
+
+is_pipeline_relevant_change() {
+  local summary_lc="$1"
+  local include_pattern="${PM_SELF_UPDATE_RELEVANCE_INCLUDE_REGEX:-$DEFAULT_RELEVANCE_INCLUDE_PATTERN}"
+  local exclude_pattern="${PM_SELF_UPDATE_RELEVANCE_EXCLUDE_REGEX:-$DEFAULT_RELEVANCE_EXCLUDE_PATTERN}"
+
+  if [ -n "$exclude_pattern" ] && printf '%s' "$summary_lc" | grep -Eq "$exclude_pattern"; then
+    return 1
   fi
 
-  if [ "$include_prerelease" -eq 0 ]; then
-    parsed="$(printf '%s\n' "$parsed" | grep -Ev '-' || true)"
-    [ -n "$parsed" ] || return 1
+  if [ -n "$include_pattern" ] && printf '%s' "$summary_lc" | grep -Eq "$include_pattern"; then
+    return 0
   fi
 
-  printf '%s\n' "$parsed" | semver_sort_unique
+  return 1
+}
+
+integration_plan_for_change() {
+  local summary_lc="$1"
+  local integration improvement
+
+  if printf '%s' "$summary_lc" | grep -Eq 'approval|gate|workflow|plan|beads'; then
+    integration="Update PM phase transitions and approval checks to align with this change."
+    improvement="Reduces invalid handoffs and keeps orchestration flow deterministic."
+  elif printf '%s' "$summary_lc" | grep -Eq 'state|checkpoint|schema|migration'; then
+    integration="Update self-update state handling and checkpoint semantics."
+    improvement="Improves reliability of version tracking and rollback safety."
+  elif printf '%s' "$summary_lc" | grep -Eq 'test|qa|smoke|regression'; then
+    integration="Extend smoke and regression coverage for the affected self-update path."
+    improvement="Catches orchestration regressions before release."
+  elif printf '%s' "$summary_lc" | grep -Eq 'agent|mcp|tool|command|cli|automation'; then
+    integration="Adjust command routing and tool orchestration behavior for this upstream change."
+    improvement="Keeps orchestrator automation compatible with Codex runtime updates."
+  else
+    integration="Review this changelog item in discovery and map it to orchestrator pipeline behavior."
+    improvement="Ensures relevant upstream updates are integrated with explicit intent."
+  fi
+
+  printf '%s\t%s' "$integration" "$improvement"
+}
+
+entries_to_json_array() {
+  local entries="$1"
+  local tmp version summary normalized_summary obj
+
+  tmp="$(mktemp)"
+
+  while IFS=$'\t' read -r version summary; do
+    [ -n "$version" ] || continue
+    normalized_summary="$(normalize_text_line "$summary")"
+    [ -n "$normalized_summary" ] || continue
+    obj="$(jq -nc --arg version "$version" --arg change "$normalized_summary" '{version: $version, change: $change}')"
+    printf '%s\n' "$obj" >>"$tmp"
+  done <<<"$entries"
+
+  if [ -s "$tmp" ]; then
+    jq -cs '.' "$tmp"
+  else
+    echo "[]"
+  fi
+
+  rm -f "$tmp"
+}
+
+build_relevance_and_plan_json() {
+  local entries="$1"
+  local relevant_tmp ignored_tmp plan_tmp
+  local version summary normalized_summary summary_lc reason obj plan_fields integration improvement
+
+  relevant_tmp="$(mktemp)"
+  ignored_tmp="$(mktemp)"
+  plan_tmp="$(mktemp)"
+
+  SELF_UPDATE_ENTRY_TOTAL=0
+  SELF_UPDATE_RELEVANT_COUNT=0
+  SELF_UPDATE_IGNORED_COUNT=0
+  SELF_UPDATE_RELEVANT_JSON="[]"
+  SELF_UPDATE_IGNORED_JSON="[]"
+  SELF_UPDATE_PLAN_JSON="[]"
+
+  while IFS=$'\t' read -r version summary; do
+    [ -n "$version" ] || continue
+
+    normalized_summary="$(normalize_text_line "$summary")"
+    [ -n "$normalized_summary" ] || continue
+    summary_lc="$(printf '%s' "$normalized_summary" | tr '[:upper:]' '[:lower:]')"
+
+    SELF_UPDATE_ENTRY_TOTAL=$((SELF_UPDATE_ENTRY_TOTAL + 1))
+    if is_pipeline_relevant_change "$summary_lc"; then
+      reason="matches_pipeline_relevance_policy"
+      obj="$(jq -nc --arg version "$version" --arg change "$normalized_summary" --arg reason "$reason" '{version: $version, change: $change, reason: $reason}')"
+      printf '%s\n' "$obj" >>"$relevant_tmp"
+      SELF_UPDATE_RELEVANT_COUNT=$((SELF_UPDATE_RELEVANT_COUNT + 1))
+
+      plan_fields="$(integration_plan_for_change "$summary_lc")"
+      integration="$(printf '%s' "$plan_fields" | cut -f1)"
+      improvement="$(printf '%s' "$plan_fields" | cut -f2-)"
+      obj="$(jq -nc --arg version "$version" --arg change "$normalized_summary" --arg integration "$integration" --arg improvement "$improvement" '{version: $version, change: $change, integration: $integration, expected_improvement: $improvement}')"
+      printf '%s\n' "$obj" >>"$plan_tmp"
+    else
+      reason="filtered_non_pipeline_change"
+      obj="$(jq -nc --arg version "$version" --arg change "$normalized_summary" --arg reason "$reason" '{version: $version, change: $change, reason: $reason}')"
+      printf '%s\n' "$obj" >>"$ignored_tmp"
+      SELF_UPDATE_IGNORED_COUNT=$((SELF_UPDATE_IGNORED_COUNT + 1))
+    fi
+  done <<<"$entries"
+
+  if [ -s "$relevant_tmp" ]; then
+    SELF_UPDATE_RELEVANT_JSON="$(jq -cs '.' "$relevant_tmp")"
+  fi
+  if [ -s "$ignored_tmp" ]; then
+    SELF_UPDATE_IGNORED_JSON="$(jq -cs '.' "$ignored_tmp")"
+  fi
+  if [ -s "$plan_tmp" ]; then
+    SELF_UPDATE_PLAN_JSON="$(jq -cs '.' "$plan_tmp")"
+  fi
+
+  rm -f "$relevant_tmp" "$ignored_tmp" "$plan_tmp"
 }
 
 fetch_url() {
@@ -421,6 +585,15 @@ state_init_json_v2() {
     "from_version": "",
     "to_version": "",
     "versions": [],
+    "entry_analysis": {
+      "total_entries": 0,
+      "relevant_entries": 0,
+      "ignored_entries": 0,
+      "entries": [],
+      "relevant": [],
+      "ignored": [],
+      "integration_plan": []
+    },
     "source_of_truth": "$DEFAULT_CHANGELOG_URL",
     "corroboration": {
       "release_version": "",
@@ -477,6 +650,15 @@ migrate_state_v1_to_v2() {
         from_version: (.latest_processed_codex_version // ""),
         to_version: (.pending_codex_version // "" | ltrimstr("v")),
         versions: (if (.pending_codex_version // "") == "" then [] else [(.pending_codex_version | ltrimstr("v"))] end),
+        entry_analysis: {
+          total_entries: (if (.pending_codex_version // "") == "" then 0 else 1 end),
+          relevant_entries: (if (.pending_codex_version // "") == "" then 0 else 1 end),
+          ignored_entries: 0,
+          entries: (if (.pending_codex_version // "") == "" then [] else [{version: (.pending_codex_version | ltrimstr("v")), change: "legacy pending codex version"}] end),
+          relevant: (if (.pending_codex_version // "") == "" then [] else [{version: (.pending_codex_version | ltrimstr("v")), change: "legacy pending codex version", reason: "legacy_migration_default_relevant"}] end),
+          ignored: [],
+          integration_plan: []
+        },
         source_of_truth: $changelog_url,
         corroboration: {
           release_version: (.last_check.release_version // "" | ltrimstr("v")),
@@ -524,6 +706,14 @@ validate_state_file() {
     (.pending_batch.from_version | type == "string") and
     (.pending_batch.to_version | type == "string") and
     (.pending_batch.versions | type == "array") and
+    (.pending_batch.entry_analysis | type == "object") and
+    (.pending_batch.entry_analysis.total_entries | type == "number") and
+    (.pending_batch.entry_analysis.relevant_entries | type == "number") and
+    (.pending_batch.entry_analysis.ignored_entries | type == "number") and
+    (.pending_batch.entry_analysis.entries | type == "array") and
+    (.pending_batch.entry_analysis.relevant | type == "array") and
+    (.pending_batch.entry_analysis.ignored | type == "array") and
+    (.pending_batch.entry_analysis.integration_plan | type == "array") and
     (.pending_batch.source_of_truth | type == "string") and
     (.pending_batch.corroboration | type == "object") and
     (.pending_batch.corroboration.release_version | type == "string") and
@@ -644,7 +834,7 @@ assert_prd_covers_versions() {
   local prd_path="$1"
   local versions="$2"
   local version content missing_list
-  local -a missing
+  local -a missing=()
 
   [ -f "$prd_path" ] || die "PRD path not found: $prd_path"
   content="$(cat "$prd_path")"
@@ -683,6 +873,7 @@ Self-update policy:
 - Manual-only invocation
 - Changelog website is source-of-truth
 - Stable + prerelease batch verification
+- Filter non-pipeline changes and emit integration-plan suggestions for relevant updates
 - Completion requires PRD evidence coverage for all pending versions
 
 Runtime policy:
@@ -697,13 +888,16 @@ run_self_update_check() {
   local release_url="$3"
   local npm_tags_url="$4"
 
-  local now changelog_payload changelog_versions latest_changelog
-  local current pending_versions pending_count pending_csv pending_json
+  local now changelog_payload changelog_entries changelog_versions latest_changelog
+  local current pending_versions pending_count pending_csv pending_json pending_entries pending_entries_json
+  local relevance_total relevance_relevant relevance_ignored
+  local relevance_total_json relevance_relevant_json relevance_ignored_json
+  local relevant_changes_json ignored_changes_json integration_plan_json
   local changelog_json mismatch_json mismatch_csv batch_id to_version
   local release_effective_url release_version npm_payload npm_latest npm_alpha
   local include_state strict_state include_prerelease strict_mismatch
   local include_prerelease_json strict_mismatch_json
-  local -a mismatch_flags
+  local -a mismatch_flags=()
 
   ensure_state_file "$state_file"
   now="$(now_utc)"
@@ -714,7 +908,9 @@ run_self_update_check() {
   strict_mismatch="$(resolve_bool_setting "PM_SELF_UPDATE_STRICT_MISMATCH" "$strict_state" 0)"
 
   changelog_payload="$(fetch_url "$changelog_url" "${PM_SELF_UPDATE_CHANGELOG_PAYLOAD:-}")" || die "Failed to fetch Codex changelog from $changelog_url"
-  changelog_versions="$(extract_codex_versions_from_changelog "$changelog_payload" "$include_prerelease" || true)"
+  changelog_entries="$(extract_codex_entry_lines_from_changelog "$changelog_payload" "$include_prerelease" || true)"
+  [ -n "$changelog_entries" ] || die "Failed to parse Codex changelog entries from payload"
+  changelog_versions="$(printf '%s\n' "$changelog_entries" | awk -F '\t' 'NF { print $1 }' | semver_sort_unique)"
   [ -n "$changelog_versions" ] || die "Failed to parse Codex versions from changelog payload"
   latest_changelog="$(pick_latest_version "$changelog_versions")"
 
@@ -764,9 +960,21 @@ run_self_update_check() {
 
   pending_versions="$(compute_pending_versions "$changelog_versions" "$current")"
   pending_count="$(printf '%s\n' "$pending_versions" | awk 'NF' | wc -l | tr -d ' ')"
+  pending_entries="$(filter_entries_by_versions "$changelog_entries" "$pending_versions")"
+  pending_entries_json="$(entries_to_json_array "$pending_entries")"
+  build_relevance_and_plan_json "$pending_entries"
+  relevance_total="$SELF_UPDATE_ENTRY_TOTAL"
+  relevance_relevant="$SELF_UPDATE_RELEVANT_COUNT"
+  relevance_ignored="$SELF_UPDATE_IGNORED_COUNT"
+  relevant_changes_json="$SELF_UPDATE_RELEVANT_JSON"
+  ignored_changes_json="$SELF_UPDATE_IGNORED_JSON"
+  integration_plan_json="$SELF_UPDATE_PLAN_JSON"
 
   changelog_json="$(printf '%s\n' "$changelog_versions" | json_array_from_newlines)"
   mismatch_json="$(printf '%s\n' "$mismatch_csv" | tr ',' '\n' | json_array_from_newlines)"
+  relevance_total_json="$relevance_total"
+  relevance_relevant_json="$relevance_relevant"
+  relevance_ignored_json="$relevance_ignored"
   include_prerelease_json="$([ "$include_prerelease" -eq 1 ] && echo true || echo false)"
   strict_mismatch_json="$([ "$strict_mismatch" -eq 1 ] && echo true || echo false)"
 
@@ -790,6 +998,13 @@ run_self_update_check() {
       --arg batch_id "$batch_id" \
       --argjson changelog_versions "$changelog_json" \
       --argjson pending_versions "$pending_json" \
+      --argjson pending_entries "$pending_entries_json" \
+      --argjson relevant_changes "$relevant_changes_json" \
+      --argjson ignored_changes "$ignored_changes_json" \
+      --argjson integration_plan "$integration_plan_json" \
+      --argjson relevance_total "$relevance_total_json" \
+      --argjson relevance_relevant "$relevance_relevant_json" \
+      --argjson relevance_ignored "$relevance_ignored_json" \
       --argjson mismatch_flags "$mismatch_json" \
       --argjson include_prerelease "$include_prerelease_json" \
       --argjson strict_mismatch "$strict_mismatch_json" \
@@ -800,6 +1015,15 @@ run_self_update_check() {
           from_version: (if ($current | length) > 0 then $current else "<none>" end),
           to_version: $to_version,
           versions: $pending_versions,
+          entry_analysis: {
+            total_entries: $relevance_total,
+            relevant_entries: $relevance_relevant,
+            ignored_entries: $relevance_ignored,
+            entries: $pending_entries,
+            relevant: $relevant_changes,
+            ignored: $ignored_changes,
+            integration_plan: $integration_plan
+          },
           source_of_truth: $changelog_url,
           corroboration: {
             release_version: $release_version,
@@ -827,12 +1051,16 @@ run_self_update_check() {
 
     echo "UPDATE_AVAILABLE|processed_version=${current:-<none>}|latest_version=$to_version|pending_count=$pending_count|from_version=${current:-<none>}|to_version=$to_version|changelog_version=$latest_changelog|release_version=${release_version:-<none>}|npm_latest=${npm_latest:-<none>}|npm_alpha=${npm_alpha:-<none>}"
     echo "PENDING_BATCH|versions=$pending_csv|batch_id=$batch_id"
+    echo "RELEVANCE_SUMMARY|total_entries=$relevance_total|relevant_entries=$relevance_relevant|ignored_entries=$relevance_ignored"
+    echo "RELEVANT_CHANGES_JSON|$relevant_changes_json"
+    echo "IGNORED_CHANGES_JSON|$ignored_changes_json"
+    echo "INTEGRATION_PLAN_JSON|$integration_plan_json"
     echo "SOURCE_OF_TRUTH|url=$changelog_url"
     if [ -n "$mismatch_csv" ]; then
       echo "SOURCE_MISMATCH|flags=$mismatch_csv"
     fi
     echo "PLAN_TRIGGER|$DEFAULT_PLAN_TRIGGER"
-    echo "PLAN_CONTEXT|detected_version=$to_version|pending_count=$pending_count|batch_id=$batch_id"
+    echo "PLAN_CONTEXT|detected_version=$to_version|pending_count=$pending_count|relevant_count=$relevance_relevant|ignored_count=$relevance_ignored|batch_id=$batch_id"
     echo "GATE_REQUIRED|After PM flow completion, run: $SCRIPT_NAME self-update complete --approval approved --prd-approval approved --beads-approval approved --prd-path <approved-prd-path>"
     return 0
   fi
@@ -847,6 +1075,13 @@ run_self_update_check() {
     --arg npm_latest "$npm_latest" \
     --arg npm_alpha "$npm_alpha" \
     --argjson changelog_versions "$changelog_json" \
+    --argjson pending_entries "$pending_entries_json" \
+    --argjson relevant_changes "$relevant_changes_json" \
+    --argjson ignored_changes "$ignored_changes_json" \
+    --argjson integration_plan "$integration_plan_json" \
+    --argjson relevance_total "$relevance_total_json" \
+    --argjson relevance_relevant "$relevance_relevant_json" \
+    --argjson relevance_ignored "$relevance_ignored_json" \
     --argjson mismatch_flags "$mismatch_json" \
     --argjson include_prerelease "$include_prerelease_json" \
     --argjson strict_mismatch "$strict_mismatch_json" \
@@ -857,6 +1092,15 @@ run_self_update_check() {
         from_version: .latest_processed_codex_version,
         to_version: "",
         versions: [],
+        entry_analysis: {
+          total_entries: $relevance_total,
+          relevant_entries: $relevance_relevant,
+          ignored_entries: $relevance_ignored,
+          entries: $pending_entries,
+          relevant: $relevant_changes,
+          ignored: $ignored_changes,
+          integration_plan: $integration_plan
+        },
         source_of_truth: $changelog_url,
         corroboration: {
           release_version: $release_version,
@@ -883,6 +1127,10 @@ run_self_update_check() {
     '
 
   echo "NO_OP|processed_version=${current:-<none>}|latest_version=$latest_changelog|reason=up_to_date"
+  echo "RELEVANCE_SUMMARY|total_entries=$relevance_total|relevant_entries=$relevance_relevant|ignored_entries=$relevance_ignored"
+  echo "RELEVANT_CHANGES_JSON|$relevant_changes_json"
+  echo "IGNORED_CHANGES_JSON|$ignored_changes_json"
+  echo "INTEGRATION_PLAN_JSON|$integration_plan_json"
   echo "SOURCE_OF_TRUTH|url=$changelog_url"
   if [ -n "$mismatch_csv" ]; then
     echo "SOURCE_MISMATCH|flags=$mismatch_csv"
@@ -954,6 +1202,15 @@ run_self_update_complete() {
         from_version: $target_version,
         to_version: "",
         versions: [],
+        entry_analysis: {
+          total_entries: 0,
+          relevant_entries: 0,
+          ignored_entries: 0,
+          entries: [],
+          relevant: [],
+          ignored: [],
+          integration_plan: []
+        },
         source_of_truth: .pending_batch.source_of_truth,
         corroboration: .pending_batch.corroboration,
         mismatch_flags: [],

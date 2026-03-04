@@ -1,101 +1,341 @@
-# Model Routing Configuration
-# Claude Code + Codex CLI (gpt-5.3-codex) architecture
-# This file documents which model each role uses in the orchestrator
+# Model Routing Configuration (Lead-model aware)
+# Policy contract for PM role-to-runtime mapping by lead-model profile.
+# pm-command plan gate outputs must remain conformance-aligned with this matrix.
 
-# Claude-code roles - spawned via Claude Code native Task tool (subagent_type: default)
-# Model is not pinned in repo — inherits from the ambient Claude Code session
-claude_code_roles:
-  - name: "Project Manager"
-    runtime: "claude-code"
-    launcher: "native"
-    description: "Main orchestrator for PM workflow"
+version: 3
 
-  - name: "Team Lead"
-    runtime: "claude-code"
-    launcher: "task-tool-default"
-    description: "Orchestrates implementation subagents"
+policy:
+  default_profile: codex-main
+  lead_model_gate_required_routes:
+    - default
+    - big-feature
+  lead_model_options:
+    full-codex: Full Codex Orchestration
+    codex-main: Codex as Main Agent
+    claude-main: Claude as Main Orchestrator
+  codex_pinning:
+    model: gpt-5.4
+    reasoning_effort: xhigh
+  main_roles:
+    - project_manager
+    - team_lead
+    - pm_beads_plan_handoff
+    - pm_implement_handoff
+  fallback_when:
+    - profile: any
+      requires_runtime: claude-code-mcp
+      applies_to_roles: any_role_mapped_to_claude_code_mcp
+      remediation: "If claude-code is missing, run codex mcp add claude-code -- claude mcp serve. If it is enabled but no supported Claude launcher is verified for the current runtime, fall back to codex-native instead of retrying install."
+      fallback_runtime: codex-native
+      fallback_model: gpt-5.4
+      fallback_reasoning_effort: xhigh
 
-  - name: "Librarian"
-    runtime: "claude-code"
-    launcher: "task-tool-default"
-    description: "External docs and research"
+runtimes:
+  codex-native:
+    description: Native Codex subagent execution.
+    launcher: spawn_agent
+    allowed_agent_types:
+      - default
+      - explorer
+      - worker
 
-  - name: "Researcher"
-    runtime: "claude-code"
-    launcher: "task-tool-default"
-    description: "Complex research questions"
+  claude-code-mcp:
+    description: External Claude MCP path for roles/prompt flows that require Claude swarm execution.
+    setup_command: "codex mcp add claude-code -- claude mcp serve"
+    availability_requirements:
+      - claude-code MCP server registered and enabled
+      - runtime fallback if the actual Claude invocation reports no supported agent type or equivalent launcher failure
+    invalid_paths:
+      - mcp__claude-code__Agent with implicit general-purpose launcher
 
-  - name: "Backend Engineer"
-    runtime: "claude-code"
-    launcher: "task-tool-default"
-    description: "Backend implementation"
+profiles:
+  full-codex:
+    description: Codex handles all orchestration and support roles without requiring Claude MCP.
+    roles:
+      project_manager:
+        class: main
+        runtime: codex-native
+        model: gpt-5.4
+        reasoning_effort: xhigh
+        agent_type: default
+      team_lead:
+        class: main
+        runtime: codex-native
+        model: gpt-5.4
+        reasoning_effort: xhigh
+        agent_type: default
+      pm_beads_plan_handoff:
+        class: main
+        runtime: codex-native
+        model: gpt-5.4
+        reasoning_effort: xhigh
+        agent_type: default
+      pm_implement_handoff:
+        class: main
+        runtime: codex-native
+        model: gpt-5.4
+        reasoning_effort: xhigh
+        agent_type: default
+      senior_engineer:
+        class: sub
+        runtime: codex-native
+        model: gpt-5.4
+        reasoning_effort: xhigh
+        agent_type: explorer
+      librarian:
+        class: sub
+        runtime: codex-native
+        model: gpt-5.4
+        reasoning_effort: xhigh
+        agent_type: default
+      smoke_test_planner:
+        class: sub
+        runtime: codex-native
+        model: gpt-5.4
+        reasoning_effort: xhigh
+        agent_type: default
+      alternative_pm:
+        class: sub
+        runtime: codex-native
+        model: gpt-5.4
+        reasoning_effort: xhigh
+        agent_type: default
+      researcher:
+        class: sub
+        runtime: codex-native
+        model: gpt-5.4
+        reasoning_effort: xhigh
+        agent_type: default
+      backend_engineer:
+        class: sub
+        runtime: codex-native
+        model: gpt-5.4
+        reasoning_effort: xhigh
+        agent_type: worker
+      frontend_engineer:
+        class: sub
+        runtime: codex-native
+        model: gpt-5.4
+        reasoning_effort: xhigh
+        agent_type: worker
+      security_engineer:
+        class: sub
+        runtime: codex-native
+        model: gpt-5.4
+        reasoning_effort: xhigh
+        agent_type: worker
+      agents_compliance_reviewer:
+        class: sub
+        runtime: codex-native
+        model: gpt-5.4
+        reasoning_effort: xhigh
+        agent_type: default
+      jazz_reviewer:
+        class: sub
+        runtime: codex-native
+        model: gpt-5.4
+        reasoning_effort: xhigh
+        agent_type: default
+      codex_reviewer:
+        class: sub
+        runtime: codex-native
+        model: gpt-5.4
+        reasoning_effort: xhigh
+        agent_type: default
+      manual_qa:
+        class: sub
+        runtime: codex-native
+        model: gpt-5.4
+        reasoning_effort: xhigh
+        agent_type: default
+      task_verification:
+        class: sub
+        runtime: codex-native
+        model: gpt-5.4
+        reasoning_effort: xhigh
+        agent_type: default
 
-  - name: "Frontend Engineer"
-    runtime: "claude-code"
-    launcher: "task-tool-default"
-    description: "Frontend implementation"
+  codex-main:
+    description: Codex leads orchestration and handoffs, with Claude support roles where required.
+    roles:
+      project_manager:
+        class: main
+        runtime: codex-native
+        model: gpt-5.4
+        reasoning_effort: xhigh
+        agent_type: default
+      team_lead:
+        class: main
+        runtime: codex-native
+        model: gpt-5.4
+        reasoning_effort: xhigh
+        agent_type: default
+      pm_beads_plan_handoff:
+        class: main
+        runtime: codex-native
+        model: gpt-5.4
+        reasoning_effort: xhigh
+        agent_type: default
+      pm_implement_handoff:
+        class: main
+        runtime: codex-native
+        model: gpt-5.4
+        reasoning_effort: xhigh
+        agent_type: default
+      senior_engineer:
+        class: sub
+        runtime: claude-code-mcp
+        agent_type: explorer
+      librarian:
+        class: sub
+        runtime: claude-code-mcp
+        agent_type: default
+      smoke_test_planner:
+        class: sub
+        runtime: claude-code-mcp
+        agent_type: default
+      alternative_pm:
+        class: sub
+        runtime: claude-code-mcp
+        agent_type: default
+      researcher:
+        class: sub
+        runtime: claude-code-mcp
+        agent_type: default
+      backend_engineer:
+        class: sub
+        runtime: codex-native
+        model: gpt-5.4
+        reasoning_effort: xhigh
+        agent_type: worker
+      frontend_engineer:
+        class: sub
+        runtime: codex-native
+        model: gpt-5.4
+        reasoning_effort: xhigh
+        agent_type: worker
+      security_engineer:
+        class: sub
+        runtime: codex-native
+        model: gpt-5.4
+        reasoning_effort: xhigh
+        agent_type: worker
+      agents_compliance_reviewer:
+        class: sub
+        runtime: codex-native
+        model: gpt-5.4
+        reasoning_effort: xhigh
+        agent_type: default
+      jazz_reviewer:
+        class: sub
+        runtime: claude-code-mcp
+        agent_type: default
+      codex_reviewer:
+        class: sub
+        runtime: codex-native
+        model: gpt-5.4
+        reasoning_effort: xhigh
+        agent_type: default
+      manual_qa:
+        class: sub
+        runtime: codex-native
+        model: gpt-5.4
+        reasoning_effort: xhigh
+        agent_type: default
+      task_verification:
+        class: sub
+        runtime: codex-native
+        model: gpt-5.4
+        reasoning_effort: xhigh
+        agent_type: default
+        note: Codex-native verification is pinned the same as other codex-native orchestrator roles.
 
-  - name: "Security Engineer"
-    runtime: "claude-code"
-    launcher: "task-tool-default"
-    description: "Security review and implementation"
+  claude-main:
+    description: Claude leads orchestration and handoffs, with Codex support roles where required.
+    roles:
+      project_manager:
+        class: main
+        runtime: claude-code-mcp
+        agent_type: default
+      team_lead:
+        class: main
+        runtime: claude-code-mcp
+        agent_type: default
+      pm_beads_plan_handoff:
+        class: main
+        runtime: claude-code-mcp
+        agent_type: default
+      pm_implement_handoff:
+        class: main
+        runtime: claude-code-mcp
+        agent_type: default
+      senior_engineer:
+        class: sub
+        runtime: codex-native
+        model: gpt-5.4
+        reasoning_effort: xhigh
+        agent_type: explorer
+      librarian:
+        class: sub
+        runtime: claude-code-mcp
+        agent_type: default
+      smoke_test_planner:
+        class: sub
+        runtime: codex-native
+        model: gpt-5.4
+        reasoning_effort: xhigh
+        agent_type: default
+      alternative_pm:
+        class: sub
+        runtime: codex-native
+        model: gpt-5.4
+        reasoning_effort: xhigh
+        agent_type: default
+      researcher:
+        class: sub
+        runtime: claude-code-mcp
+        agent_type: default
+      backend_engineer:
+        class: sub
+        runtime: claude-code-mcp
+        agent_type: worker
+      frontend_engineer:
+        class: sub
+        runtime: claude-code-mcp
+        agent_type: worker
+      security_engineer:
+        class: sub
+        runtime: claude-code-mcp
+        agent_type: worker
+      agents_compliance_reviewer:
+        class: sub
+        runtime: claude-code-mcp
+        agent_type: default
+      jazz_reviewer:
+        class: sub
+        runtime: codex-native
+        model: gpt-5.4
+        reasoning_effort: xhigh
+        agent_type: default
+      codex_reviewer:
+        class: sub
+        runtime: claude-code-mcp
+        agent_type: default
+      manual_qa:
+        class: sub
+        runtime: claude-code-mcp
+        agent_type: default
+      task_verification:
+        class: sub
+        runtime: claude-code-mcp
+        agent_type: default
 
-  - name: "AGENTS Compliance Reviewer"
-    runtime: "claude-code"
-    launcher: "task-tool-default"
-    description: "Repo rules compliance"
-
-  - name: "Codex Reviewer"
-    runtime: "claude-code"
-    launcher: "task-tool-default"
-    description: "4-layer code review (architecture, syntax, composition, logic)"
-
-  - name: "Manual QA"
-    runtime: "claude-code"
-    launcher: "task-tool-default"
-    description: "Smoke test execution"
-
-  - name: "Task Verification"
-    runtime: "claude-code"
-    launcher: "task-tool-default"
-    description: "Per-task implementation verification"
-
-# Codex-native roles - spawned via codex-worker MCP server
-# Model: gpt-5.3-codex at xhigh reasoning effort
-codex_native_roles:
-  - name: "Senior Engineer"
-    model: "gpt-5.3-codex"
-    reasoning_effort: "xhigh"
-    runtime: "codex-native"
-    launcher: "codex-worker-mcp"
-    description: "Codebase analysis and feasibility"
-
-  - name: "Smoke Test Planner"
-    model: "gpt-5.3-codex"
-    reasoning_effort: "xhigh"
-    runtime: "codex-native"
-    launcher: "codex-worker-mcp"
-    description: "Test planning"
-
-  - name: "Alternative PM"
-    model: "gpt-5.3-codex"
-    reasoning_effort: "xhigh"
-    runtime: "codex-native"
-    launcher: "codex-worker-mcp"
-    description: "Alternative solution analysis"
-
-  - name: "Jazz Reviewer"
-    model: "gpt-5.3-codex"
-    reasoning_effort: "xhigh"
-    runtime: "codex-native"
-    launcher: "codex-worker-mcp"
-    description: "Critical code review"
-
-# Codex worker MCP server configuration
-codex_worker_config:
-  model: "gpt-5.3-codex"
-  reasoning_effort: "xhigh"
-  mcp_server_command: "claude mcp add codex-worker -- codex mcp-server"
-  setup_script: "./scripts/setup-codex-user.sh"
-  # Note: Lead roles inherit model from the ambient Claude Code session.
-  # Codex-native roles use gpt-5.3-codex via the codex-worker MCP server.
+guardrails:
+  notes:
+    - Lead-model selection gate is mandatory before Discovery on all plan routes.
+    - Selected profile must persist across sessions until explicitly changed.
+    - Full Codex Orchestration must remain usable without Claude MCP.
+    - Codex-native orchestrator roles are pinned to gpt-5.4 with xhigh reasoning effort.
+    - codex mcp list is necessary but not sufficient for claude-code runtime availability.
+    - If claude-code MCP is missing, unhealthy, or launcher-unverified, roles mapped to claude-code-mcp fallback to codex-native and emit warning/remediation.
+    - Main model/runtime selection must propagate to pm_beads_plan_handoff and pm_implement_handoff.

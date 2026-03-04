@@ -17,6 +17,23 @@ assert_contains() {
   fi
 }
 
+extract_prefixed_value() {
+  local haystack="$1"
+  local prefix="$2"
+  local line
+
+  while IFS= read -r line; do
+    case "$line" in
+      "$prefix"*)
+        printf '%s' "${line#"$prefix"}"
+        return 0
+        ;;
+    esac
+  done <<<"$haystack"
+
+  return 1
+}
+
 require_tool() {
   command -v "$1" >/dev/null 2>&1 || fail "required tool missing: $1"
 }
@@ -72,6 +89,7 @@ assert_contains "$help_out" '$pm help'
 assert_contains "$help_out" '$pm plan: <feature request>'
 assert_contains "$help_out" '$pm self-update'
 assert_contains "$help_out" 'Self-update policy:'
+assert_contains "$help_out" 'Filter non-pipeline changes and emit integration-plan suggestions'
 
 STATE_FILE="$TMPDIR/.claude/pm-self-update-state.json"
 PRD_PATH="$TMPDIR/docs/prd/self-update.md"
@@ -143,10 +161,52 @@ assert_contains "$dual_out" 'UPDATE_AVAILABLE|'
 assert_contains "$dual_out" 'latest_version=0.106.0-alpha.2'
 assert_contains "$dual_out" 'pending_count=3'
 assert_contains "$dual_out" 'PENDING_BATCH|versions=0.105.0,0.106.0-alpha.1,0.106.0-alpha.2'
+assert_contains "$dual_out" 'RELEVANCE_SUMMARY|total_entries=3|relevant_entries=3|ignored_entries=0'
 assert_contains "$dual_out" 'PLAN_TRIGGER|/pm plan:'
+assert_contains "$dual_out" 'PLAN_CONTEXT|detected_version=0.106.0-alpha.2|pending_count=3|relevant_count=3|ignored_count=0|'
+
+relevant_json="$(extract_prefixed_value "$dual_out" 'RELEVANT_CHANGES_JSON|')" || fail "missing RELEVANT_CHANGES_JSON output"
+ignored_json="$(extract_prefixed_value "$dual_out" 'IGNORED_CHANGES_JSON|')" || fail "missing IGNORED_CHANGES_JSON output"
+plan_json="$(extract_prefixed_value "$dual_out" 'INTEGRATION_PLAN_JSON|')" || fail "missing INTEGRATION_PLAN_JSON output"
+printf '%s' "$relevant_json" | jq -e 'length == 3 and .[0].version != null and .[0].change != null' >/dev/null || fail "unexpected relevant changes JSON payload"
+printf '%s' "$ignored_json" | jq -e 'length == 0' >/dev/null || fail "unexpected ignored changes JSON payload"
+printf '%s' "$plan_json" | jq -e 'length == 3 and .[0].integration != null and .[0].expected_improvement != null' >/dev/null || fail "unexpected integration plan JSON payload"
 
 jq -e '.pending_codex_versions == ["0.105.0","0.106.0-alpha.1","0.106.0-alpha.2"]' "$STATE_FILE" >/dev/null || fail "dual-track pending batch incorrect"
 jq -e '.pending_batch.to_version == "0.106.0-alpha.2"' "$STATE_FILE" >/dev/null || fail "pending batch boundary incorrect"
+jq -e '.pending_batch.entry_analysis.total_entries == 3 and .pending_batch.entry_analysis.relevant_entries == 3 and .pending_batch.entry_analysis.ignored_entries == 0' "$STATE_FILE" >/dev/null || fail "pending batch entry analysis missing"
+
+echo "[test-pm-command] case: filter non-pipeline changelog entries"
+FILTER_CHANGELOG=$'Codex CLI 0.107.0-alpha.1 approval-gate workflow update\nCodex CLI 0.107.0-alpha.1 marketing website color refresh'
+filter_out="$(\
+  PM_SELF_UPDATE_INCLUDE_PRERELEASE=1 \
+  PM_SELF_UPDATE_CHANGELOG_PAYLOAD="$FILTER_CHANGELOG" \
+  PM_SELF_UPDATE_RELEASE_REDIRECT_URL='https://github.com/openai/codex/releases/tag/rust-v0.107.0-alpha.1' \
+  PM_SELF_UPDATE_NPM_TAGS_PAYLOAD='{"latest":"0.107.0-alpha.1","alpha":"0.107.0-alpha.1"}' \
+  "$HELPER" self-update check\
+)"
+assert_contains "$filter_out" 'UPDATE_AVAILABLE|'
+assert_contains "$filter_out" 'latest_version=0.107.0-alpha.1'
+assert_contains "$filter_out" 'RELEVANCE_SUMMARY|total_entries=2|relevant_entries=1|ignored_entries=1'
+
+filter_relevant_json="$(extract_prefixed_value "$filter_out" 'RELEVANT_CHANGES_JSON|')" || fail "missing filtered RELEVANT_CHANGES_JSON output"
+filter_ignored_json="$(extract_prefixed_value "$filter_out" 'IGNORED_CHANGES_JSON|')" || fail "missing filtered IGNORED_CHANGES_JSON output"
+filter_plan_json="$(extract_prefixed_value "$filter_out" 'INTEGRATION_PLAN_JSON|')" || fail "missing filtered INTEGRATION_PLAN_JSON output"
+printf '%s' "$filter_relevant_json" | jq -e 'length == 1 and .[0].reason == "matches_pipeline_relevance_policy"' >/dev/null || fail "filtered relevant JSON incorrect"
+printf '%s' "$filter_ignored_json" | jq -e 'length == 1 and .[0].reason == "filtered_non_pipeline_change"' >/dev/null || fail "filtered ignored JSON incorrect"
+printf '%s' "$filter_plan_json" | jq -e 'length == 1 and .[0].integration != null and .[0].expected_improvement != null' >/dev/null || fail "filtered integration plan JSON incorrect"
+jq -e '.pending_batch.entry_analysis.total_entries == 2 and .pending_batch.entry_analysis.relevant_entries == 1 and .pending_batch.entry_analysis.ignored_entries == 1' "$STATE_FILE" >/dev/null || fail "filtered entry analysis not persisted"
+
+echo "[test-pm-command] case: restore dual-track pending batch for completion tests"
+dual_restore_out="$(\
+  PM_SELF_UPDATE_INCLUDE_PRERELEASE=1 \
+  PM_SELF_UPDATE_CHANGELOG_PAYLOAD="$DUAL_CHANGELOG" \
+  PM_SELF_UPDATE_RELEASE_REDIRECT_URL="$DUAL_RELEASE_URL" \
+  PM_SELF_UPDATE_NPM_TAGS_PAYLOAD="$DUAL_NPM" \
+  "$HELPER" self-update check\
+)"
+assert_contains "$dual_restore_out" 'UPDATE_AVAILABLE|'
+jq -e '.pending_codex_versions == ["0.105.0","0.106.0-alpha.1","0.106.0-alpha.2"]' "$STATE_FILE" >/dev/null || fail "failed to restore dual-track pending batch"
 
 echo "[test-pm-command] case: complete rejects incomplete PRD evidence"
 write_prd "$PRD_PATH" '0.105.0' '0.106.0-alpha.2'
@@ -237,5 +297,8 @@ noop_out="$(
 )"
 assert_contains "$noop_out" 'NO_OP|'
 assert_contains "$noop_out" 'latest_version=0.106.0-alpha.2'
+assert_contains "$noop_out" 'RELEVANCE_SUMMARY|total_entries=0|relevant_entries=0|ignored_entries=0'
+noop_plan_json="$(extract_prefixed_value "$noop_out" 'INTEGRATION_PLAN_JSON|')" || fail "missing no-op integration plan output"
+printf '%s' "$noop_plan_json" | jq -e 'length == 0' >/dev/null || fail "no-op integration plan should be empty"
 
 echo "[test-pm-command] PASS"

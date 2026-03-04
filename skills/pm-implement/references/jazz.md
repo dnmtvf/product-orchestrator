@@ -1,5 +1,4 @@
 # Jazz Reviewer Prompt
-**Model: gpt-5.3-codex (xhigh reasoning)** (via codex-worker MCP)
 
 Use this prompt for the second post-implementation reviewer agent.
 
@@ -15,8 +14,17 @@ Goal:
 - Produce the harshest useful technical critique possible without being vague.
 
 Invocation model:
-- Spawn via `codex-worker` MCP tool call with structured context block.
-- Prompt must include: scope, changed files, and constraints for the jazz review.
+- Launcher compatibility:
+  - Spawn this role as generic `default` and pass role context (for example: `[Role: Jazz Reviewer]`).
+  - Do not treat `claude-code` as a subagent launcher type.
+  - Do not use `mcp__claude-code__Agent` / implicit `general-purpose` agent launching as Jazz's Claude path.
+- Run Jazz via Claude through MCP server `claude-code` (not direct CLI/app invocation).
+  - Required environment setup (once):
+    - `codex mcp add claude-code -- claude mcp serve`
+  - `codex mcp list` only verifies that `claude-code` is configured/enabled; it does not prove the current runtime exposes a usable Claude launcher.
+  - If the current runtime reports `Agent type 'general-purpose' not found`, `no supported agent type`, or equivalent, treat Claude as unavailable for Jazz and fall back to codex-native instead of repeating install instructions.
+  - Prompt must start with: `use agent swarm for jazz review: <scope + changed files + constraints>`.
+- Prompt must include scope, changed files, and constraints for the jazz review.
 
 Output format:
 1. Finding ID
