@@ -87,9 +87,98 @@ echo "[test-pm-command] case: help output"
 help_out="$("$HELPER" help)"
 assert_contains "$help_out" '$pm help'
 assert_contains "$help_out" '$pm plan: <feature request>'
+assert_contains "$help_out" '$pm lead-model show|set|reset'
 assert_contains "$help_out" '$pm self-update'
 assert_contains "$help_out" 'Self-update policy:'
 assert_contains "$help_out" 'Filter non-pipeline changes and emit integration-plan suggestions'
+assert_contains "$help_out" 'Lead-model options are exactly:'
+assert_contains "$help_out" 'GPT-5.3-Codex XHigh'
+assert_contains "$help_out" 'Claude Opus 4.6 Thinking'
+
+LEAD_MODEL_STATE_FILE="$TMPDIR/.codex/pm-lead-model-state.json"
+
+echo "[test-pm-command] case: lead-model state bootstraps to codex-first"
+lead_show="$("$HELPER" lead-model show --state-file "$LEAD_MODEL_STATE_FILE")"
+assert_contains "$lead_show" 'LEAD_MODEL_STATE|action=show|profile=codex-first|label=GPT-5.3-Codex XHigh'
+jq -e '.selected_profile == "codex-first"' "$LEAD_MODEL_STATE_FILE" >/dev/null || fail "lead-model default profile should be codex-first"
+
+echo "[test-pm-command] case: lead-model state persists claude-first selection"
+lead_set_claude="$("$HELPER" lead-model set --state-file "$LEAD_MODEL_STATE_FILE" --profile claude-first)"
+assert_contains "$lead_set_claude" 'LEAD_MODEL_STATE|action=set|profile=claude-first|label=Claude Opus 4.6 Thinking'
+jq -e '.selected_profile == "claude-first"' "$LEAD_MODEL_STATE_FILE" >/dev/null || fail "lead-model profile did not persist claude-first"
+
+echo "[test-pm-command] case: plan gate on default route emits persisted claude-first routing"
+plan_gate_default="$(
+  PM_LEAD_MODEL_FORCE_CLAUDE_MCP_AVAILABLE=1 \
+  "$HELPER" plan gate --route default --state-file "$LEAD_MODEL_STATE_FILE"
+)"
+assert_contains "$plan_gate_default" 'LEAD_MODEL_GATE|route=default'
+assert_contains "$plan_gate_default" 'selected_profile=claude-first'
+assert_contains "$plan_gate_default" 'ROUTING_PROFILE|route=default|profile=claude-first|main_runtime=claude-code-mcp|main_model=<unpinned>'
+assert_contains "$plan_gate_default" 'ROUTING_ROLE|role=pm_beads_plan_handoff|class=main|runtime=claude-code-mcp|model=<unpinned>|agent_type=default'
+assert_contains "$plan_gate_default" 'ROUTING_ROLE|role=pm_implement_handoff|class=main|runtime=claude-code-mcp|model=<unpinned>|agent_type=default'
+assert_contains "$plan_gate_default" 'ROUTING_ROLE|role=task_verification|class=sub|runtime=claude-code-mcp|model=<unpinned>|agent_type=default'
+assert_contains "$plan_gate_default" 'PLAN_ROUTE_READY|route=default|selected_profile=claude-first|selected_label=Claude Opus 4.6 Thinking|discovery_can_start=1'
+
+echo "[test-pm-command] case: plan gate on big-feature route can override to codex-first"
+plan_gate_big="$(
+  PM_LEAD_MODEL_FORCE_CLAUDE_MCP_AVAILABLE=1 \
+  "$HELPER" plan gate --route big-feature --lead-model codex-first --state-file "$LEAD_MODEL_STATE_FILE"
+)"
+assert_contains "$plan_gate_big" 'LEAD_MODEL_GATE|route=big-feature'
+assert_contains "$plan_gate_big" 'selected_profile=codex-first'
+assert_contains "$plan_gate_big" 'ROUTING_PROFILE|route=big-feature|profile=codex-first|main_runtime=codex-native|main_model=gpt-5.3-codex'
+assert_contains "$plan_gate_big" 'ROUTING_ROLE|role=pm_beads_plan_handoff|class=main|runtime=codex-native|model=gpt-5.3-codex|agent_type=default'
+assert_contains "$plan_gate_big" 'ROUTING_ROLE|role=pm_implement_handoff|class=main|runtime=codex-native|model=gpt-5.3-codex|agent_type=default'
+assert_contains "$plan_gate_big" 'ROUTING_ROLE|role=task_verification|class=sub|runtime=codex-native|model=<unpinned>|agent_type=default'
+assert_contains "$plan_gate_big" 'PLAN_ROUTE_READY|route=big-feature|selected_profile=codex-first|selected_label=GPT-5.3-Codex XHigh|discovery_can_start=1'
+jq -e '.selected_profile == "codex-first"' "$LEAD_MODEL_STATE_FILE" >/dev/null || fail "plan gate override did not persist codex-first profile"
+
+echo "[test-pm-command] case: lead-model reset is idempotent"
+lead_reset_one="$("$HELPER" lead-model reset --state-file "$LEAD_MODEL_STATE_FILE")"
+lead_reset_two="$("$HELPER" lead-model reset --state-file "$LEAD_MODEL_STATE_FILE")"
+assert_contains "$lead_reset_one" 'LEAD_MODEL_STATE|action=reset|profile=codex-first'
+assert_contains "$lead_reset_two" 'LEAD_MODEL_STATE|action=reset|profile=codex-first'
+
+echo "[test-pm-command] case: invalid lead-model and route inputs fail"
+if "$HELPER" lead-model set --state-file "$LEAD_MODEL_STATE_FILE" --profile invalid >/dev/null 2>&1; then
+  fail "lead-model set unexpectedly accepted invalid profile"
+fi
+if "$HELPER" plan gate --route default --lead-model invalid --state-file "$LEAD_MODEL_STATE_FILE" >/dev/null 2>&1; then
+  fail "plan gate unexpectedly accepted invalid lead-model override"
+fi
+if "$HELPER" plan gate --route invalid --state-file "$LEAD_MODEL_STATE_FILE" >/dev/null 2>&1; then
+  fail "plan gate unexpectedly accepted invalid route"
+fi
+
+echo "[test-pm-command] case: claude-first preflight blocks when claude-code MCP is unavailable"
+blocked_output_file="$TMPDIR/plan-gate-blocked.out"
+if PM_LEAD_MODEL_FORCE_CLAUDE_MCP_UNAVAILABLE=1 \
+   "$HELPER" plan gate --route default --lead-model claude-first --state-file "$LEAD_MODEL_STATE_FILE" >"$blocked_output_file" 2>&1; then
+  fail "plan gate unexpectedly continued without claude-code MCP availability"
+fi
+blocked_out="$(cat "$blocked_output_file")"
+assert_contains "$blocked_out" 'LEAD_MODEL_GATE|route=default'
+assert_contains "$blocked_out" 'BLOCKED|reason=claude_code_mcp_unavailable|route=default|selected_profile=claude-first'
+assert_contains "$blocked_out" 'remediation=codex mcp add claude-code -- claude mcp serve'
+if grep -Fq 'PLAN_ROUTE_READY|' <<<"$blocked_out"; then
+  fail "blocked plan gate should not emit PLAN_ROUTE_READY"
+fi
+
+echo "[test-pm-command] case: claude-first preflight blocks when claude-code MCP is disabled"
+blocked_disabled_file="$TMPDIR/plan-gate-blocked-disabled.out"
+if PM_LEAD_MODEL_CLAUDE_MCP_LIST_OVERRIDE='claude-code disabled' \
+   "$HELPER" plan gate --route default --lead-model claude-first --state-file "$LEAD_MODEL_STATE_FILE" >"$blocked_disabled_file" 2>&1; then
+  fail "plan gate unexpectedly continued with disabled claude-code MCP"
+fi
+blocked_disabled_out="$(cat "$blocked_disabled_file")"
+assert_contains "$blocked_disabled_out" 'BLOCKED|reason=claude_code_mcp_unavailable|route=default|selected_profile=claude-first'
+
+echo "[test-pm-command] case: lead-model reset repairs corrupt state file"
+printf 'not-json\n' >"$LEAD_MODEL_STATE_FILE"
+repair_out="$("$HELPER" lead-model reset --state-file "$LEAD_MODEL_STATE_FILE")"
+assert_contains "$repair_out" 'LEAD_MODEL_STATE|action=reset|profile=codex-first|label=GPT-5.3-Codex XHigh'
+jq -e '.selected_profile == "codex-first"' "$LEAD_MODEL_STATE_FILE" >/dev/null || fail "lead-model reset did not repair corrupt state"
 
 STATE_FILE="$TMPDIR/.claude/pm-self-update-state.json"
 PRD_PATH="$TMPDIR/docs/prd/self-update.md"

@@ -3,26 +3,71 @@ set -euo pipefail
 
 SCRIPT_NAME="$(basename "$0")"
 APPROVAL_TOKEN="approved"
-DEFAULT_CHANGELOG_URL="https://github.com/anthropics/claude-code/releases"
-DEFAULT_RELEASE_URL="https://github.com/anthropics/claude-code/releases/latest"
-DEFAULT_NPM_TAGS_URL="https://registry.npmjs.org/-/package/@anthropic-ai/claude-code/dist-tags"
-DEFAULT_PLAN_TRIGGER="/pm plan: Inspect latest Claude Code changes and align orchestrator behavior with Claude Code runtime policy."
-STATE_RELATIVE_PATH=".claude/pm-self-update-state.json"
+DEFAULT_CHANGELOG_URL="https://developers.openai.com/codex/changelog/"
+DEFAULT_RELEASE_URL="https://github.com/openai/codex/releases/latest"
+DEFAULT_NPM_TAGS_URL="https://registry.npmjs.org/-/package/@openai/codex/dist-tags"
+DEFAULT_PLAN_TRIGGER="/pm plan: Inspect latest Codex changes and align orchestrator behavior with orchestration-mode runtime policy."
+STATE_RELATIVE_PATH=".codex/pm-self-update-state.json"
+LEAD_MODEL_STATE_RELATIVE_PATH=".codex/pm-lead-model-state.json"
+LEAD_MODEL_SCHEMA_VERSION=1
+LEAD_MODEL_PROFILE_FULL_CODEX="full-codex"
+LEAD_MODEL_PROFILE_CODEX_MAIN="codex-main"
+LEAD_MODEL_PROFILE_CLAUDE_MAIN="claude-main"
+LEAD_MODEL_PROFILE_CODEX_LEGACY="codex-first"
+LEAD_MODEL_PROFILE_CLAUDE_LEGACY="claude-first"
+LEAD_MODEL_DEFAULT_PROFILE="$LEAD_MODEL_PROFILE_CODEX_MAIN"
+LEAD_MODEL_OPTION_FULL_CODEX="Full Codex Orchestration"
+LEAD_MODEL_OPTION_CODEX_MAIN="Codex as Main Agent"
+LEAD_MODEL_OPTION_CLAUDE_MAIN="Claude as Main Orchestrator"
+CODEX_PINNED_MODEL="gpt-5.4"
+CODEX_PINNED_REASONING_EFFORT="xhigh"
+UNPINNED_MODEL_VALUE="<unpinned>"
+UNPINNED_REASONING_VALUE="<unpinned>"
+CLAUDE_MCP_INSTALL_COMMAND="codex mcp add claude-code -- claude mcp serve"
+CLAUDE_MCP_REMEDIATION_MISSING="$CLAUDE_MCP_INSTALL_COMMAND"
+CLAUDE_MCP_LAST_REASON=""
+CLAUDE_MCP_LAST_REMEDIATION=""
+CLAUDE_MCP_LAST_DETAIL=""
+CLAUDE_MCP_LAST_COMMAND=""
+CLAUDE_MCP_LAST_COMMAND_SOURCE=""
+CLAUDE_MCP_LAST_PATH_OVERRIDE=""
+CLAUDE_MCP_LAST_PATH_OVERRIDE_SOURCE=""
+CLAUDE_CONTEXT_REQUEST_PREFIX="CONTEXT_REQUEST|"
+CLAUDE_CONTEXT_REQUIRED_FIELDS_CSV="feature_objective,prd_context,task_id,acceptance_criteria,implementation_status,changed_files,constraints,evidence,clarifying_instruction"
+CLAUDE_CLARIFYING_INSTRUCTION="If you have missing or ambiguous context, ask specific clarifying questions before final recommendations."
+TELEMETRY_TABLE_NAME="pm_step_events"
+TELEMETRY_DEFAULT_USAGE_SOURCE="provider_response"
+TELEMETRY_DEFAULT_USAGE_STATUS="complete"
 SEMVER_PATTERN='v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?'
 DEFAULT_RELEVANCE_INCLUDE_PATTERN='orchestrator|pipeline|workflow|pm|beads|approval|gate|state|checkpoint|self-update|agent|mcp|cli|command|test|qa|smoke|automation'
 DEFAULT_RELEVANCE_EXCLUDE_PATTERN='marketing|landing[[:space:]-]*page|pricing[[:space:]-]*page|branding|color[[:space:]-]*refresh|theme[[:space:]-]*refresh'
 
 usage() {
   cat <<'EOF'
-Claude Code PM command helper.
+Codex PM command helper.
 
 Usage:
   pm-command.sh help
+  pm-command.sh lead-model show [--state-file PATH]
+  pm-command.sh lead-model set --profile full-codex|codex-main|claude-main [--state-file PATH]
+  pm-command.sh lead-model reset [--state-file PATH]
+  pm-command.sh plan gate --route default|big-feature [--lead-model full-codex|codex-main|claude-main] [--state-file PATH]
+  pm-command.sh claude-contract validate-context --context-file PATH [--role ROLE]
+  pm-command.sh claude-contract evaluate-response --response-file PATH [--session-id ID] [--role ROLE]
+  pm-command.sh claude-contract run-loop --context-file PATH [--response-file PATH ...] [--session-id ID] [--role ROLE] [--max-rounds N]
+  pm-command.sh telemetry init-db [--dsn POSTGRES_DSN]
+  pm-command.sh telemetry log-step --workflow-run-id ID --step-id ID [--event-id ID] [fields...]
+  pm-command.sh telemetry query-task --task-id ID [--workflow-run-id ID] [--limit N]
+  pm-command.sh telemetry query-run --workflow-run-id ID [--dsn POSTGRES_DSN] [--limit N]
   pm-command.sh self-update [check] [--state-file PATH] [--changelog-url URL] [--release-url URL] [--npm-tags-url URL]
   pm-command.sh self-update complete --approval approved --prd-approval approved --beads-approval approved --prd-path PATH [--state-file PATH] [--dry-run]
 
 Commands:
   help          Print deterministic $pm help output.
+  lead-model    Read/update persistent PM orchestration mode selection state.
+  plan          Run plan-route orchestration mode gate and routing preflight.
+  claude-contract Enforce Claude context-pack and missing-context handshake.
+  telemetry     Persist/query PM step telemetry in PostgreSQL.
   self-update   Manual self-update orchestration. Defaults to check mode.
 
 Self-update modes:
@@ -34,6 +79,8 @@ Environment toggles:
   PM_SELF_UPDATE_STRICT_MISMATCH=1|0      Fail check when corroborative sources disagree with changelog (default: 0)
   PM_SELF_UPDATE_RELEVANCE_INCLUDE_REGEX   Override include regex for pipeline-relevant change filtering
   PM_SELF_UPDATE_RELEVANCE_EXCLUDE_REGEX   Override exclude regex for non-pipeline change filtering
+  PM_TELEMETRY_DSN                         PostgreSQL DSN used for telemetry persistence/query
+  PM_TELEMETRY_PSQL_BIN                    Optional absolute path to psql binary
 
 Notes:
   - This workflow is manual-only. No scheduled/background triggers are provided.
@@ -69,8 +116,886 @@ default_state_file() {
   printf '%s/%s' "$root" "$STATE_RELATIVE_PATH"
 }
 
+default_lead_model_state_file() {
+  local root
+  root="$(repo_root)"
+  printf '%s/%s' "$root" "$LEAD_MODEL_STATE_RELATIVE_PATH"
+}
+
+project_codex_config_file() {
+  local root
+  root="$(repo_root)"
+  printf '%s/.codex/config.toml' "$root"
+}
+
+global_codex_config_file() {
+  printf '%s/.codex/config.toml' "$HOME"
+}
+
+display_path() {
+  local path="$1"
+  local root
+
+  root="$(repo_root)"
+  case "$path" in
+    "$root"/*)
+      printf '%s' "${path#"$root"/}"
+      ;;
+    *)
+      printf '%s' "$path"
+      ;;
+  esac
+}
+
 now_utc() {
   date -u +"%Y-%m-%dT%H:%M:%SZ"
+}
+
+sanitize_single_line() {
+  local value="${1:-}"
+  printf '%s' "$value" | tr '\r\n\t' ' ' | sed -E 's/[[:space:]]+/ /g; s/^[[:space:]]+//; s/[[:space:]]+$//'
+}
+
+epoch_ms() {
+  printf '%s' "$(( $(date +%s) * 1000 ))"
+}
+
+toml_top_level_string_value() {
+  local file="$1"
+  local key="$2"
+  local line
+
+  [ -f "$file" ] || return 1
+
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line%%#*}"
+    if [[ "$line" =~ ^[[:space:]]*$ ]]; then
+      continue
+    fi
+    if [[ "$line" =~ ^[[:space:]]*\[ ]]; then
+      break
+    fi
+    if [[ "$line" =~ ^[[:space:]]*$key[[:space:]]*=[[:space:]]*\"([^\"]*)\" ]]; then
+      printf '%s' "${BASH_REMATCH[1]}"
+      return 0
+    fi
+    if [[ "$line" =~ ^[[:space:]]*$key[[:space:]]*=[[:space:]]*\'([^\']*)\' ]]; then
+      printf '%s' "${BASH_REMATCH[1]}"
+      return 0
+    fi
+  done < "$file"
+
+  return 1
+}
+
+toml_section_string_value() {
+  local file="$1"
+  local section="$2"
+  local key="$3"
+  local line current_section=""
+
+  [ -f "$file" ] || return 1
+
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line%%#*}"
+    if [[ "$line" =~ ^[[:space:]]*$ ]]; then
+      continue
+    fi
+    if [[ "$line" =~ ^[[:space:]]*\[([^]]+)\][[:space:]]*$ ]]; then
+      current_section="${BASH_REMATCH[1]}"
+      continue
+    fi
+    [ "$current_section" = "$section" ] || continue
+    if [[ "$line" =~ ^[[:space:]]*$key[[:space:]]*=[[:space:]]*\"([^\"]*)\" ]]; then
+      printf '%s' "${BASH_REMATCH[1]}"
+      return 0
+    fi
+    if [[ "$line" =~ ^[[:space:]]*$key[[:space:]]*=[[:space:]]*\'([^\']*)\' ]]; then
+      printf '%s' "${BASH_REMATCH[1]}"
+      return 0
+    fi
+  done < "$file"
+
+  return 1
+}
+
+codex_config_section_string_value() {
+  local section="$1"
+  local key="$2"
+  local project_file global_file value
+
+  project_file="$(project_codex_config_file)"
+  global_file="$(global_codex_config_file)"
+
+  value="$(toml_section_string_value "$project_file" "$section" "$key" || true)"
+  if [ -n "$value" ]; then
+    printf '%s|%s' "$value" "$(display_path "$project_file")"
+    return 0
+  fi
+
+  value="$(toml_section_string_value "$global_file" "$section" "$key" || true)"
+  if [ -n "$value" ]; then
+    printf '%s|%s' "$value" "$(display_path "$global_file")"
+    return 0
+  fi
+
+  return 1
+}
+
+codex_config_value() {
+  local key="$1"
+  local project_file global_file value
+
+  project_file="$(project_codex_config_file)"
+  global_file="$(global_codex_config_file)"
+
+  value="$(toml_top_level_string_value "$project_file" "$key" || true)"
+  if [ -n "$value" ]; then
+    printf '%s' "$value"
+    return 0
+  fi
+
+  value="$(toml_top_level_string_value "$global_file" "$key" || true)"
+  if [ -n "$value" ]; then
+    printf '%s' "$value"
+    return 0
+  fi
+
+  return 1
+}
+
+resolved_codex_model() {
+  printf '%s' "$CODEX_PINNED_MODEL"
+}
+
+resolved_codex_reasoning_effort() {
+  printf '%s' "$CODEX_PINNED_REASONING_EFFORT"
+}
+
+telemetry_new_event_id() {
+  local step="${1:-unknown}"
+  local event_type="${2:-event}"
+  printf 'pmcmd-%s-%s-%s-%s' "$(date +%s)" "$$" "$step" "$event_type"
+}
+
+telemetry_dsn() {
+  printf '%s' "${PM_TELEMETRY_DSN:-}"
+}
+
+telemetry_psql_bin() {
+  if [ -n "${PM_TELEMETRY_PSQL_BIN:-}" ] && [ -x "${PM_TELEMETRY_PSQL_BIN:-}" ]; then
+    printf '%s' "$PM_TELEMETRY_PSQL_BIN"
+    return 0
+  fi
+
+  if command -v psql >/dev/null 2>&1; then
+    command -v psql
+    return 0
+  fi
+
+  if [ -x "/opt/homebrew/opt/libpq/bin/psql" ]; then
+    printf '%s' "/opt/homebrew/opt/libpq/bin/psql"
+    return 0
+  fi
+
+  return 1
+}
+
+telemetry_enabled() {
+  [ -n "$(telemetry_dsn)" ]
+}
+
+telemetry_exec_sql() {
+  local sql="$1"
+  local dsn psql_bin
+  shift || true
+
+  dsn="$(telemetry_dsn)"
+  [ -n "$dsn" ] || return 10
+
+  psql_bin="$(telemetry_psql_bin)" || return 11
+  printf '%s\n' "$sql" | "$psql_bin" "$dsn" -v ON_ERROR_STOP=1 "$@"
+}
+
+telemetry_init_db() {
+  telemetry_exec_sql "
+CREATE TABLE IF NOT EXISTS ${TELEMETRY_TABLE_NAME} (
+  id BIGSERIAL PRIMARY KEY,
+  event_id TEXT NOT NULL UNIQUE,
+  workflow_run_id TEXT NOT NULL,
+  task_id TEXT,
+  step_id TEXT NOT NULL,
+  parent_step_id TEXT,
+  phase TEXT,
+  step_name TEXT,
+  event_type TEXT NOT NULL,
+  agent_role TEXT,
+  invoked_by_role TEXT,
+  runtime TEXT,
+  provider TEXT,
+  model TEXT,
+  started_at TIMESTAMPTZ,
+  ended_at TIMESTAMPTZ,
+  duration_ms BIGINT,
+  prompt_tokens INTEGER,
+  completion_tokens INTEGER,
+  total_tokens INTEGER,
+  usage_source TEXT NOT NULL DEFAULT '${TELEMETRY_DEFAULT_USAGE_SOURCE}',
+  usage_status TEXT NOT NULL DEFAULT '${TELEMETRY_DEFAULT_USAGE_STATUS}',
+  status TEXT,
+  error_or_warning_code TEXT,
+  warning_message TEXT,
+  remediation TEXT,
+  request_id TEXT,
+  trace_id TEXT,
+  span_id TEXT,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CHECK (duration_ms IS NULL OR duration_ms >= 0),
+  CHECK (prompt_tokens IS NULL OR prompt_tokens >= 0),
+  CHECK (completion_tokens IS NULL OR completion_tokens >= 0),
+  CHECK (total_tokens IS NULL OR total_tokens >= 0)
+);
+
+CREATE INDEX IF NOT EXISTS idx_${TELEMETRY_TABLE_NAME}_task_created
+  ON ${TELEMETRY_TABLE_NAME} (task_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_${TELEMETRY_TABLE_NAME}_run_created
+  ON ${TELEMETRY_TABLE_NAME} (workflow_run_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_${TELEMETRY_TABLE_NAME}_phase_step
+  ON ${TELEMETRY_TABLE_NAME} (phase, step_name, created_at DESC);
+"
+}
+
+telemetry_require_table() {
+  local exists
+
+  if ! exists="$(telemetry_exec_sql "
+SELECT to_regclass(current_schema() || '.${TELEMETRY_TABLE_NAME}') IS NOT NULL;
+" -tA 2>/dev/null)"; then
+    die "Unable to validate telemetry table presence. Ensure DB access is valid and run pm-command.sh telemetry init-db --dsn <postgres-dsn>"
+  fi
+
+  exists="$(printf '%s' "$exists" | tr -d '[:space:]')"
+  if [ "$exists" != "t" ]; then
+    die "Telemetry table ${TELEMETRY_TABLE_NAME} is missing. Run pm-command.sh telemetry init-db --dsn <postgres-dsn>"
+  fi
+}
+
+telemetry_record_event() {
+  local event_id="$1"
+  local workflow_run_id="$2"
+  local task_id="${3:-}"
+  local step_id="$4"
+  local parent_step_id="${5:-}"
+  local phase="${6:-}"
+  local step_name="${7:-}"
+  local event_type="${8:-}"
+  local agent_role="${9:-}"
+  local invoked_by_role="${10:-}"
+  local runtime="${11:-}"
+  local provider="${12:-}"
+  local model="${13:-}"
+  local started_at="${14:-}"
+  local ended_at="${15:-}"
+  local duration_ms="${16:-}"
+  local prompt_tokens="${17:-}"
+  local completion_tokens="${18:-}"
+  local total_tokens="${19:-}"
+  local usage_source="${20:-$TELEMETRY_DEFAULT_USAGE_SOURCE}"
+  local usage_status="${21:-$TELEMETRY_DEFAULT_USAGE_STATUS}"
+  local status="${22:-}"
+  local error_or_warning_code="${23:-}"
+  local warning_message="${24:-}"
+  local remediation="${25:-}"
+  local request_id="${26:-}"
+  local trace_id="${27:-}"
+  local span_id="${28:-}"
+  local metadata_json="${29:-{}}"
+
+  [ -n "$event_id" ] || die "telemetry event_id is required"
+  [ -n "$workflow_run_id" ] || die "telemetry workflow_run_id is required"
+  [ -n "$step_id" ] || die "telemetry step_id is required"
+  [ -n "$event_type" ] || die "telemetry event_type is required"
+  if ! printf '%s' "$metadata_json" | jq -e . >/dev/null 2>&1; then
+    local normalized_metadata_json
+    normalized_metadata_json="$(printf '%s' "$metadata_json" | sed 's/\\"/"/g')"
+    if printf '%s' "$normalized_metadata_json" | jq -e . >/dev/null 2>&1; then
+      metadata_json="$normalized_metadata_json"
+    else
+      warn "telemetry metadata_json was invalid; defaulting to {}"
+      metadata_json="{}"
+    fi
+  fi
+
+  telemetry_init_db >/dev/null
+  telemetry_exec_sql "
+INSERT INTO ${TELEMETRY_TABLE_NAME} (
+  event_id, workflow_run_id, task_id, step_id, parent_step_id, phase, step_name, event_type,
+  agent_role, invoked_by_role, runtime, provider, model, started_at, ended_at, duration_ms,
+  prompt_tokens, completion_tokens, total_tokens, usage_source, usage_status, status,
+  error_or_warning_code, warning_message, remediation, request_id, trace_id, span_id, metadata
+)
+VALUES (
+  NULLIF(:'event_id',''),
+  NULLIF(:'workflow_run_id',''),
+  NULLIF(:'task_id',''),
+  NULLIF(:'step_id',''),
+  NULLIF(:'parent_step_id',''),
+  NULLIF(:'phase',''),
+  NULLIF(:'step_name',''),
+  NULLIF(:'event_type',''),
+  NULLIF(:'agent_role',''),
+  NULLIF(:'invoked_by_role',''),
+  NULLIF(:'runtime',''),
+  NULLIF(:'provider',''),
+  NULLIF(:'model',''),
+  NULLIF(:'started_at','')::timestamptz,
+  NULLIF(:'ended_at','')::timestamptz,
+  NULLIF(:'duration_ms','')::bigint,
+  NULLIF(:'prompt_tokens','')::integer,
+  NULLIF(:'completion_tokens','')::integer,
+  NULLIF(:'total_tokens','')::integer,
+  COALESCE(NULLIF(:'usage_source',''), '${TELEMETRY_DEFAULT_USAGE_SOURCE}'),
+  COALESCE(NULLIF(:'usage_status',''), '${TELEMETRY_DEFAULT_USAGE_STATUS}'),
+  NULLIF(:'status',''),
+  NULLIF(:'error_or_warning_code',''),
+  NULLIF(:'warning_message',''),
+  NULLIF(:'remediation',''),
+  NULLIF(:'request_id',''),
+  NULLIF(:'trace_id',''),
+  NULLIF(:'span_id',''),
+  COALESCE(NULLIF(:'metadata_json','')::jsonb, '{}'::jsonb)
+)
+ON CONFLICT (event_id) DO UPDATE
+SET
+  ended_at = COALESCE(EXCLUDED.ended_at, ${TELEMETRY_TABLE_NAME}.ended_at),
+  duration_ms = COALESCE(EXCLUDED.duration_ms, ${TELEMETRY_TABLE_NAME}.duration_ms),
+  prompt_tokens = COALESCE(EXCLUDED.prompt_tokens, ${TELEMETRY_TABLE_NAME}.prompt_tokens),
+  completion_tokens = COALESCE(EXCLUDED.completion_tokens, ${TELEMETRY_TABLE_NAME}.completion_tokens),
+  total_tokens = COALESCE(EXCLUDED.total_tokens, ${TELEMETRY_TABLE_NAME}.total_tokens),
+  status = COALESCE(EXCLUDED.status, ${TELEMETRY_TABLE_NAME}.status),
+  error_or_warning_code = COALESCE(EXCLUDED.error_or_warning_code, ${TELEMETRY_TABLE_NAME}.error_or_warning_code),
+  warning_message = COALESCE(EXCLUDED.warning_message, ${TELEMETRY_TABLE_NAME}.warning_message),
+  remediation = COALESCE(EXCLUDED.remediation, ${TELEMETRY_TABLE_NAME}.remediation),
+  metadata = CASE
+    WHEN EXCLUDED.metadata = '{}'::jsonb THEN ${TELEMETRY_TABLE_NAME}.metadata
+    ELSE EXCLUDED.metadata
+  END;
+" \
+    -v event_id="$event_id" \
+    -v workflow_run_id="$workflow_run_id" \
+    -v task_id="$task_id" \
+    -v step_id="$step_id" \
+    -v parent_step_id="$parent_step_id" \
+    -v phase="$phase" \
+    -v step_name="$step_name" \
+    -v event_type="$event_type" \
+    -v agent_role="$agent_role" \
+    -v invoked_by_role="$invoked_by_role" \
+    -v runtime="$runtime" \
+    -v provider="$provider" \
+    -v model="$model" \
+    -v started_at="$started_at" \
+    -v ended_at="$ended_at" \
+    -v duration_ms="$duration_ms" \
+    -v prompt_tokens="$prompt_tokens" \
+    -v completion_tokens="$completion_tokens" \
+    -v total_tokens="$total_tokens" \
+    -v usage_source="$usage_source" \
+    -v usage_status="$usage_status" \
+    -v status="$status" \
+    -v error_or_warning_code="$error_or_warning_code" \
+    -v warning_message="$warning_message" \
+    -v remediation="$remediation" \
+    -v request_id="$request_id" \
+    -v trace_id="$trace_id" \
+    -v span_id="$span_id" \
+    -v metadata_json="$metadata_json" >/dev/null
+}
+
+telemetry_record_event_nonblocking() {
+  local err_file
+  if ! telemetry_enabled; then
+    return 0
+  fi
+  err_file="$(mktemp)"
+  if ! telemetry_record_event "$@" 2>"$err_file"; then
+    warn "Telemetry write skipped: $(sanitize_single_line "$(cat "$err_file")")"
+    rm -f "$err_file"
+    return 0
+  fi
+  rm -f "$err_file"
+}
+
+pipe_kv_get() {
+  local line="$1"
+  local key="$2"
+  local part
+  local -a parts=()
+
+  IFS='|' read -r -a parts <<<"$line"
+  for part in "${parts[@]}"; do
+    case "$part" in
+      "$key="*)
+        printf '%s' "${part#"$key="}"
+        return 0
+        ;;
+    esac
+  done
+
+  return 1
+}
+
+validate_lead_model_profile() {
+  canonical_lead_model_profile "$1" >/dev/null 2>&1
+}
+
+canonical_lead_model_profile() {
+  local profile="$1"
+
+  case "$profile" in
+    "$LEAD_MODEL_PROFILE_FULL_CODEX"|"$LEAD_MODEL_PROFILE_CODEX_MAIN"|"$LEAD_MODEL_PROFILE_CLAUDE_MAIN")
+      printf '%s' "$profile"
+      ;;
+    "$LEAD_MODEL_PROFILE_CODEX_LEGACY")
+      printf '%s' "$LEAD_MODEL_PROFILE_CODEX_MAIN"
+      ;;
+    "$LEAD_MODEL_PROFILE_CLAUDE_LEGACY")
+      printf '%s' "$LEAD_MODEL_PROFILE_CLAUDE_MAIN"
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+lead_model_label_for_profile() {
+  local profile="$1"
+  local canonical_profile
+
+  canonical_profile="$(canonical_lead_model_profile "$profile")" || return 1
+
+  case "$canonical_profile" in
+    "$LEAD_MODEL_PROFILE_FULL_CODEX")
+      printf '%s' "$LEAD_MODEL_OPTION_FULL_CODEX"
+      ;;
+    "$LEAD_MODEL_PROFILE_CODEX_MAIN")
+      printf '%s' "$LEAD_MODEL_OPTION_CODEX_MAIN"
+      ;;
+    "$LEAD_MODEL_PROFILE_CLAUDE_MAIN")
+      printf '%s' "$LEAD_MODEL_OPTION_CLAUDE_MAIN"
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+lead_model_state_init_json() {
+  local now="$1"
+  local default_label
+
+  default_label="$(lead_model_label_for_profile "$LEAD_MODEL_DEFAULT_PROFILE")"
+
+  cat <<EOF
+{
+  "schema_version": $LEAD_MODEL_SCHEMA_VERSION,
+  "selected_profile": "$LEAD_MODEL_DEFAULT_PROFILE",
+  "selected_label": "$default_label",
+  "updated_at": "$now",
+  "last_selected_by": "default_bootstrap"
+}
+EOF
+}
+
+validate_lead_model_state_file() {
+  local state_file="$1"
+  local profile
+
+  jq -e '
+    .schema_version == 1 and
+    (.selected_profile | type == "string") and
+    (.selected_label | type == "string") and
+    (.updated_at | type == "string") and
+    (.last_selected_by | type == "string")
+  ' "$state_file" >/dev/null || return 1
+
+  profile="$(jq -r '.selected_profile' "$state_file")"
+  validate_lead_model_profile "$profile"
+}
+
+ensure_lead_model_state_file() {
+  local state_file="$1"
+  local now
+
+  now="$(now_utc)"
+  mkdir -p "$(dirname "$state_file")"
+
+  if [ ! -f "$state_file" ]; then
+    lead_model_state_init_json "$now" >"$state_file"
+  fi
+
+  if ! validate_lead_model_state_file "$state_file"; then
+    die "Lead-model state file is invalid/corrupt and will not be mutated: $state_file"
+  fi
+
+  normalize_lead_model_state_file "$state_file"
+}
+
+lead_model_state_get_profile() {
+  local state_file="$1"
+  jq -r '.selected_profile' "$state_file"
+}
+
+lead_model_state_get_updated_at() {
+  local state_file="$1"
+  jq -r '.updated_at' "$state_file"
+}
+
+lead_model_state_set_profile() {
+  local state_file="$1"
+  local profile="$2"
+  local selected_by="$3"
+  local canonical_profile label now tmp
+
+  validate_lead_model_profile "$profile" || die "Invalid lead-model profile: $profile"
+  canonical_profile="$(canonical_lead_model_profile "$profile")"
+  label="$(lead_model_label_for_profile "$canonical_profile")"
+  now="$(now_utc)"
+  tmp="$(mktemp "${state_file}.tmp.XXXX")"
+
+  jq \
+    --arg profile "$canonical_profile" \
+    --arg label "$label" \
+    --arg selected_by "$selected_by" \
+    --arg now "$now" \
+    '
+      .schema_version = 1 |
+      .selected_profile = $profile |
+      .selected_label = $label |
+      .last_selected_by = $selected_by |
+      .updated_at = $now
+    ' "$state_file" >"$tmp"
+  mv "$tmp" "$state_file"
+}
+
+normalize_lead_model_state_file() {
+  local state_file="$1"
+  local current_profile canonical_profile current_label canonical_label selected_by now tmp
+
+  current_profile="$(jq -r '.selected_profile' "$state_file")"
+  canonical_profile="$(canonical_lead_model_profile "$current_profile" || true)"
+  [ -n "$canonical_profile" ] || die "Lead-model state file has unsupported profile: $state_file"
+
+  current_label="$(jq -r '.selected_label' "$state_file")"
+  canonical_label="$(lead_model_label_for_profile "$canonical_profile")"
+  if [ "$current_profile" = "$canonical_profile" ] && [ "$current_label" = "$canonical_label" ]; then
+    return 0
+  fi
+
+  selected_by="$(jq -r '.last_selected_by' "$state_file")"
+  if [ -z "$selected_by" ] || [ "$selected_by" = "null" ]; then
+    selected_by="legacy_profile_migration"
+  fi
+  now="$(now_utc)"
+  tmp="$(mktemp "${state_file}.tmp.XXXX")"
+
+  jq \
+    --arg profile "$canonical_profile" \
+    --arg label "$canonical_label" \
+    --arg selected_by "$selected_by" \
+    --arg now "$now" \
+    '
+      .schema_version = 1 |
+      .selected_profile = $profile |
+      .selected_label = $label |
+      .last_selected_by = $selected_by |
+      .updated_at = $now
+    ' "$state_file" >"$tmp"
+  mv "$tmp" "$state_file"
+}
+
+claude_mcp_server_healthy() {
+  local mcp_list mcp_list_override
+
+  mcp_list_override="${PM_LEAD_MODEL_CLAUDE_MCP_LIST_OVERRIDE:-}"
+  if [ -n "$mcp_list_override" ]; then
+    mcp_list="$mcp_list_override"
+  else
+    if ! command -v codex >/dev/null 2>&1; then
+      return 1
+    fi
+    mcp_list="$(codex mcp list 2>/dev/null || true)"
+  fi
+  [ -n "$mcp_list" ] || return 1
+
+  # Treat claude-code as configured only when at least one claude-code entry is not disabled/error-like.
+  printf '%s\n' "$mcp_list" | awk '
+    BEGIN { IGNORECASE=1; found=0; healthy=0 }
+    /(^|[[:space:]])claude-code([[:space:]]|$)/ {
+      found=1
+      if ($0 !~ /(disabled|error|failed|unavailable|inactive|stopped)/) {
+        healthy=1
+      }
+    }
+    END { exit !(found && healthy) }
+  '
+}
+
+claude_mcp_command_from_config_file() {
+  local file="$1"
+  toml_section_string_value "$file" "mcp_servers.claude-code" "command"
+}
+
+claude_mcp_load_configured_command() {
+  local command_override project_file global_file value
+
+  CLAUDE_MCP_LAST_COMMAND=""
+  CLAUDE_MCP_LAST_COMMAND_SOURCE=""
+
+  command_override="${PM_LEAD_MODEL_CLAUDE_COMMAND_OVERRIDE:-}"
+  if [ -n "$command_override" ]; then
+    CLAUDE_MCP_LAST_COMMAND_SOURCE="env:PM_LEAD_MODEL_CLAUDE_COMMAND_OVERRIDE"
+    CLAUDE_MCP_LAST_COMMAND="$command_override"
+    return 0
+  fi
+
+  project_file="$(project_codex_config_file)"
+  global_file="$(global_codex_config_file)"
+
+  value="$(claude_mcp_command_from_config_file "$project_file" || true)"
+  if [ -n "$value" ]; then
+    CLAUDE_MCP_LAST_COMMAND_SOURCE="$(display_path "$project_file")"
+    CLAUDE_MCP_LAST_COMMAND="$value"
+    return 0
+  fi
+
+  value="$(claude_mcp_command_from_config_file "$global_file" || true)"
+  if [ -n "$value" ]; then
+    CLAUDE_MCP_LAST_COMMAND_SOURCE="$(display_path "$global_file")"
+    CLAUDE_MCP_LAST_COMMAND="$value"
+    return 0
+  fi
+
+  CLAUDE_MCP_LAST_COMMAND_SOURCE="default(command=claude)"
+  CLAUDE_MCP_LAST_COMMAND="claude"
+}
+
+claude_mcp_load_effective_path_override() {
+  local entry value source
+
+  CLAUDE_MCP_LAST_PATH_OVERRIDE=""
+  CLAUDE_MCP_LAST_PATH_OVERRIDE_SOURCE=""
+
+  entry="$(codex_config_section_string_value "mcp_servers.claude-code.env" "PATH" || true)"
+  if [ -n "$entry" ]; then
+    value="${entry%%|*}"
+    source="${entry#*|}"
+    CLAUDE_MCP_LAST_PATH_OVERRIDE="$value"
+    CLAUDE_MCP_LAST_PATH_OVERRIDE_SOURCE="[mcp_servers.claude-code.env] in $source"
+    return 0
+  fi
+
+  entry="$(codex_config_section_string_value "shell_environment_policy.set" "PATH" || true)"
+  if [ -n "$entry" ]; then
+    value="${entry%%|*}"
+    source="${entry#*|}"
+    CLAUDE_MCP_LAST_PATH_OVERRIDE="$value"
+    CLAUDE_MCP_LAST_PATH_OVERRIDE_SOURCE="[shell_environment_policy.set] in $source"
+    return 0
+  fi
+
+  return 1
+}
+
+resolve_runtime_executable() {
+  local command_name="$1"
+  local path_override="${2:-}"
+
+  [ -n "$command_name" ] || return 1
+  case "$command_name" in
+    */*)
+	      [ -x "$command_name" ] || return 1
+	      printf '%s' "$command_name"
+	      ;;
+	    *)
+	      if [ -n "$path_override" ]; then
+	        PATH="$path_override" command -v "$command_name" 2>/dev/null | head -n 1
+	      else
+	        command -v "$command_name" 2>/dev/null | head -n 1
+	      fi
+	      ;;
+	  esac
+}
+
+claude_mcp_available() {
+  local force_available force_unavailable configured_command resolved_command command_source path_override path_override_source
+
+  force_available="$(resolve_bool_setting "PM_LEAD_MODEL_FORCE_CLAUDE_MCP_AVAILABLE" "" 0)"
+  force_unavailable="$(resolve_bool_setting "PM_LEAD_MODEL_FORCE_CLAUDE_MCP_UNAVAILABLE" "" 0)"
+
+  CLAUDE_MCP_LAST_REASON="claude_code_mcp_unavailable"
+  CLAUDE_MCP_LAST_REMEDIATION="$CLAUDE_MCP_REMEDIATION_MISSING"
+  CLAUDE_MCP_LAST_DETAIL="Claude MCP server is missing, disabled, or unhealthy. Falling back to codex-native runtime for mapped roles."
+  CLAUDE_MCP_LAST_COMMAND=""
+  CLAUDE_MCP_LAST_COMMAND_SOURCE=""
+  CLAUDE_MCP_LAST_PATH_OVERRIDE=""
+  CLAUDE_MCP_LAST_PATH_OVERRIDE_SOURCE=""
+
+  if [ "$force_unavailable" -eq 1 ]; then
+    return 1
+  fi
+
+  if [ "$force_available" -eq 1 ]; then
+    CLAUDE_MCP_LAST_REASON=""
+    CLAUDE_MCP_LAST_REMEDIATION=""
+    CLAUDE_MCP_LAST_DETAIL=""
+    return 0
+  fi
+
+  if ! claude_mcp_server_healthy; then
+    return 1
+  fi
+
+  claude_mcp_load_configured_command
+  claude_mcp_load_effective_path_override || true
+  configured_command="$CLAUDE_MCP_LAST_COMMAND"
+  command_source="$CLAUDE_MCP_LAST_COMMAND_SOURCE"
+  path_override="$CLAUDE_MCP_LAST_PATH_OVERRIDE"
+  path_override_source="$CLAUDE_MCP_LAST_PATH_OVERRIDE_SOURCE"
+
+  resolved_command="$(resolve_runtime_executable "$configured_command" "$path_override" || true)"
+  if [ -z "$resolved_command" ]; then
+    CLAUDE_MCP_LAST_REASON="claude_code_mcp_command_not_executable"
+    if [ -n "$path_override_source" ]; then
+      CLAUDE_MCP_LAST_REMEDIATION="$(sanitize_single_line "Update [mcp_servers.claude-code].command in $command_source to an executable command path, or fix PATH in $path_override_source so $configured_command resolves.")"
+      CLAUDE_MCP_LAST_DETAIL="$(sanitize_single_line "claude-code is registered, but configured command $configured_command from $command_source is not executable in this PM runtime when using PATH from $path_override_source.")"
+    else
+      CLAUDE_MCP_LAST_REMEDIATION="$(sanitize_single_line "Update [mcp_servers.claude-code].command in $command_source to an executable command path, or fix the PM runtime PATH so $configured_command resolves.")"
+      CLAUDE_MCP_LAST_DETAIL="$(sanitize_single_line "claude-code is registered, but configured command $configured_command from $command_source is not executable in this PM runtime.")"
+    fi
+    return 1
+  fi
+
+  CLAUDE_MCP_LAST_COMMAND="$resolved_command"
+  CLAUDE_MCP_LAST_REASON=""
+  CLAUDE_MCP_LAST_REMEDIATION=""
+  CLAUDE_MCP_LAST_DETAIL=""
+  return 0
+}
+
+emit_routing_role() {
+  local role="$1"
+  local runtime="$2"
+  local model="${3:-<unpinned>}"
+  local reasoning_effort="${4:-<unpinned>}"
+  local agent_type="$5"
+  local role_class="$6"
+
+  echo "ROUTING_ROLE|role=$role|class=$role_class|runtime=$runtime|model=$model|reasoning_effort=$reasoning_effort|agent_type=$agent_type"
+}
+
+emit_routing_matrix_for_profile_with_runtime_fallback() {
+  local profile="$1"
+  local from_runtime="$2"
+  local to_runtime="$3"
+  local to_model="$4"
+  local to_reasoning_effort="$5"
+  local line role_class role runtime model agent_type
+
+  while IFS= read -r line; do
+    case "$line" in
+      ROUTING_ROLE\|*)
+        runtime="$(pipe_kv_get "$line" "runtime" || true)"
+        if [ "$runtime" = "$from_runtime" ]; then
+          role="$(pipe_kv_get "$line" "role" || true)"
+          role_class="$(pipe_kv_get "$line" "class" || true)"
+          agent_type="$(pipe_kv_get "$line" "agent_type" || true)"
+          emit_routing_role "$role" "$to_runtime" "$to_model" "$to_reasoning_effort" "$agent_type" "$role_class"
+        else
+          echo "$line"
+        fi
+        ;;
+      *)
+        echo "$line"
+        ;;
+    esac
+  done < <(emit_routing_matrix_for_profile "$profile")
+}
+
+emit_routing_matrix_for_profile() {
+  local profile="$1"
+  local codex_model codex_reasoning_effort
+  local canonical_profile
+
+  codex_model="$(resolved_codex_model)"
+  codex_reasoning_effort="$(resolved_codex_reasoning_effort)"
+  canonical_profile="$(canonical_lead_model_profile "$profile")" || die "Unknown routing profile: $profile"
+
+  case "$canonical_profile" in
+    "$LEAD_MODEL_PROFILE_FULL_CODEX")
+      emit_routing_role "project_manager" "codex-native" "$codex_model" "$codex_reasoning_effort" "default" "main"
+      emit_routing_role "team_lead" "codex-native" "$codex_model" "$codex_reasoning_effort" "default" "main"
+      emit_routing_role "pm_beads_plan_handoff" "codex-native" "$codex_model" "$codex_reasoning_effort" "default" "main"
+      emit_routing_role "pm_implement_handoff" "codex-native" "$codex_model" "$codex_reasoning_effort" "default" "main"
+      emit_routing_role "senior_engineer" "codex-native" "$codex_model" "$codex_reasoning_effort" "explorer" "sub"
+      emit_routing_role "librarian" "codex-native" "$codex_model" "$codex_reasoning_effort" "default" "sub"
+      emit_routing_role "smoke_test_planner" "codex-native" "$codex_model" "$codex_reasoning_effort" "default" "sub"
+      emit_routing_role "alternative_pm" "codex-native" "$codex_model" "$codex_reasoning_effort" "default" "sub"
+      emit_routing_role "researcher" "codex-native" "$codex_model" "$codex_reasoning_effort" "default" "sub"
+      emit_routing_role "backend_engineer" "codex-native" "$codex_model" "$codex_reasoning_effort" "worker" "sub"
+      emit_routing_role "frontend_engineer" "codex-native" "$codex_model" "$codex_reasoning_effort" "worker" "sub"
+      emit_routing_role "security_engineer" "codex-native" "$codex_model" "$codex_reasoning_effort" "worker" "sub"
+      emit_routing_role "agents_compliance_reviewer" "codex-native" "$codex_model" "$codex_reasoning_effort" "default" "sub"
+      emit_routing_role "jazz_reviewer" "codex-native" "$codex_model" "$codex_reasoning_effort" "default" "sub"
+      emit_routing_role "codex_reviewer" "codex-native" "$codex_model" "$codex_reasoning_effort" "default" "sub"
+      emit_routing_role "manual_qa" "codex-native" "$codex_model" "$codex_reasoning_effort" "default" "sub"
+      emit_routing_role "task_verification" "codex-native" "$codex_model" "$codex_reasoning_effort" "default" "sub"
+      ;;
+    "$LEAD_MODEL_PROFILE_CODEX_MAIN")
+      emit_routing_role "project_manager" "codex-native" "$codex_model" "$codex_reasoning_effort" "default" "main"
+      emit_routing_role "team_lead" "codex-native" "$codex_model" "$codex_reasoning_effort" "default" "main"
+      emit_routing_role "pm_beads_plan_handoff" "codex-native" "$codex_model" "$codex_reasoning_effort" "default" "main"
+      emit_routing_role "pm_implement_handoff" "codex-native" "$codex_model" "$codex_reasoning_effort" "default" "main"
+      emit_routing_role "senior_engineer" "claude-code-mcp" "" "" "explorer" "sub"
+      emit_routing_role "librarian" "claude-code-mcp" "" "" "default" "sub"
+      emit_routing_role "smoke_test_planner" "claude-code-mcp" "" "" "default" "sub"
+      emit_routing_role "alternative_pm" "claude-code-mcp" "" "" "default" "sub"
+      emit_routing_role "researcher" "claude-code-mcp" "" "" "default" "sub"
+      emit_routing_role "backend_engineer" "codex-native" "$codex_model" "$codex_reasoning_effort" "worker" "sub"
+      emit_routing_role "frontend_engineer" "codex-native" "$codex_model" "$codex_reasoning_effort" "worker" "sub"
+      emit_routing_role "security_engineer" "codex-native" "$codex_model" "$codex_reasoning_effort" "worker" "sub"
+      emit_routing_role "agents_compliance_reviewer" "codex-native" "$codex_model" "$codex_reasoning_effort" "default" "sub"
+      emit_routing_role "jazz_reviewer" "claude-code-mcp" "" "" "default" "sub"
+      emit_routing_role "codex_reviewer" "codex-native" "$codex_model" "$codex_reasoning_effort" "default" "sub"
+      emit_routing_role "manual_qa" "codex-native" "$codex_model" "$codex_reasoning_effort" "default" "sub"
+      emit_routing_role "task_verification" "codex-native" "$codex_model" "$codex_reasoning_effort" "default" "sub"
+      ;;
+    "$LEAD_MODEL_PROFILE_CLAUDE_MAIN")
+      emit_routing_role "project_manager" "claude-code-mcp" "" "" "default" "main"
+      emit_routing_role "team_lead" "claude-code-mcp" "" "" "default" "main"
+      emit_routing_role "pm_beads_plan_handoff" "claude-code-mcp" "" "" "default" "main"
+      emit_routing_role "pm_implement_handoff" "claude-code-mcp" "" "" "default" "main"
+      emit_routing_role "senior_engineer" "codex-native" "$codex_model" "$codex_reasoning_effort" "explorer" "sub"
+      emit_routing_role "librarian" "claude-code-mcp" "" "" "default" "sub"
+      emit_routing_role "smoke_test_planner" "codex-native" "$codex_model" "$codex_reasoning_effort" "default" "sub"
+      emit_routing_role "alternative_pm" "codex-native" "$codex_model" "$codex_reasoning_effort" "default" "sub"
+      emit_routing_role "researcher" "claude-code-mcp" "" "" "default" "sub"
+      emit_routing_role "backend_engineer" "claude-code-mcp" "" "" "worker" "sub"
+      emit_routing_role "frontend_engineer" "claude-code-mcp" "" "" "worker" "sub"
+      emit_routing_role "security_engineer" "claude-code-mcp" "" "" "worker" "sub"
+      emit_routing_role "agents_compliance_reviewer" "claude-code-mcp" "" "" "default" "sub"
+      emit_routing_role "jazz_reviewer" "codex-native" "$codex_model" "$codex_reasoning_effort" "default" "sub"
+      emit_routing_role "codex_reviewer" "claude-code-mcp" "" "" "default" "sub"
+      emit_routing_role "manual_qa" "claude-code-mcp" "" "" "default" "sub"
+      emit_routing_role "task_verification" "claude-code-mcp" "" "" "default" "sub"
+      ;;
+    *)
+      die "Unknown routing profile: $profile"
+      ;;
+  esac
 }
 
 normalize_version() {
@@ -123,7 +1048,7 @@ resolve_bool_setting() {
 
 semver_validate() {
   local v="$1"
-  [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.+][0-9A-Za-z.-]+)?([+][0-9A-Za-z.-]+)?$ ]]
+  [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]
 }
 
 semver_main_and_pre() {
@@ -783,7 +1708,7 @@ checkpoint_commit() {
   local state_file="$1"
   local version="$2"
   local dry_run="$3"
-  local root rel sha
+  local root rel sha before_sha after_sha
 
   root="$(repo_root)"
   case "$state_file" in
@@ -805,8 +1730,15 @@ checkpoint_commit() {
     die "No staged state change found for checkpoint commit"
   fi
 
-  git -C "$root" commit -m "chore(pm-self-update): checkpoint codex version $version" -- "$rel" >/dev/null
-  sha="$(git -C "$root" rev-parse HEAD)"
+  before_sha="$(git -C "$root" rev-parse HEAD 2>/dev/null || true)"
+  if ! git -C "$root" commit -m "chore(pm-self-update): checkpoint codex version $version" -- "$rel" >/dev/null; then
+    return 1
+  fi
+  after_sha="$(git -C "$root" rev-parse HEAD 2>/dev/null || true)"
+  if [ -z "$after_sha" ] || [ "$after_sha" = "$before_sha" ]; then
+    return 1
+  fi
+  sha="$after_sha"
   echo "CHECKPOINT_CREATED|version=$version|commit=$sha|state_file=$rel"
 }
 
@@ -825,7 +1757,7 @@ assert_open_questions_empty() {
     ' "$prd_path"
   })"
 
-  if printf '%s' "$body" | grep -Eq '[A-Za-z0-9]'; then
+  if printf '%s' "$body" | grep -Eq '[^[:space:]]'; then
     die "PRD Open Questions must be empty before completion: $prd_path"
   fi
 }
@@ -859,6 +1791,9 @@ $pm help
 Supported invocations:
 - $pm plan: <feature request>
 - $pm plan big feature: <feature request>
+- $pm lead-model show|set|reset
+- $pm claude-contract validate-context|evaluate-response|run-loop
+- $pm telemetry init-db|log-step|query-task|query-run
 - $pm self-update
 - $pm help
 
@@ -868,6 +1803,16 @@ Discovery -> PRD -> Awaiting PRD Approval -> Beads Planning -> Awaiting Beads Ap
 Approval gates:
 - PRD approval reply must be exactly: approved
 - Beads approval reply must be exactly: approved
+- Lead-model gate runs before Discovery on both plan routes
+- Lead-model options are:
+  - Full Codex Orchestration
+  - Codex as Main Agent
+  - Claude as Main Orchestrator
+- Codex-native orchestrator roles are pinned to `gpt-5.4` with `xhigh` reasoning effort
+- Selected orchestration mode persists in .codex and is reused by default
+- `Codex as Main Agent` checks Claude MCP immediately after selection and offers fallback to `Full Codex Orchestration` when unavailable
+- `Claude as Main Orchestrator` fails before Discovery when Claude MCP is unavailable or unusable
+- If Claude invocation later fails at runtime (for example `no supported agent type`), workflow falls back to codex-native and emits reason-specific remediation
 
 Self-update policy:
 - Manual-only invocation
@@ -877,9 +1822,722 @@ Self-update policy:
 - Completion requires PRD evidence coverage for all pending versions
 
 Runtime policy:
-- Claude Code runtime execution path (Claude Code is primary orchestrator)
-- Codex CLI (gpt-5.3-codex) handles specialized analysis/review tasks
+- Orchestration-mode-driven runtime (`codex-main` default, `full-codex` and `claude-main` optional)
+- Claude usage is permitted only through claude-code MCP
+- Claude availability requires both a healthy `codex mcp list` entry and an executable configured command in the actual PM runtime
+- Claude-mapped roles fallback to codex-native when claude-code MCP is missing, unhealthy, or runtime Claude invocation fails
+- Fallbacks must emit warning telemetry and phase error reporting
+
+Issue reporting policy:
+- Report issues explicitly when they occur (no silent failures)
+- Non-critical issues should continue workflow execution
+- End each phase with a Phase Error Summary (use "none" when clean)
+
+Claude delegation contract:
+- Validate context pack before external Claude invocation:
+  - pm-command.sh claude-contract validate-context --context-file <json> --role <role>
+- Require structured missing-context handshake marker in Claude responses:
+  - CONTEXT_REQUEST|needed_fields=<csv>|questions=<numbered items>
+- Parse response before accepting completion:
+  - pm-command.sh claude-contract evaluate-response --response-file <txt> --session-id <id> --role <role>
+- Optional wrapper for multi-step sessions:
+  - pm-command.sh claude-contract run-loop --context-file <json> --response-file <txt> [--response-file <txt> ...] --session-id <id> --role <role>
 EOF
+}
+
+run_lead_model() {
+  local action="${1:-show}"
+  local state_file=""
+  local profile=""
+  local selected_profile selected_label updated_at codex_model codex_reasoning_effort
+
+  shift || true
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --state-file)
+        state_file="${2:-}"
+        shift 2
+        ;;
+      --profile)
+        profile="${2:-}"
+        shift 2
+        ;;
+      -h|--help)
+        usage
+        exit 0
+        ;;
+      *)
+        die "Unknown lead-model argument: $1"
+        ;;
+    esac
+  done
+
+  [ -n "$state_file" ] || state_file="$(default_lead_model_state_file)"
+
+  if [ "$action" = "reset" ]; then
+    mkdir -p "$(dirname "$state_file")"
+    if [ ! -f "$state_file" ] || ! validate_lead_model_state_file "$state_file" >/dev/null 2>&1; then
+      lead_model_state_init_json "$(now_utc)" >"$state_file"
+    fi
+  else
+    ensure_lead_model_state_file "$state_file"
+  fi
+
+  case "$action" in
+    show)
+      ;;
+    set)
+      [ -n "$profile" ] || die "--profile is required for lead-model set"
+      validate_lead_model_profile "$profile" || die "Invalid lead-model profile: $profile"
+      lead_model_state_set_profile "$state_file" "$profile" "manual_set"
+      ;;
+    reset)
+      lead_model_state_set_profile "$state_file" "$LEAD_MODEL_DEFAULT_PROFILE" "manual_reset"
+      ;;
+    *)
+      die "Unknown lead-model action: $action"
+      ;;
+  esac
+
+  selected_profile="$(lead_model_state_get_profile "$state_file")"
+  selected_label="$(lead_model_label_for_profile "$selected_profile")"
+  updated_at="$(lead_model_state_get_updated_at "$state_file")"
+  codex_model="$(resolved_codex_model)"
+  codex_reasoning_effort="$(resolved_codex_reasoning_effort)"
+  echo "LEAD_MODEL_STATE|action=$action|profile=$selected_profile|label=$selected_label|codex_model=$codex_model|codex_reasoning_effort=$codex_reasoning_effort|state_file=$(display_path "$state_file")|updated_at=$updated_at"
+}
+
+run_plan_gate() {
+  local route=""
+  local state_file=""
+  local lead_model_override=""
+  local persisted_profile selected_profile selected_label selected_main_runtime selected_main_model selected_main_reasoning_effort
+  local codex_model codex_reasoning_effort
+  local requires_claude_mcp=0
+  local claude_available=0
+  local block_reason=""
+  local block_remediation=""
+  local block_detail=""
+  local fallback_profile=""
+  local fallback_label=""
+  local fallback_offer=0
+  local next_action="start_discovery"
+  local gate_started_at gate_ended_at gate_duration_ms
+  local gate_start_ms gate_end_ms
+
+  gate_started_at="$(now_utc)"
+  gate_start_ms="$(epoch_ms)"
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --route)
+        route="${2:-}"
+        shift 2
+        ;;
+      --lead-model)
+        lead_model_override="${2:-}"
+        shift 2
+        ;;
+      --state-file)
+        state_file="${2:-}"
+        shift 2
+        ;;
+      -h|--help)
+        usage
+        exit 0
+        ;;
+      *)
+        die "Unknown plan gate argument: $1"
+        ;;
+    esac
+  done
+
+  [ -n "$route" ] || die "--route is required for plan gate"
+  case "$route" in
+    default|big-feature)
+      ;;
+    *)
+      die "Invalid --route for plan gate: $route"
+      ;;
+  esac
+
+  [ -n "$state_file" ] || state_file="$(default_lead_model_state_file)"
+  ensure_lead_model_state_file "$state_file"
+  persisted_profile="$(lead_model_state_get_profile "$state_file")"
+
+  if [ -n "$lead_model_override" ]; then
+    validate_lead_model_profile "$lead_model_override" || die "Invalid lead-model profile: $lead_model_override"
+    lead_model_state_set_profile "$state_file" "$lead_model_override" "plan_gate_override"
+  fi
+
+  selected_profile="$(lead_model_state_get_profile "$state_file")"
+  selected_label="$(lead_model_label_for_profile "$selected_profile")"
+  codex_model="$(resolved_codex_model)"
+  codex_reasoning_effort="$(resolved_codex_reasoning_effort)"
+
+  echo "LEAD_MODEL_GATE|route=$route|question=Select orchestration mode before Discovery|options=$LEAD_MODEL_OPTION_FULL_CODEX;$LEAD_MODEL_OPTION_CODEX_MAIN;$LEAD_MODEL_OPTION_CLAUDE_MAIN|persisted_profile=$persisted_profile|selected_profile=$selected_profile|selected_label=$selected_label|codex_model=$codex_model|codex_reasoning_effort=$codex_reasoning_effort|state_file=$(display_path "$state_file")"
+
+  case "$selected_profile" in
+    "$LEAD_MODEL_PROFILE_FULL_CODEX")
+      selected_main_runtime="codex-native"
+      selected_main_model="$codex_model"
+      selected_main_reasoning_effort="$codex_reasoning_effort"
+      ;;
+    "$LEAD_MODEL_PROFILE_CODEX_MAIN")
+      selected_main_runtime="codex-native"
+      selected_main_model="$codex_model"
+      selected_main_reasoning_effort="$codex_reasoning_effort"
+      requires_claude_mcp=1
+      ;;
+    "$LEAD_MODEL_PROFILE_CLAUDE_MAIN")
+      selected_main_runtime="claude-code-mcp"
+      selected_main_model="$UNPINNED_MODEL_VALUE"
+      selected_main_reasoning_effort="$UNPINNED_REASONING_VALUE"
+      requires_claude_mcp=1
+      ;;
+    *)
+      die "Unsupported selected lead-model profile: $selected_profile"
+      ;;
+  esac
+
+  if [ "$requires_claude_mcp" -eq 1 ] && claude_mcp_available; then
+    claude_available=1
+  fi
+
+  if [ "$requires_claude_mcp" -eq 1 ] && [ "$claude_available" -eq 0 ]; then
+    block_reason="${CLAUDE_MCP_LAST_REASON:-claude_code_mcp_unavailable}"
+    block_remediation="${CLAUDE_MCP_LAST_REMEDIATION:-$CLAUDE_MCP_REMEDIATION_MISSING}"
+    block_detail="${CLAUDE_MCP_LAST_DETAIL:-Claude MCP unavailable. Discovery cannot start for this orchestration mode.}"
+    case "$selected_profile" in
+      "$LEAD_MODEL_PROFILE_CODEX_MAIN")
+        fallback_profile="$LEAD_MODEL_PROFILE_FULL_CODEX"
+        fallback_label="$LEAD_MODEL_OPTION_FULL_CODEX"
+        fallback_offer=1
+        next_action="ask_user_for_full_codex_fallback"
+        ;;
+      "$LEAD_MODEL_PROFILE_CLAUDE_MAIN")
+        next_action="fix_claude_mcp_or_choose_supported_mode"
+        ;;
+    esac
+    echo "PLAN_ROUTE_BLOCKED|route=$route|selected_profile=$selected_profile|selected_label=$selected_label|reason=$block_reason|remediation=$block_remediation|detail=$block_detail|fallback_offer=$fallback_offer|fallback_profile=$fallback_profile|fallback_label=$fallback_label|next_action=$next_action|discovery_can_start=0"
+    telemetry_record_event_nonblocking \
+      "$(telemetry_new_event_id "plan-gate" "blocked")" \
+      "${PM_WORKFLOW_RUN_ID:-plan-gate}" \
+      "${PM_TASK_ID:-}" \
+      "plan.gate.blocked" \
+      "" \
+      "Plan Gate" \
+      "Plan Gate Blocked" \
+      "warning" \
+      "project_manager" \
+      "project_manager" \
+      "$selected_main_runtime" \
+      "codex" \
+      "$selected_main_model" \
+      "$gate_started_at" \
+      "" \
+      "" \
+      "" \
+      "" \
+      "" \
+      "$TELEMETRY_DEFAULT_USAGE_SOURCE" \
+      "missing_runtime" \
+      "warning" \
+      "$block_reason" \
+      "$block_detail" \
+      "$block_remediation" \
+      "" \
+      "" \
+      "" \
+      "{\"route\":\"$route\",\"selected_profile\":\"$selected_profile\",\"fallback_offer\":$fallback_offer}"
+    return 1
+  fi
+
+  echo "ROUTING_PROFILE|route=$route|profile=$selected_profile|main_runtime=$selected_main_runtime|main_model=$selected_main_model|main_reasoning_effort=$selected_main_reasoning_effort|fallback_active=0"
+  emit_routing_matrix_for_profile "$selected_profile"
+
+  gate_ended_at="$(now_utc)"
+  gate_end_ms="$(epoch_ms)"
+  gate_duration_ms="$((gate_end_ms - gate_start_ms))"
+  telemetry_record_event_nonblocking \
+    "$(telemetry_new_event_id "plan-gate" "complete")" \
+    "${PM_WORKFLOW_RUN_ID:-plan-gate}" \
+    "${PM_TASK_ID:-}" \
+    "plan.gate" \
+    "" \
+    "Plan Gate" \
+    "Plan Gate" \
+    "step_end" \
+    "project_manager" \
+    "project_manager" \
+    "$selected_main_runtime" \
+    "${PM_TELEMETRY_PROVIDER:-codex}" \
+    "$selected_main_model" \
+    "$gate_started_at" \
+    "$gate_ended_at" \
+    "$gate_duration_ms" \
+    "${PM_PROMPT_TOKENS:-}" \
+    "${PM_COMPLETION_TOKENS:-}" \
+    "${PM_TOTAL_TOKENS:-}" \
+    "${PM_USAGE_SOURCE:-$TELEMETRY_DEFAULT_USAGE_SOURCE}" \
+    "${PM_USAGE_STATUS:-$TELEMETRY_DEFAULT_USAGE_STATUS}" \
+    "success" \
+    "" \
+    "" \
+    "" \
+    "${PM_REQUEST_ID:-}" \
+    "${PM_TRACE_ID:-}" \
+    "${PM_SPAN_ID:-}" \
+    "{\"route\":\"$route\",\"fallback_active\":0}"
+  echo "PLAN_ROUTE_READY|route=$route|selected_profile=$selected_profile|selected_label=$selected_label|discovery_can_start=1"
+}
+
+run_plan() {
+  local subcommand="${1:-gate}"
+  shift || true
+
+  case "$subcommand" in
+    gate)
+      run_plan_gate "$@"
+      ;;
+    *)
+      die "Unknown plan subcommand: $subcommand"
+      ;;
+  esac
+}
+
+run_claude_contract_validate_context() {
+  local context_file=""
+  local role="unspecified"
+  local context_hash normalized_json clarifying_instruction
+  local missing_csv
+  local -a missing_fields=()
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --context-file)
+        context_file="${2:-}"
+        shift 2
+        ;;
+      --role)
+        role="${2:-}"
+        shift 2
+        ;;
+      -h|--help)
+        usage
+        exit 0
+        ;;
+      *)
+        die "Unknown claude-contract validate-context argument: $1"
+        ;;
+    esac
+  done
+
+  [ -n "$context_file" ] || die "--context-file is required for claude-contract validate-context"
+  [ -f "$context_file" ] || die "Context file not found: $context_file"
+  jq -e . "$context_file" >/dev/null 2>&1 || die "Context file is not valid JSON: $context_file"
+
+  jq -e '(.feature_objective | type == "string") and ((.feature_objective | gsub("^\\s+|\\s+$"; "")) | length > 0)' "$context_file" >/dev/null 2>&1 || missing_fields+=("feature_objective")
+  jq -e '(.prd_context | type == "string") and ((.prd_context | gsub("^\\s+|\\s+$"; "")) | length > 0)' "$context_file" >/dev/null 2>&1 || missing_fields+=("prd_context")
+  jq -e '(.task_id | type == "string") and ((.task_id | gsub("^\\s+|\\s+$"; "")) | length > 0)' "$context_file" >/dev/null 2>&1 || missing_fields+=("task_id")
+  jq -e '((.acceptance_criteria | type == "string") and ((.acceptance_criteria | gsub("^\\s+|\\s+$"; "")) | length > 0)) or ((.acceptance_criteria | type == "array") and (.acceptance_criteria | length > 0))' "$context_file" >/dev/null 2>&1 || missing_fields+=("acceptance_criteria")
+  jq -e '(.implementation_status | type == "string") and ((.implementation_status | gsub("^\\s+|\\s+$"; "")) | length > 0)' "$context_file" >/dev/null 2>&1 || missing_fields+=("implementation_status")
+  jq -e '(.changed_files | type == "array") and (.changed_files | length > 0)' "$context_file" >/dev/null 2>&1 || missing_fields+=("changed_files")
+  jq -e '((.constraints | type == "string") and ((.constraints | gsub("^\\s+|\\s+$"; "")) | length > 0)) or ((.constraints | type == "array") and (.constraints | length > 0))' "$context_file" >/dev/null 2>&1 || missing_fields+=("constraints")
+  jq -e 'has("evidence") and (.evidence != null)' "$context_file" >/dev/null 2>&1 || missing_fields+=("evidence")
+  jq -e '(.clarifying_instruction | type == "string") and ((.clarifying_instruction | gsub("^\\s+|\\s+$"; "")) | length > 0)' "$context_file" >/dev/null 2>&1 || missing_fields+=("clarifying_instruction")
+
+  clarifying_instruction="$(jq -r '.clarifying_instruction // ""' "$context_file")"
+  if [[ "$clarifying_instruction" != *"$CLAUDE_CLARIFYING_INSTRUCTION"* ]]; then
+    missing_fields+=("clarifying_instruction_phrase")
+  fi
+
+  if [ "${#missing_fields[@]}" -gt 0 ]; then
+    missing_csv="$(printf '%s,' "${missing_fields[@]}" | sed 's/,$//')"
+    echo "CLAUDE_CONTEXT_INVALID|role=$role|context_file=$(display_path "$context_file")|missing_fields=$missing_csv|required_fields=$CLAUDE_CONTEXT_REQUIRED_FIELDS_CSV"
+    return 2
+  fi
+
+  normalized_json="$(jq -cS . "$context_file")"
+  context_hash="$(hash_string "$normalized_json")"
+  echo "CLAUDE_CONTEXT_VALID|role=$role|context_file=$(display_path "$context_file")|context_hash=$context_hash|required_fields=$CLAUDE_CONTEXT_REQUIRED_FIELDS_CSV"
+}
+
+run_claude_contract_evaluate_response() {
+  local response_file=""
+  local role="unspecified"
+  local session_id="<unknown>"
+  local request_line needed_fields questions
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --response-file)
+        response_file="${2:-}"
+        shift 2
+        ;;
+      --role)
+        role="${2:-}"
+        shift 2
+        ;;
+      --session-id)
+        session_id="${2:-}"
+        shift 2
+        ;;
+      -h|--help)
+        usage
+        exit 0
+        ;;
+      *)
+        die "Unknown claude-contract evaluate-response argument: $1"
+        ;;
+    esac
+  done
+
+  [ -n "$response_file" ] || die "--response-file is required for claude-contract evaluate-response"
+  [ -f "$response_file" ] || die "Response file not found: $response_file"
+
+  request_line="$(awk -v prefix="$CLAUDE_CONTEXT_REQUEST_PREFIX" 'index($0, prefix) == 1 { print; exit }' "$response_file" || true)"
+  if [ -n "$request_line" ]; then
+    needed_fields="$(pipe_kv_get "$request_line" "needed_fields" || true)"
+    questions="$(pipe_kv_get "$request_line" "questions" || true)"
+    needed_fields="$(sanitize_single_line "${needed_fields:-<unspecified>}")"
+    questions="$(sanitize_single_line "${questions:-<unspecified>}")"
+    echo "CLAUDE_HANDSHAKE|status=context_needed|role=$role|session_id=$session_id|needed_fields=$needed_fields|questions=$questions"
+    return 3
+  fi
+
+  echo "CLAUDE_HANDSHAKE|status=complete|role=$role|session_id=$session_id"
+}
+
+run_claude_contract_run_loop() {
+  local context_file=""
+  local role="unspecified"
+  local session_id="<unknown>"
+  local max_rounds=6
+  local validate_out validate_rc evaluate_out evaluate_rc
+  local round=0 response_file
+  local -a response_files=()
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --context-file)
+        context_file="${2:-}"
+        shift 2
+        ;;
+      --response-file)
+        response_files+=("${2:-}")
+        shift 2
+        ;;
+      --role)
+        role="${2:-}"
+        shift 2
+        ;;
+      --session-id)
+        session_id="${2:-}"
+        shift 2
+        ;;
+      --max-rounds)
+        max_rounds="${2:-}"
+        shift 2
+        ;;
+      -h|--help)
+        usage
+        exit 0
+        ;;
+      *)
+        die "Unknown claude-contract run-loop argument: $1"
+        ;;
+    esac
+  done
+
+  [[ "$max_rounds" =~ ^[0-9]+$ ]] || die "--max-rounds must be a positive integer"
+  [ "$max_rounds" -ge 1 ] || die "--max-rounds must be >= 1"
+
+  if validate_out="$(run_claude_contract_validate_context --context-file "$context_file" --role "$role")"; then
+    validate_rc=0
+  else
+    validate_rc=$?
+  fi
+  [ -n "$validate_out" ] && echo "$validate_out"
+  [ "$validate_rc" -eq 0 ] || return "$validate_rc"
+
+  if [ "${#response_files[@]}" -eq 0 ]; then
+    echo "CLAUDE_LOOP|status=ready|role=$role|session_id=$session_id|next_action=invoke_claude_mcp"
+    return 0
+  fi
+
+  for response_file in "${response_files[@]}"; do
+    round=$((round + 1))
+    if [ "$round" -gt "$max_rounds" ]; then
+      echo "CLAUDE_LOOP|status=max_rounds_exceeded|role=$role|session_id=$session_id|max_rounds=$max_rounds|responses_seen=$((round - 1))"
+      return 5
+    fi
+
+    if evaluate_out="$(run_claude_contract_evaluate_response --response-file "$response_file" --session-id "$session_id" --role "$role")"; then
+      evaluate_rc=0
+    else
+      evaluate_rc=$?
+    fi
+    [ -n "$evaluate_out" ] && echo "$evaluate_out"
+
+    case "$evaluate_rc" in
+      0)
+        echo "CLAUDE_LOOP|status=complete|role=$role|session_id=$session_id|round=$round|responses_seen=$round"
+        return 0
+        ;;
+      3)
+        if [ "$round" -lt "${#response_files[@]}" ]; then
+          echo "CLAUDE_LOOP|status=context_requested|role=$role|session_id=$session_id|round=$round|next_action=continue_session"
+          continue
+        fi
+        echo "CLAUDE_LOOP|status=awaiting_context|role=$role|session_id=$session_id|round=$round|next_action=collect_and_continue"
+        return 4
+        ;;
+      *)
+        return "$evaluate_rc"
+        ;;
+    esac
+  done
+
+  echo "CLAUDE_LOOP|status=incomplete|role=$role|session_id=$session_id|responses_seen=$round|next_action=provide_more_responses"
+  return 4
+}
+
+run_claude_contract() {
+  local subcommand="${1:-}"
+  shift || true
+
+  case "$subcommand" in
+    validate-context)
+      run_claude_contract_validate_context "$@"
+      ;;
+    evaluate-response)
+      run_claude_contract_evaluate_response "$@"
+      ;;
+    run-loop)
+      run_claude_contract_run_loop "$@"
+      ;;
+    *)
+      die "Unknown claude-contract subcommand: $subcommand"
+      ;;
+  esac
+}
+
+run_telemetry() {
+  local subcommand="${1:-}"
+  shift || true
+
+  case "$subcommand" in
+    init-db)
+      local dsn=""
+      while [ $# -gt 0 ]; do
+        case "$1" in
+          --dsn)
+            dsn="${2:-}"
+            shift 2
+            ;;
+          -h|--help)
+            usage
+            exit 0
+            ;;
+          *)
+            die "Unknown telemetry init-db argument: $1"
+            ;;
+        esac
+      done
+      if [ -n "$dsn" ]; then
+        PM_TELEMETRY_DSN="$dsn"
+      fi
+      telemetry_enabled || die "PM_TELEMETRY_DSN or --dsn is required for telemetry init-db"
+      telemetry_init_db >/dev/null
+      echo "TELEMETRY_DB_READY|table=$TELEMETRY_TABLE_NAME"
+      ;;
+    log-step)
+      local dsn=""
+      local event_id=""
+      local workflow_run_id=""
+      local task_id=""
+      local step_id=""
+      local parent_step_id=""
+      local phase=""
+      local step_name=""
+      local event_type="step_event"
+      local agent_role=""
+      local invoked_by_role=""
+      local runtime=""
+      local provider=""
+      local model=""
+      local started_at=""
+      local ended_at=""
+      local duration_ms=""
+      local prompt_tokens=""
+      local completion_tokens=""
+      local total_tokens=""
+      local usage_source="$TELEMETRY_DEFAULT_USAGE_SOURCE"
+      local usage_status="$TELEMETRY_DEFAULT_USAGE_STATUS"
+      local status=""
+      local error_or_warning_code=""
+      local warning_message=""
+      local remediation=""
+      local request_id=""
+      local trace_id=""
+      local span_id=""
+      local metadata_json="{}"
+
+      while [ $# -gt 0 ]; do
+        case "$1" in
+          --dsn) dsn="${2:-}"; shift 2 ;;
+          --event-id) event_id="${2:-}"; shift 2 ;;
+          --workflow-run-id) workflow_run_id="${2:-}"; shift 2 ;;
+          --task-id) task_id="${2:-}"; shift 2 ;;
+          --step-id) step_id="${2:-}"; shift 2 ;;
+          --parent-step-id) parent_step_id="${2:-}"; shift 2 ;;
+          --phase) phase="${2:-}"; shift 2 ;;
+          --step-name) step_name="${2:-}"; shift 2 ;;
+          --event-type) event_type="${2:-}"; shift 2 ;;
+          --agent-role) agent_role="${2:-}"; shift 2 ;;
+          --invoked-by-role) invoked_by_role="${2:-}"; shift 2 ;;
+          --runtime) runtime="${2:-}"; shift 2 ;;
+          --provider) provider="${2:-}"; shift 2 ;;
+          --model) model="${2:-}"; shift 2 ;;
+          --started-at) started_at="${2:-}"; shift 2 ;;
+          --ended-at) ended_at="${2:-}"; shift 2 ;;
+          --duration-ms) duration_ms="${2:-}"; shift 2 ;;
+          --prompt-tokens) prompt_tokens="${2:-}"; shift 2 ;;
+          --completion-tokens) completion_tokens="${2:-}"; shift 2 ;;
+          --total-tokens) total_tokens="${2:-}"; shift 2 ;;
+          --usage-source) usage_source="${2:-}"; shift 2 ;;
+          --usage-status) usage_status="${2:-}"; shift 2 ;;
+          --status) status="${2:-}"; shift 2 ;;
+          --error-or-warning-code) error_or_warning_code="${2:-}"; shift 2 ;;
+          --warning-message) warning_message="${2:-}"; shift 2 ;;
+          --remediation) remediation="${2:-}"; shift 2 ;;
+          --request-id) request_id="${2:-}"; shift 2 ;;
+          --trace-id) trace_id="${2:-}"; shift 2 ;;
+          --span-id) span_id="${2:-}"; shift 2 ;;
+          --metadata-json) metadata_json="${2:-}"; shift 2 ;;
+          -h|--help)
+            usage
+            exit 0
+            ;;
+          *)
+            die "Unknown telemetry log-step argument: $1"
+            ;;
+        esac
+      done
+
+      [ -n "$workflow_run_id" ] || die "--workflow-run-id is required for telemetry log-step"
+      [ -n "$step_id" ] || die "--step-id is required for telemetry log-step"
+      if [ -n "$dsn" ]; then
+        PM_TELEMETRY_DSN="$dsn"
+      fi
+      telemetry_enabled || die "PM_TELEMETRY_DSN or --dsn is required for telemetry log-step"
+
+      [ -n "$event_id" ] || event_id="$(telemetry_new_event_id "$step_id" "$event_type")"
+      telemetry_record_event \
+        "$event_id" \
+        "$workflow_run_id" \
+        "$task_id" \
+        "$step_id" \
+        "$parent_step_id" \
+        "$phase" \
+        "$step_name" \
+        "$event_type" \
+        "$agent_role" \
+        "$invoked_by_role" \
+        "$runtime" \
+        "$provider" \
+        "$model" \
+        "$started_at" \
+        "$ended_at" \
+        "$duration_ms" \
+        "$prompt_tokens" \
+        "$completion_tokens" \
+        "$total_tokens" \
+        "$usage_source" \
+        "$usage_status" \
+        "$status" \
+        "$error_or_warning_code" \
+        "$warning_message" \
+        "$remediation" \
+        "$request_id" \
+        "$trace_id" \
+        "$span_id" \
+        "$metadata_json"
+      echo "TELEMETRY_RECORDED|event_id=$event_id|workflow_run_id=$workflow_run_id|step_id=$step_id|event_type=$event_type"
+      ;;
+    query-task)
+      local dsn=""
+      local task_id=""
+      local workflow_run_id=""
+      local limit="200"
+      while [ $# -gt 0 ]; do
+        case "$1" in
+          --dsn) dsn="${2:-}"; shift 2 ;;
+          --task-id) task_id="${2:-}"; shift 2 ;;
+          --workflow-run-id) workflow_run_id="${2:-}"; shift 2 ;;
+          --limit) limit="${2:-}"; shift 2 ;;
+          -h|--help) usage; exit 0 ;;
+          *) die "Unknown telemetry query-task argument: $1" ;;
+        esac
+      done
+      [ -n "$task_id" ] || die "--task-id is required for telemetry query-task"
+      [[ "$limit" =~ ^[0-9]+$ ]] || die "--limit must be a positive integer"
+      if [ -n "$dsn" ]; then
+        PM_TELEMETRY_DSN="$dsn"
+      fi
+      telemetry_enabled || die "PM_TELEMETRY_DSN or --dsn is required for telemetry query-task"
+      telemetry_require_table
+      telemetry_exec_sql "
+SELECT
+  event_id, workflow_run_id, task_id, step_id, parent_step_id, phase, step_name, event_type,
+  agent_role, invoked_by_role, runtime, provider, model, started_at, ended_at, duration_ms,
+  prompt_tokens, completion_tokens, total_tokens, usage_source, usage_status, status,
+  error_or_warning_code, warning_message, remediation, request_id, trace_id, span_id, created_at
+FROM ${TELEMETRY_TABLE_NAME}
+WHERE task_id = :'task_id'
+  AND (NULLIF(:'workflow_run_id','') IS NULL OR workflow_run_id = :'workflow_run_id')
+ORDER BY created_at ASC
+LIMIT NULLIF(:'limit','')::integer;
+" -v task_id="$task_id" -v workflow_run_id="$workflow_run_id" -v limit="$limit"
+      ;;
+    query-run)
+      local dsn=""
+      local workflow_run_id=""
+      local limit="500"
+      while [ $# -gt 0 ]; do
+        case "$1" in
+          --dsn) dsn="${2:-}"; shift 2 ;;
+          --workflow-run-id) workflow_run_id="${2:-}"; shift 2 ;;
+          --limit) limit="${2:-}"; shift 2 ;;
+          -h|--help) usage; exit 0 ;;
+          *) die "Unknown telemetry query-run argument: $1" ;;
+        esac
+      done
+      [ -n "$workflow_run_id" ] || die "--workflow-run-id is required for telemetry query-run"
+      [[ "$limit" =~ ^[0-9]+$ ]] || die "--limit must be a positive integer"
+      if [ -n "$dsn" ]; then
+        PM_TELEMETRY_DSN="$dsn"
+      fi
+      telemetry_enabled || die "PM_TELEMETRY_DSN or --dsn is required for telemetry query-run"
+      telemetry_require_table
+      telemetry_exec_sql "
+SELECT
+  workflow_run_id, task_id, step_id, parent_step_id, phase, step_name, event_type,
+  agent_role, invoked_by_role, runtime, provider, model, started_at, ended_at, duration_ms,
+  prompt_tokens, completion_tokens, total_tokens, usage_source, usage_status, status,
+  error_or_warning_code, warning_message, remediation, request_id, trace_id, span_id, metadata, created_at
+FROM ${TELEMETRY_TABLE_NAME}
+WHERE workflow_run_id = :'workflow_run_id'
+ORDER BY created_at ASC
+LIMIT NULLIF(:'limit','')::integer;
+" -v workflow_run_id="$workflow_run_id" -v limit="$limit"
+      ;;
+    *)
+      die "Unknown telemetry subcommand: $subcommand"
+      ;;
+  esac
 }
 
 run_self_update_check() {
@@ -1223,6 +2881,17 @@ run_self_update_complete() {
 
   if ! checkpoint_commit "$state_file" "$target_version" 0; then
     cp "$backup" "$state_file"
+    if git -C "$(repo_root)" rev-parse --show-toplevel >/dev/null 2>&1; then
+      local root rel
+      root="$(repo_root)"
+      case "$state_file" in
+        "$root"/*) rel="${state_file#"$root"/}" ;;
+        *) rel="" ;;
+      esac
+      if [ -n "$rel" ]; then
+        git -C "$root" add -- "$rel" >/dev/null 2>&1 || true
+      fi
+    fi
     rm -f "$backup"
     die "Checkpoint commit failed; restored previous state"
   fi
@@ -1315,17 +2984,130 @@ run_self_update() {
   esac
 }
 
+TELEMETRY_MAIN_HOOK_ACTIVE=0
+TELEMETRY_MAIN_CMD=""
+TELEMETRY_MAIN_STARTED_AT=""
+TELEMETRY_MAIN_START_MS=0
+TELEMETRY_MAIN_WORKFLOW_RUN_ID=""
+TELEMETRY_MAIN_TASK_ID=""
+TELEMETRY_MAIN_STEP_ID=""
+TELEMETRY_MAIN_EVENT_ID_END=""
+
+telemetry_on_exit() {
+  local rc=$?
+  local ended_at ended_ms duration_ms status
+
+  if [ "$TELEMETRY_MAIN_HOOK_ACTIVE" -eq 1 ] && [ "$TELEMETRY_MAIN_CMD" != "telemetry" ]; then
+    ended_at="$(now_utc)"
+    ended_ms="$(epoch_ms)"
+    duration_ms="$((ended_ms - TELEMETRY_MAIN_START_MS))"
+    status="success"
+    if [ "$rc" -ne 0 ]; then
+      status="failed"
+    fi
+
+    telemetry_record_event_nonblocking \
+      "$TELEMETRY_MAIN_EVENT_ID_END" \
+      "$TELEMETRY_MAIN_WORKFLOW_RUN_ID" \
+      "$TELEMETRY_MAIN_TASK_ID" \
+      "$TELEMETRY_MAIN_STEP_ID" \
+      "" \
+      "PM Command" \
+      "pm-command $TELEMETRY_MAIN_CMD" \
+      "command_end" \
+      "project_manager" \
+      "project_manager" \
+      "${PM_RUNTIME:-}" \
+      "${PM_TELEMETRY_PROVIDER:-codex}" \
+      "${PM_MODEL:-}" \
+      "$TELEMETRY_MAIN_STARTED_AT" \
+      "$ended_at" \
+      "$duration_ms" \
+      "${PM_PROMPT_TOKENS:-}" \
+      "${PM_COMPLETION_TOKENS:-}" \
+      "${PM_TOTAL_TOKENS:-}" \
+      "${PM_USAGE_SOURCE:-$TELEMETRY_DEFAULT_USAGE_SOURCE}" \
+      "${PM_USAGE_STATUS:-$TELEMETRY_DEFAULT_USAGE_STATUS}" \
+      "$status" \
+      "${PM_ERROR_CODE:-}" \
+      "" \
+      "" \
+      "${PM_REQUEST_ID:-}" \
+      "${PM_TRACE_ID:-}" \
+      "${PM_SPAN_ID:-}" \
+      "{\"command\":\"$TELEMETRY_MAIN_CMD\",\"exit_code\":$rc}"
+  fi
+}
+
 main() {
   require_tool curl
   require_tool jq
   require_tool git
 
   local cmd="${1:-help}"
+  local event_id_start
   shift || true
+
+  TELEMETRY_MAIN_CMD="$cmd"
+  TELEMETRY_MAIN_STARTED_AT="$(now_utc)"
+  TELEMETRY_MAIN_START_MS="$(epoch_ms)"
+  TELEMETRY_MAIN_WORKFLOW_RUN_ID="${PM_WORKFLOW_RUN_ID:-pmcmd-$(date +%s)-$$}"
+  TELEMETRY_MAIN_TASK_ID="${PM_TASK_ID:-}"
+  TELEMETRY_MAIN_STEP_ID="pm-command:${cmd}"
+  event_id_start="$(telemetry_new_event_id "$cmd" "start")"
+  TELEMETRY_MAIN_EVENT_ID_END="$(telemetry_new_event_id "$cmd" "end")"
+
+  if [ "$cmd" != "telemetry" ]; then
+    TELEMETRY_MAIN_HOOK_ACTIVE=1
+    telemetry_record_event_nonblocking \
+      "$event_id_start" \
+      "$TELEMETRY_MAIN_WORKFLOW_RUN_ID" \
+      "$TELEMETRY_MAIN_TASK_ID" \
+      "$TELEMETRY_MAIN_STEP_ID" \
+      "" \
+      "PM Command" \
+      "pm-command $cmd" \
+      "command_start" \
+      "project_manager" \
+      "project_manager" \
+      "${PM_RUNTIME:-}" \
+      "${PM_TELEMETRY_PROVIDER:-codex}" \
+      "${PM_MODEL:-}" \
+      "$TELEMETRY_MAIN_STARTED_AT" \
+      "" \
+      "" \
+      "" \
+      "" \
+      "" \
+      "${PM_USAGE_SOURCE:-$TELEMETRY_DEFAULT_USAGE_SOURCE}" \
+      "${PM_USAGE_STATUS:-$TELEMETRY_DEFAULT_USAGE_STATUS}" \
+      "in_progress" \
+      "" \
+      "" \
+      "" \
+      "${PM_REQUEST_ID:-}" \
+      "${PM_TRACE_ID:-}" \
+      "${PM_SPAN_ID:-}" \
+      "{\"command\":\"$cmd\"}"
+  fi
+
+  trap telemetry_on_exit EXIT
 
   case "$cmd" in
     help)
       print_help_output
+      ;;
+    lead-model)
+      run_lead_model "$@"
+      ;;
+    plan)
+      run_plan "$@"
+      ;;
+    claude-contract)
+      run_claude_contract "$@"
+      ;;
+    telemetry)
+      run_telemetry "$@"
       ;;
     self-update)
       run_self_update "$@"
