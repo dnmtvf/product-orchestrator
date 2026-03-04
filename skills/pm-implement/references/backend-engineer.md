@@ -1,5 +1,5 @@
 # Backend Engineer Agent Prompt
-**Model: MiniMax-M2.5** (via Droid CLI, autonomy: high)
+**Model: Claude Code** (via Task tool, subagent_type: default)
 
 Use this prompt for backend implementation subagent work.
 

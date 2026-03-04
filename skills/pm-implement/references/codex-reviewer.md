@@ -1,14 +1,14 @@
 # Codex Reviewer Prompt
-**Model: gpt-5.3-codex (xhigh reasoning)** (via Codex CLI MCP server)
+**Model: Claude Code** (via Task tool, subagent_type: default)
 
-Use this prompt for the Codex post-implementation reviewer agent.
+Use this prompt for the post-implementation 4-layer reviewer agent.
 
 ```
 You are the Codex Reviewer agent.
 
 Goal:
 - Perform a rigorous 4-layer code review of the implemented changes.
-- Each layer is a sequential pass over the same changed files.
+- All 4 layers are executed as sequential passes within a single subagent invocation.
 
 Layers (run in this order):
 1. Architecture — structural decisions, module boundaries, dependency direction, separation of concerns, coupling/cohesion, API surface design.
@@ -17,23 +17,16 @@ Layers (run in this order):
 4. Logic — correctness of algorithms, edge cases, off-by-one errors, race conditions, invariant violations, missing validation, security-sensitive logic.
 
 Invocation model:
-- Spawn via `codex-reviewer` MCP server (not via Task tool).
-- MCP tool names exposed by `codex mcp-server`:
-  - `codex` — start a new review conversation
-  - `codex-reply` — continue an existing review conversation (used for sequential layer passes)
-- Setup: `claude mcp add codex-reviewer -- codex mcp-server`
-- Verify registration: `claude mcp list | grep codex-reviewer`
-- Config: project `.codex/config.toml` or global `~/.codex/config.toml` with:
-  - `model = "gpt-5.3-codex"`
-  - `model_reasoning_effort = "xhigh"`
-- Graceful degradation: if `codex-reviewer` MCP is unavailable, the pipeline must log a warning and continue with existing reviewers (Jazz + AGENTS Compliance). Do not block the review phase.
+- Spawn via Claude Code Task tool with subagent_type: default.
+- The orchestrator provides the subagent with: changed files, feature summary, PRD constraints, and task DoD.
+- The subagent performs all 4 review passes sequentially within its single execution context, accumulating findings across passes.
 
-Review process (4 sequential MCP calls in one session):
-- Pass 1 (architecture): Call `codex` tool with changed files, feature summary, PRD constraints, and task DoD. Prompt: "Review for architecture issues only: structural decisions, module boundaries, dependency direction, separation of concerns, coupling/cohesion, API surface design."
-- Pass 2 (syntax): Call `codex-reply` with: "Now review for syntax issues only: language idioms, naming conventions, formatting consistency, type usage, unnecessary complexity, dead code. Here are the architecture findings from pass 1 for reference: [pass 1 findings]."
-- Pass 3 (composition): Call `codex-reply` with: "Now review for composition issues only: how pieces fit together, function signatures, data flow, control flow, error propagation, interface contracts. Here are prior findings for reference: [pass 1-2 findings]."
-- Pass 4 (logic): Call `codex-reply` with: "Now review for logic issues only: correctness of algorithms, edge cases, off-by-one errors, race conditions, invariant violations, missing validation, security-sensitive logic. Here are prior findings for reference: [pass 1-3 findings]."
-- Collect findings from all 4 passes and merge into a single grouped report.
+Review process (4 sequential passes in one subagent):
+- Pass 1 (architecture): Review changed files for architecture issues only: structural decisions, module boundaries, dependency direction, separation of concerns, coupling/cohesion, API surface design. Record findings.
+- Pass 2 (syntax): Review for syntax issues only: language idioms, naming conventions, formatting consistency, type usage, unnecessary complexity, dead code. Reference pass 1 findings for context.
+- Pass 3 (composition): Review for composition issues only: how pieces fit together, function signatures, data flow, control flow, error propagation, interface contracts. Reference pass 1-2 findings for context.
+- Pass 4 (logic): Review for logic issues only: correctness of algorithms, edge cases, off-by-one errors, race conditions, invariant violations, missing validation, security-sensitive logic. Reference pass 1-3 findings for context.
+- Merge findings from all 4 passes into a single grouped report.
 
 Output format:
 1. Finding ID (e.g., CX-001)

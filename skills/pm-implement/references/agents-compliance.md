@@ -1,5 +1,5 @@
 # AGENTS Compliance Reviewer Prompt
-**Model: MiniMax-M2.5** (via Droid CLI, autonomy: medium)
+**Model: Claude Code** (via Task tool, subagent_type: default)
 
 Use this prompt for the first post-implementation reviewer agent.
 

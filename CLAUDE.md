@@ -6,9 +6,8 @@ This is the **PM Orchestrator** — a strict project management skill set for Cl
 
 ## Architecture
 
-- **Lead roles** (Claude Opus 4.6 via Claude Code native Task tool): PM, Team Lead, Senior Engineer, Researcher, Jazz Reviewer
-- **Codex reviewer** (gpt-5.3-codex xhigh via Codex CLI MCP server): 4-layer post-implementation review (architecture, syntax, composition, logic)
-- **Worker roles** (MiniMax-M2.5 via Droid MCP): Backend/Frontend/Security Engineers, Librarian, Smoke Test Planner, Alternative PM, Manual QA
+- **Claude-code roles** (via Claude Code native Task tool, model not pinned): PM, Team Lead, Librarian, Researcher, Backend/Frontend/Security Engineers, AGENTS Compliance Reviewer, Codex Reviewer, Manual QA, Task Verification
+- **Codex-native roles** (gpt-5.3-codex xhigh via `codex-worker` MCP): Senior Engineer, Smoke Test Planner, Alternative PM, Jazz Reviewer
 - **Execution tracking**: Beads CLI (`bd`) with `.beads/` committed to git
 - **Workflow spec**: `instructions/pm_workflow.md` is the source of truth
 
@@ -23,7 +22,7 @@ This is the **PM Orchestrator** — a strict project management skill set for Cl
   - `agent-browser/` — Browser automation for smoke tests
 - `instructions/` — Workflow specification (source of truth)
 - `docs/` — PRDs, templates, beads conventions, install guides
-- `scripts/` — Injection, installation, Droid MCP server, self-update helpers
+- `scripts/` — Injection, installation, self-update helpers
 - `.beads/` — Beads issue tracking database (committed to git)
 
 ## Available Skills
@@ -41,8 +40,7 @@ Only these skills are available:
 - PRD `Open Questions` must be empty before execution starts
 - Beads (`bd`) is the execution source of truth
 - Claude Code Task tool `subagent_type` values: `default`, `Explore`, `Plan`
-- Droid workers are spawned via `droid-worker` MCP tool call with structured context blocks
-- Codex reviewer is spawned via `codex-reviewer` MCP tool call (`codex mcp-server`)
+- Worker subagents are spawned via Claude Code Task tool with structured context blocks
 
 ## Git Policy
 

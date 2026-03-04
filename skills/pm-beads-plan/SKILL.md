@@ -20,13 +20,12 @@ Convert an **APPROVED** PRD into an executable Beads graph:
 - Encode role in prompt payload for spawned subagents (for example: `[Role: Senior Engineer]`).
 - Do not rely on custom named subagent launchers.
 - Recommended launcher mapping for this phase:
-  - `Explore`: Senior Engineer dependency and sequencing analysis.
-  - `default`: Implementation handoff helper agents and Claude-native roles.
-- Droid worker roles (Librarian): spawn via `droid-worker` MCP tool call.
+  - `default`: Librarian, implementation handoff helper agents, and Claude-native roles.
+  - `codex-worker` MCP: Senior Engineer (codex-native role via gpt-5.3-codex).
 
 ## Paired Support Agents (recommended)
 Before locking the task graph, proactively consult:
-1. **Senior Engineer** (`Explore`) for dependency correctness and implementation sequencing.
+1. **Senior Engineer** (`codex-worker` MCP) for dependency correctness and implementation sequencing.
 2. **Librarian** (`default`) for external constraints (API quotas, platform requirements, compliance notes).
 3. **Smoke Test Planner output** from discovery/PRD for QA task coverage.
 

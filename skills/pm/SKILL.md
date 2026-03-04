@@ -33,7 +33,7 @@ description: Strict PM orchestration workflow for any repo. Trigger when user in
   - Help output must include:
     - `/pm plan: <description>` — Start single-PRD planning workflow
     - `/pm plan big feature: <description>` — Start multi-PRD planning for large features
-    - `/pm install droid mcp` — Configure droid-worker MCP server (one-time user setup)
+    - `/pm install codex` — Configure codex-worker MCP server (one-time user setup)
     - `/pm self-update` — Check for PM orchestrator updates
     - `/pm help` — Show this help
     - Approval gate token: `approved` (exact spelling required)
@@ -61,13 +61,14 @@ description: Strict PM orchestration workflow for any repo. Trigger when user in
 - Backward-compatibility rule:
   - `$pm plan:` must remain the default single-PRD route.
   - Big-feature mode is entered only with explicit `plan big feature` phrasing.
-- Install Droid MCP route:
-  - Trigger: `/pm install droid mcp` or `$pm install droid mcp`
-  - Behavior: run the user-level droid MCP setup automatically
-    1. Locate `scripts/setup-droid-user.sh` from skill installation path
-    2. Execute the script to configure droid-worker at user level
-    3. Report success/failure to user
-    4. If already configured, report "droid-worker already configured" and exit cleanly
+- Install Codex route:
+  - Trigger: `/pm install codex` or `$pm install codex`
+  - Behavior: verify codex-worker MCP server is configured
+    1. Check that Codex CLI is installed (`codex --version`)
+    2. Verify `codex-worker` MCP is registered (`claude mcp list | grep codex-worker`)
+    3. If not registered, add it: `claude mcp add codex-worker -- codex mcp-server`
+    4. Report success/failure to user
+    5. If already configured, report "codex-worker already configured" and exit cleanly
 
 ## Big-Feature Mode Selector (mandatory)
 - In big-feature route, PM must capture planning mode before decomposition starts.
@@ -119,25 +120,24 @@ description: Strict PM orchestration workflow for any repo. Trigger when user in
 - PM must encode functional role in prompt payload (for example: `[Role: Senior Engineer]`).
 - PM must not depend on custom named launcher types being available.
 - Recommended launcher mapping:
-  - `Explore`: Senior Engineer and codebase read/analyze subagents.
-  - `default`: Researcher, Team Lead, AGENTS compliance reviewer, Jazz reviewer, and Manual QA (Claude-native roles).
-  - `codex-reviewer` MCP: Codex reviewer (gpt-5.3-codex, 4-layer post-implementation review).
+  - `default` (Task tool): Researcher, Team Lead, Librarian, AGENTS compliance reviewer, Codex Reviewer, Manual QA, Task Verification, and other Claude-native roles.
+  - `codex-worker` MCP: Senior Engineer, Smoke Test Planner, Alternative PM, Jazz Reviewer (gpt-5.3-codex xhigh specialized analysis/review).
 - For Codex Reviewer:
-  - spawn via `codex-reviewer` MCP tool call (not via Task tool)
+  - spawn via Task tool with `subagent_type: "default"` and role-labeled prompt (`[Role: Codex Reviewer]`)
   - load prompt from `$pm-implement` references (`codex-reviewer.md`)
-  - if `codex-reviewer` MCP is unavailable, log warning and continue with existing reviewers
-- For Researcher and Jazz Reviewer roles that run on Claude:
+  - performs 4 sequential review passes (architecture, syntax, composition, logic) within a single subagent
+- For Researcher, Librarian, and other Claude-native roles:
   - spawn via native Task tool with `subagent_type: "default"` and role-labeled prompt (primary path)
   - fallback: invoke `claude-code` MCP from a `default` subagent per the Claude MCP Contract
   - do not treat `claude-code` as a launcher type
-- For Librarian, Smoke Test Planner, and Alternative PM roles that run on Droid:
-  - spawn via `droid-worker` MCP tool call (not via Task tool)
-  - include full context block per Droid Worker Context Contract
-  - do not treat `droid-worker` as a native launcher type
+- For Senior Engineer, Smoke Test Planner, and Alternative PM (codex-native roles):
+  - spawn via `codex-worker` MCP tool call (not via Task tool)
+  - include full context block per Codex Worker Context Contract
+  - do not treat `codex-worker` as a native launcher type
 
 ## Claude MCP Contract (mandatory for external Claude agents)
-- PM orchestration runtime is Claude Code (Opus 4.6 for lead roles); Droid/MiniMax-M2.5 handles cost-effective worker tasks.
-- **Primary path (Claude Code runtime):** When PM is running inside Claude Code, use the **native Task tool** to spawn Claude subagents — no MCP bridge needed. This is the idiomatic and preferred approach. Use `subagent_type: "default"` for most roles or `subagent_type: "Explore"` for codebase analysis roles.
+- PM orchestration runtime is Claude Code (Opus 4.6 for lead roles); Codex CLI (gpt-5.3-codex) handles specialized analysis/review tasks.
+- **Primary path (Claude Code runtime):** When PM is running inside Claude Code, use the **native Task tool** to spawn Claude subagents — no MCP bridge needed. This is the idiomatic and preferred approach. Use `subagent_type: "default"` for Claude-native roles. Codex-native roles (Senior Engineer, Smoke Test Planner, Alternative PM, Jazz Reviewer) use `codex-worker` MCP instead.
 - **Fallback path (non-Claude-Code runtimes):** Use Claude through MCP server `claude-code` when the outer runtime is not Claude Code (do not run Claude as app/interactive CLI for pipeline orchestration).
   - Required environment setup (once):
     - `claude mcp add claude-code -- claude mcp serve`
@@ -145,31 +145,13 @@ description: Strict PM orchestration workflow for any repo. Trigger when user in
   - Continue follow-ups/answers in the same Claude interaction using the returned conversation/session identifier from the MCP response.
   - If `claude-code` MCP is unavailable, report a blocked state with exact reason instead of silently switching invocation mode.
 
-## Codex MCP Contract (mandatory for Codex reviewer)
-- Codex reviewer runs gpt-5.3-codex at xhigh reasoning effort via Codex CLI MCP server.
-- **Setup (once):**
-  - `claude mcp add codex-reviewer -- codex mcp-server`
-  - Ensure Codex CLI is installed (`npm install -g @openai/codex` or `brew install --cask codex`) and authenticated (`codex login`).
-  - Configure model and reasoning effort in project `.codex/config.toml` or global `~/.codex/config.toml`:
-    ```toml
-    model = "gpt-5.3-codex"
-    model_reasoning_effort = "xhigh"
-    ```
-- **MCP tool names** exposed by `codex mcp-server`:
-  - `codex` — start a new review conversation (first layer pass)
-  - `codex-reply` — continue an existing review conversation (subsequent layer passes)
-- **Invocation:** Use `codex-reviewer` MCP `codex` tool to start the review, then `codex-reply` for each subsequent layer pass. Do not spawn Codex via Task tool or Bash.
-- **Verify registration:** `claude mcp list | grep codex-reviewer`
-- **Timeout:** 10 minutes total for all 4 layer passes. If any individual pass exceeds 3 minutes, skip remaining passes and report partial findings.
-- **Graceful degradation:** If `codex-reviewer` MCP is unavailable (not configured, CLI not installed, auth failure, timeout), log a warning with the exact reason and continue the review phase with existing reviewers (Jazz + AGENTS Compliance). Do not block the pipeline.
-- **Cascading failure policy:** If 2 or more reviewers fail (any combination of Jazz, AGENTS Compliance, Codex), the review phase must block and report the failure to PM rather than proceeding with zero or minimal review coverage. A single reviewer failure triggers graceful degradation; multiple reviewer failures trigger a hard block.
-
 ## Paired Support Agents (mandatory)
 For every phase, run two support agents in parallel before asking user follow-ups, unless information is already sufficient:
 
 1. **Senior Engineer Agent**
    - Load prompt from `references/senior-engineer.md`.
    - Purpose: proactively answer repo/codebase questions (architecture, constraints, feasibility, implementation impact, test impact).
+   - Runtime: Codex CLI via `codex-worker` MCP tool call.
    - Source priority: local codebase and repo docs first.
 
 2. **Librarian Agent**
@@ -187,8 +169,8 @@ During Discovery, run an additional agent:
 3. **Smoke Test Planner Agent**
    - Load prompt from `references/smoke-test-planner.md`.
    - Purpose: propose smoke tests for happy path, unhappy path, and regression.
-   - Runtime: Droid/MiniMax-M2.5 worker via `droid-worker` MCP tool call.
-   - Include full context block per Droid Worker Context Contract (feature objective, scope, constraints).
+   - Runtime: Codex CLI via `codex-worker` MCP tool call.
+   - Include full context block per Codex Worker Context Contract (feature objective, scope, constraints).
    - Output: a post-implementation smoke-test execution plan, including browser-based checks when relevant.
 
 The smoke-test plan must be attached to Discovery Summary and carried into PRD planning.
@@ -209,8 +191,8 @@ During Discovery, run an additional second-PM agent to challenge solution framin
 5. **Alternative PM Agent**
    - Load prompt from `references/alternative-pm.md`.
    - Purpose: provide alternative solution paths and critical reasoning for how the problem could be solved differently.
-   - Runtime: Droid/MiniMax-M2.5 worker via `droid-worker` MCP tool call.
-   - Include full context block per Droid Worker Context Contract (problem statement, constraints, current solution framing).
+   - Runtime: Codex CLI via `codex-worker` MCP tool call.
+   - Include full context block per Codex Worker Context Contract (problem statement, constraints, current solution framing).
    - Output: alternatives matrix with options, tradeoffs, risks, assumptions, and recommendation.
 
 ## Implementation Team Lead Agent (mandatory after beads approval)
@@ -232,10 +214,10 @@ After user approves implementation handoff at the Beads approval gate, create:
      - after each implemented task, run task-verification agent via native Task tool (primary) or Claude MCP Contract (fallback)
      - if verification fails, create a new Beads fix/reimplementation ticket and ensure it is completed before review
 
-## Droid Worker Context Contract (mandatory)
-Every prompt spawning a Droid worker must include a structured context block. Workers must have enough context to act independently and must be explicitly invited to ask clarifying questions before executing.
+## Codex Worker Context Contract (mandatory)
+Every prompt spawning a codex-native role via `codex-worker` MCP must include a structured context block. Workers must have enough context to act independently and must be explicitly invited to ask clarifying questions before executing.
 
-**Required context block template** (include verbatim in every Droid worker spawn):
+**Required context block template** (include verbatim in every codex-worker spawn):
 ```
 --- CONTEXT ---
 Task: <task title from Beads>
@@ -250,21 +232,21 @@ Current state: <brief summary of what exists today in affected areas>
 If anything is unclear or you need additional context before proceeding, ask your specific questions now — do not guess or make assumptions.
 ```
 
-Droid worker output must be collected and verified by Team Lead before marking the task complete.
+Codex worker output must be collected and verified by Team Lead before marking the task complete.
 
 ## Paired-Agent Execution Loop
 At each phase transition and whenever ambiguity appears:
-1. Spawn Senior Engineer (`Explore`) and Librarian (`default`) agents in parallel via Task tool.
+1. Spawn Senior Engineer via `codex-worker` MCP and Librarian (`default`) via Task tool in parallel.
 2. Wait for both to complete and collect findings.
-3. If either response is incomplete, spawn a targeted follow-up Task and wait again.
+3. If either response is incomplete, spawn a targeted follow-up and wait again.
 4. Ensure Librarian completed required multi-source review and version resolution (when library-specific).
 5. Update PM phase output using their findings.
 6. Ask user only unresolved product decisions.
 
 Discovery extension:
-1. Spawn Smoke Test Planner via `droid-worker` MCP in parallel with Senior Engineer and Librarian; include full Droid context block.
+1. Spawn Smoke Test Planner via `codex-worker` MCP in parallel with Senior Engineer and Librarian; include full Codex context block.
 2. Spawn Researcher (`default`) for complex/no-straight-answer discovery questions via native Task tool (or claude-code MCP fallback).
-4. Spawn Alternative PM via `droid-worker` MCP on every discovery step; include full Droid context block.
+4. Spawn Alternative PM via `codex-worker` MCP on every discovery step; include full Codex context block.
 5. Merge smoke-test proposals, research findings, and alternatives analysis into Discovery Summary and PRD test plan.
 
 ## Phase Rules
@@ -350,22 +332,20 @@ Immediately after implementation completion, run all three reviewers in parallel
 2. **Jazz Reviewer**
    - Agent name: `Jazz`.
    - Persona: grumpy, nitpicky, skeptical reviewer who questions assumptions and weak reasoning.
-   - Runner: spawn via native Task tool with `subagent_type: "default"` and role-labeled prompt (primary); fallback is `claude-code` MCP.
+   - Runner: spawn via `codex-worker` MCP tool call with role-labeled prompt (`[Role: Jazz Reviewer]`).
    - Output: strict critique with concrete defects, edge cases, and ambiguity callouts.
 
 3. **Codex Reviewer**
-   - Model: gpt-5.3-codex at xhigh reasoning effort.
    - Purpose: 4-layer sequential review (architecture, syntax, composition, logic).
-   - Runner: spawn via `codex-reviewer` MCP tool call. Load prompt from `$pm-implement` references (`codex-reviewer.md`).
+   - Runner: spawn via Task tool with `subagent_type: "default"` and role-labeled prompt (`[Role: Codex Reviewer]`). Load prompt from `$pm-implement` references (`codex-reviewer.md`).
    - Output: findings grouped by layer with severity, file path, critique, and required fix.
-   - Graceful degradation: if `codex-reviewer` MCP is unavailable, log warning and continue with Jazz + AGENTS Compliance only.
 
-All three reviewers must post actionable comments before continuing (except Codex when unavailable — see graceful degradation).
+All three reviewers must post actionable comments before continuing.
 Use parallel sub-agents for this step whenever available.
 - Reviewer launcher compatibility:
   - spawn AGENTS Compliance Reviewer via Task tool with `subagent_type: "default"` and role-labeled prompt
-  - spawn Jazz via Task tool with `subagent_type: "default"` and role-labeled prompt
-  - spawn Codex Reviewer via `codex-reviewer` MCP tool call
+  - spawn Jazz via `codex-worker` MCP tool call with role-labeled prompt
+  - spawn Codex Reviewer via Task tool with `subagent_type: "default"` and role-labeled prompt
   - do not rely on custom reviewer launcher names
 
 ### 9) Review Iteration (mandatory)

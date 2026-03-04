@@ -71,9 +71,9 @@ This workflow is the source of truth for PM orchestration in Claude Code.
 - Report blocked items with explicit reason and next action.
 
 ## Model Routing Policy
-- Lead roles (PM, Team Lead, Senior Engineer, Researcher, Jazz Reviewer): `claude-opus-4-6` via Claude Code native Task tool.
-- Worker roles (Backend/Frontend/Security Engineers, Librarian, Smoke Test Planner, Alternative PM, Manual QA): `MiniMax-M2.5` via Droid MCP worker.
-- Workflow runtime is Claude Code-native with Droid hybrid workers for cost-effective tasks.
+- Claude-code roles (PM, Team Lead, Librarian, Researcher, Backend Engineer, Frontend Engineer, Security Engineer, AGENTS Compliance Reviewer, Codex Reviewer, Manual QA, Task Verification): spawned via Claude Code native Task tool with `subagent_type: "default"`. Model is not pinned in repo.
+- Codex-native roles (Senior Engineer, Smoke Test Planner, Alternative PM, Jazz Reviewer): spawned via `codex-worker` MCP server (`codex mcp-server`) using `gpt-5.3-codex` at `xhigh` reasoning effort.
+- Workflow runtime is Claude Code-native with Codex CLI workers for specialized analysis/review tasks.
 - Direct Claude CLI/app orchestration is not allowed; use the native Task tool for Claude subagents.
 
 ## Git / Shipping Policy
@@ -89,20 +89,21 @@ This workflow is the source of truth for PM orchestration in Claude Code.
 - Supported Task tool `subagent_type` values: `default`, `Explore`, `Plan`.
 - Encode functional role in prompt payload (e.g., `[Role: Senior Engineer]`).
 - Required support agents in discovery:
-  - Senior Engineer (`Explore` subagent) — codebase analysis
+  - Senior Engineer (`codex-worker` MCP) — codebase analysis
   - Librarian (`default` subagent) — external docs via MCP tools
-  - Smoke Test Planner (`default` subagent) — test planning
+  - Smoke Test Planner (`codex-worker` MCP) — test planning
   - Researcher (`default` subagent) — complex research questions
-  - Alternative PM (`default` subagent) — alternative solution analysis
+  - Alternative PM (`codex-worker` MCP) — alternative solution analysis
 - Implementation must run through Team Lead (`default` subagent), which delegates coding to:
   - Backend Engineer (`default` subagent with `[Role: Backend Engineer]`)
   - Frontend Engineer (`default` subagent with `[Role: Frontend Engineer]`)
   - Security Engineer (`default` subagent with `[Role: Security Engineer]`)
 - Verification/review agents:
   - Task Verification (`default` subagent)
-  - Jazz Reviewer (`default` subagent)
+  - Jazz Reviewer (`codex-worker` MCP)
   - AGENTS Compliance Reviewer (`default` subagent)
-- Droid worker roles (Librarian, Smoke Test Planner, Alternative PM, implementation engineers) are spawned via `droid-worker` MCP tool call with structured context block, not via the Task tool.
+- Codex-native roles (Senior Engineer, Smoke Test Planner, Alternative PM, Jazz Reviewer) are spawned via `codex-worker` MCP tool call with structured context block.
+- All other roles use the native Task tool with role-labeled prompts.
 
 ## Dual-Mode Smoke Coverage
 - For big-feature workflows, smoke planning and QA must cover both planning modes:

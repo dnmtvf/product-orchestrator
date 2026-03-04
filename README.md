@@ -63,30 +63,18 @@ claude mcp add exa --url https://mcp.exa.ai/mcp
 claude mcp list
 ```
 
-## Hybrid Architecture: Droid Worker Setup
+## Codex Worker Setup
 
-The PM workflow uses Claude Code (Opus 4.6) for lead roles and Droid CLI + MiniMax-M2.5 for cost-effective worker tasks (Backend/Frontend/Security Engineers, Librarian, QA, etc.).
+The PM workflow uses Claude Code for most roles and Codex CLI (gpt-5.3-codex xhigh) for specialized analysis/review tasks (Senior Engineer, Smoke Test Planner, Alternative PM, Jazz Reviewer).
 
-### Droid prerequisites
-- Droid CLI installed and available in PATH
+### Codex prerequisites
+- Codex CLI installed: `npm install -g @openai/codex` or `brew install --cask codex`
+- Authenticated: `codex login`
 
-### Environment variables (add to shell profile)
+### Register Codex worker MCP
 ```bash
-export ANTHROPIC_BASE_URL="https://api.minimax.io/anthropic"
-export ANTHROPIC_AUTH_TOKEN="your-minimax-api-key"
+./scripts/setup-codex-user.sh
 ```
-
-### Register Droid worker MCP
-```bash
-claude mcp add droid-worker -- ./scripts/droid-mcp-server --mcp
-```
-
-### Model enforcement
-Start your Claude Code session with `--model claude-opus-4-6` for lead role quality:
-```bash
-claude --model claude-opus-4-6
-```
-Note: `claude mcp serve` inherits the ambient session model. No per-call override is available.
 
 See [docs/MCP_PREREQUISITES.md](docs/MCP_PREREQUISITES.md) for the full role-to-model table and detailed setup.
 
@@ -196,7 +184,7 @@ Manual self-update mode:
 
 Execution is tracked in Beads (`bd`) and `.beads/` should stay committed in Git.
 For big-feature queue mode, persist queue state in `docs/prd/_queue/<feature-slug>.json` using the contract in `docs/QUEUE_WORKFLOW.md`.
-Runtime policy is Claude-first; external agents (via Droid MCP) can be used for worker tasks.
+Runtime policy is Claude-first; external agents (via Codex CLI) can be used for specialized analysis/review tasks.
 Smoke evidence for dual planning modes is tracked in `docs/smoke/2026-02-26-big-feature-planning-modes.md`.
 Common commands:
 

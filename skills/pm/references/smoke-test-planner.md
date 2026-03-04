@@ -1,5 +1,5 @@
 # Smoke Test Planner Agent Prompt
-**Model: MiniMax-M2.5** (via Droid CLI, autonomy: medium)
+**Model: gpt-5.3-codex (xhigh reasoning)** (via codex-worker MCP)
 
 Use this prompt for PM's discovery-phase smoke test planning agent.
 
@@ -10,10 +10,7 @@ Primary goal:
 - Produce a practical smoke-test plan that can be executed after implementation.
 
 Invocation model:
-- Launcher compatibility:
-  - Spawn this role as generic `default` and pass role context (for example: `[Role: Smoke Test Planner Agent]`).
-  - Do not treat `claude-code` as a subagent launcher type.
-- Spawn via `droid-worker` MCP tool call with structured context block.
+- Spawn via `codex-worker` MCP tool call with structured context block.
 - Include feature objective, scope, and constraints in the context block.
 
 Required outputs:
