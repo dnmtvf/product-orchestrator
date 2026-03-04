@@ -14,37 +14,59 @@ description: Strict PM Discovery Mode. Trigger on $pm-discovery for questions-on
 - Do not skip ambiguous or unanswered areas.
 
 ## Subagent Launcher Compatibility (mandatory)
-- Spawn only supported Claude Code Task tool `subagent_type` values: `default`, `Explore`, `Plan`.
+- Spawn only supported generic agent types: `default`, `explorer`, `worker`.
 - Encode role in prompt payload for every spawned subagent (for example: `[Role: Senior Engineer]`).
 - Do not rely on custom named subagent launchers.
 - Recommended launcher mapping for discovery:
-  - `default`: Researcher, Librarian, handoff helper agents, and Claude-native roles.
-  - `codex-worker` MCP: Senior Engineer, Smoke Test Planner, Alternative PM (codex-native roles via gpt-5.3-codex).
-- For codex-native roles (Senior Engineer, Smoke Test Planner, Alternative PM):
-  - spawn via `codex-worker` MCP tool call with structured Codex context block
-  - do not use Task tool for codex-native workers
+  - `explorer`: Senior Engineer codebase analysis.
+  - `default`: Librarian, Smoke Test Planner, Alternative PM, and handoff helper agents.
+- For Smoke Test Planner and Alternative PM Claude runs:
+  - spawn generic `default` first
+  - then invoke `claude-code` MCP
+  - do not treat `claude-code` as a launcher type
+  - do not use `mcp__claude-code__Agent` / implicit `general-purpose` agent launching as the Discovery Claude path
 
 ## Claude MCP Contract (mandatory for external Claude agents)
-- **Primary path (Claude Code runtime):** Use the native Task tool to spawn Claude subagents — no MCP bridge needed.
-- **Fallback path (non-Claude-Code runtimes):** Use Claude through MCP server `claude-code` (not direct CLI/app invocation).
-  - Required environment setup (once):
-    - `claude mcp add claude-code -- claude mcp serve`
-  - Start a new Claude interaction via `claude-code` MCP tool call with the full prompt.
-  - Continue follow-ups/answers in the same Claude interaction using the returned conversation/session identifier from the MCP response.
-  - If `claude-code` MCP is unavailable, report a blocked state with exact reason.
+- Use Claude through MCP server `claude-code` (not direct CLI/app invocation).
+- Required environment setup (once):
+  - `codex mcp add claude-code -- claude mcp serve`
+- `codex mcp list` only verifies that `claude-code` is configured/enabled; it does not prove the current environment exposes a usable Claude launcher.
+- Only use a `claude-code` MCP tool that explicitly provides prompt/session semantics in the current environment. `mcp__claude-code__Agent` with implicit `general-purpose` is not the Discovery contract.
+- If the launcher reports `Agent type 'general-purpose' not found`, `no supported agent type`, or equivalent, treat `claude-code` runtime as unavailable for that step.
+- In that case, fallback to `codex-native` and emit a precise warning.
+- Remediation split:
+  - server missing/not configured -> `codex mcp add claude-code -- claude mcp serve`
+  - server enabled but launcher unusable -> report the launcher limitation and continue with fallback; do not loop on reinstall instructions
+- For Claude MCP agents, prompt must start with:
+  - `use agent swarm for <objective>`
+- Before each external-Claude call, validate a context-pack JSON with:
+  - `./.codex/skills/pm/scripts/pm-command.sh claude-contract validate-context --context-file <json> --role <role>`
+- Required context-pack fields:
+  - `feature_objective, prd_context, task_id, acceptance_criteria, implementation_status, changed_files, constraints, evidence, clarifying_instruction`
+- Claude missing-context handshake marker must be:
+  - `CONTEXT_REQUEST|needed_fields=<csv>|questions=<numbered items>`
+- After each Claude response, parse handshake status with:
+  - `./.codex/skills/pm/scripts/pm-command.sh claude-contract evaluate-response --response-file <txt> --session-id <id> --role <role>`
+- Optional wrapper for multi-step sessions:
+  - `./.codex/skills/pm/scripts/pm-command.sh claude-contract run-loop --context-file <json> --response-file <txt> [--response-file <txt> ...] --session-id <id> --role <role>`
+- If parser/wrapper returns `status=context_needed` or `status=awaiting_context`, Discovery must gather requested info and continue in the same Claude session.
 
 ## Paired Support Agents (recommended)
 Before asking user follow-ups, proactively consult:
-1. **Senior Engineer** (`codex-worker` MCP) for codebase-derived clarifications.
+1. **Senior Engineer** (`explorer`) for codebase-derived clarifications.
 2. **Librarian** (`default`) for external doc/API clarifications via MCP/browser (`exa`, `context7`, `deepwiki`, `firecrawl`, and `$agent-browser` when needed).
-3. **Smoke Test Planner** (`codex-worker` MCP) for discovery-phase smoke-test planning (happy/unhappy/regression) and post-implementation QA plan.
-4. **Alternative PM** (`codex-worker` MCP) for critical alternative-solution analysis on every discovery step.
+3. **Smoke Test Planner** (`default`) for discovery-phase smoke-test planning (happy/unhappy/regression) and post-implementation QA plan.
+4. **Alternative PM** (`default`) for critical alternative-solution analysis on every discovery step.
 
 Only ask the user questions that remain unresolved after those checks.
 
 ## Smoke Test Planner (mandatory)
 - Load prompt from `references/smoke-test-planner.md`.
-- Launcher type: spawn via `codex-worker` MCP tool call with role-labeled prompt context (`[Role: Smoke Test Planner Agent]`) and structured Codex context block.
+- Launcher type: spawn as generic `default` with role-labeled prompt context (`[Role: Smoke Test Planner Agent]`).
+- Invoke via `claude-code` MCP using the Claude MCP Contract.
+- Prompt must start with:
+  - `use agent swarm for smoke test planning: <feature objective + constraints>`
+- Do not treat `claude-code` as a subagent launcher type.
 - During discovery, generate:
   - happy-path smoke tests
   - unhappy-path smoke tests
@@ -59,7 +81,11 @@ Only ask the user questions that remain unresolved after those checks.
 
 ## Alternative PM (mandatory every discovery step)
 - Load prompt from `references/alternative-pm.md`.
-- Launcher type: spawn via `codex-worker` MCP tool call with role-labeled prompt context (`[Role: Alternative PM Agent]`) and structured Codex context block.
+- Launcher type: spawn as generic `default` with role-labeled prompt context (`[Role: Alternative PM Agent]`).
+- Invoke via `claude-code` MCP using the Claude MCP Contract.
+- Do not treat `claude-code` as a subagent launcher type.
+- Prompt must start with:
+  - `use agent swarm for <problem statement and constraints>`
 - On every discovery step, request alternatives matrix:
   - multiple solution options
   - tradeoffs/risks
@@ -133,7 +159,7 @@ Output exactly this structure:
 - Immediately invoke: `$pm-create-prd Use the Discovery Summary above`.
 - Do not ask the user to manually type the next command.
 - Pass the full Discovery Summary (including smoke tests and alternatives matrix) and proposed slug.
-- Preferred orchestration path: create a Task tool call with `subagent_type: "default"` and role-labeled context (`[Role: PM Create PRD Handoff]`) for the `$pm-create-prd` step and wait for completion.
+- Preferred orchestration path: create a generic `default` sub-agent with role-labeled context (`[Role: PM Create PRD Handoff]`) for the `$pm-create-prd` step and wait for completion.
 - If direct skill invocation is unavailable, continue directly into PRD creation flow in the same interaction and mark handoff as blocked with the concrete reason.
 
 ## Response Contract (every run)
@@ -141,6 +167,12 @@ Always include:
 - `Current phase: DISCOVERY`
 - Discovery questions or completion check output per rules above
 - `What I need from you next`
+- `Phase Error Summary` (`none` or issue list with status)
+
+Issue reporting rules:
+- Report any step issue explicitly when it occurs (severity, impact, next action).
+- Non-critical issues do not stop discovery; continue while tracking mitigation.
+- If discovery is blocked by a critical error, state exact blocker and remediation.
 
 ## Invocation
 - Trigger strongly on explicit `$pm-discovery ...`.

@@ -94,6 +94,104 @@ assert_contains "$help_out" 'Filter non-pipeline changes and emit integration-pl
 assert_contains "$help_out" 'Lead-model options are exactly:'
 assert_contains "$help_out" 'GPT-5.3-Codex XHigh'
 assert_contains "$help_out" 'Claude Opus 4.6 Thinking'
+assert_contains "$help_out" 'Issue reporting policy:'
+assert_contains "$help_out" 'End each phase with a Phase Error Summary'
+assert_contains "$help_out" '$pm claude-contract validate-context|evaluate-response'
+assert_contains "$help_out" 'Claude delegation contract:'
+assert_contains "$help_out" 'claude-contract run-loop'
+
+CLAUDE_CONTEXT_FILE="$TMPDIR/claude-context-valid.json"
+cat >"$CLAUDE_CONTEXT_FILE" <<'EOF'
+{
+  "feature_objective": "Validate notification delivery latency requirements for sprint release",
+  "prd_context": "docs/prd/2026-03-04--notifications.md#acceptance",
+  "task_id": "BEAD-42",
+  "acceptance_criteria": [
+    "p95 under 200ms",
+    "Retry policy documented"
+  ],
+  "implementation_status": "Task in progress with API handler completed",
+  "changed_files": [
+    "src/notifications/service.ts",
+    "src/notifications/service.test.ts"
+  ],
+  "constraints": [
+    "No schema changes",
+    "Backward-compatible API"
+  ],
+  "evidence": {
+    "tests": [
+      "npm test -- notifications"
+    ]
+  },
+  "clarifying_instruction": "If you have missing or ambiguous context, ask specific clarifying questions before final recommendations."
+}
+EOF
+
+echo "[test-pm-command] case: claude-contract validate-context accepts complete context pack"
+contract_valid_out="$("$HELPER" claude-contract validate-context --context-file "$CLAUDE_CONTEXT_FILE" --role task_verification)"
+assert_contains "$contract_valid_out" 'CLAUDE_CONTEXT_VALID|role=task_verification'
+assert_contains "$contract_valid_out" 'required_fields=feature_objective,prd_context,task_id,acceptance_criteria,implementation_status,changed_files,constraints,evidence,clarifying_instruction'
+
+CLAUDE_CONTEXT_INVALID_FILE="$TMPDIR/claude-context-invalid.json"
+cat >"$CLAUDE_CONTEXT_INVALID_FILE" <<'EOF'
+{
+  "feature_objective": "Assess deployment rollback safety",
+  "prd_context": "docs/prd/2026-03-04--rollback.md",
+  "task_id": "BEAD-77",
+  "acceptance_criteria": "Rollback completes in under 2 minutes",
+  "implementation_status": "Pending code review",
+  "changed_files": ["src/deploy/rollback.ts"],
+  "evidence": "No logs yet",
+  "clarifying_instruction": "If you have missing or ambiguous context, ask specific clarifying questions before final recommendations."
+}
+EOF
+
+echo "[test-pm-command] case: claude-contract validate-context rejects incomplete context pack"
+if contract_invalid_out="$("$HELPER" claude-contract validate-context --context-file "$CLAUDE_CONTEXT_INVALID_FILE" --role task_verification 2>&1)"; then
+  fail "claude-contract validate-context unexpectedly succeeded with missing required fields"
+fi
+assert_contains "$contract_invalid_out" 'CLAUDE_CONTEXT_INVALID|role=task_verification'
+assert_contains "$contract_invalid_out" 'missing_fields=constraints'
+
+CLAUDE_RESPONSE_NEEDS_CONTEXT="$TMPDIR/claude-response-needs-context.txt"
+cat >"$CLAUDE_RESPONSE_NEEDS_CONTEXT" <<'EOF'
+CONTEXT_REQUEST|needed_fields=constraints,evidence|questions=1) Provide p95 latency budget;2) Provide failing test logs for retry path
+EOF
+
+echo "[test-pm-command] case: claude-contract evaluate-response detects missing-context handshake"
+if handshake_needed_out="$("$HELPER" claude-contract evaluate-response --response-file "$CLAUDE_RESPONSE_NEEDS_CONTEXT" --session-id sess-123 --role task_verification 2>&1)"; then
+  fail "claude-contract evaluate-response unexpectedly treated context request as complete"
+fi
+assert_contains "$handshake_needed_out" 'CLAUDE_HANDSHAKE|status=context_needed|role=task_verification|session_id=sess-123'
+assert_contains "$handshake_needed_out" 'needed_fields=constraints,evidence'
+
+CLAUDE_RESPONSE_COMPLETE="$TMPDIR/claude-response-complete.txt"
+cat >"$CLAUDE_RESPONSE_COMPLETE" <<'EOF'
+Review complete. No additional context required.
+EOF
+
+echo "[test-pm-command] case: claude-contract evaluate-response accepts completion response"
+handshake_complete_out="$("$HELPER" claude-contract evaluate-response --response-file "$CLAUDE_RESPONSE_COMPLETE" --session-id sess-123 --role task_verification)"
+assert_contains "$handshake_complete_out" 'CLAUDE_HANDSHAKE|status=complete|role=task_verification|session_id=sess-123'
+
+echo "[test-pm-command] case: claude-contract run-loop reports ready when no response is supplied"
+loop_ready_out="$("$HELPER" claude-contract run-loop --context-file "$CLAUDE_CONTEXT_FILE" --session-id sess-123 --role task_verification)"
+assert_contains "$loop_ready_out" 'CLAUDE_CONTEXT_VALID|role=task_verification'
+assert_contains "$loop_ready_out" 'CLAUDE_LOOP|status=ready|role=task_verification|session_id=sess-123|next_action=invoke_claude_mcp'
+
+echo "[test-pm-command] case: claude-contract run-loop reports awaiting_context on unresolved handshake"
+if loop_waiting_out="$("$HELPER" claude-contract run-loop --context-file "$CLAUDE_CONTEXT_FILE" --response-file "$CLAUDE_RESPONSE_NEEDS_CONTEXT" --session-id sess-123 --role task_verification 2>&1)"; then
+  fail "claude-contract run-loop unexpectedly completed when context was still needed"
+fi
+assert_contains "$loop_waiting_out" 'CLAUDE_HANDSHAKE|status=context_needed|role=task_verification|session_id=sess-123'
+assert_contains "$loop_waiting_out" 'CLAUDE_LOOP|status=awaiting_context|role=task_verification|session_id=sess-123|round=1|next_action=collect_and_continue'
+
+echo "[test-pm-command] case: claude-contract run-loop completes multi-step response chain"
+loop_complete_out="$("$HELPER" claude-contract run-loop --context-file "$CLAUDE_CONTEXT_FILE" --response-file "$CLAUDE_RESPONSE_NEEDS_CONTEXT" --response-file "$CLAUDE_RESPONSE_COMPLETE" --session-id sess-123 --role task_verification)"
+assert_contains "$loop_complete_out" 'CLAUDE_LOOP|status=context_requested|role=task_verification|session_id=sess-123|round=1|next_action=continue_session'
+assert_contains "$loop_complete_out" 'CLAUDE_HANDSHAKE|status=complete|role=task_verification|session_id=sess-123'
+assert_contains "$loop_complete_out" 'CLAUDE_LOOP|status=complete|role=task_verification|session_id=sess-123|round=2|responses_seen=2'
 
 LEAD_MODEL_STATE_FILE="$TMPDIR/.codex/pm-lead-model-state.json"
 

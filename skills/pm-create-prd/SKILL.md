@@ -78,6 +78,12 @@ Always include:
 3. `PRD path`
 4. `Open Questions status` (must be empty before approval request)
 5. `What I need from you next`
+6. `Phase Error Summary` (`none` or issue list with status)
+
+Issue reporting rules:
+- Report step issues explicitly when they happen (severity, impact, next action).
+- Non-critical issues do not stop PRD progression.
+- Critical blockers must include exact reason and remediation.
 
 ## Invocation
 - Trigger strongly on `$pm-create-prd ...`.

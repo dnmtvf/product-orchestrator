@@ -112,6 +112,12 @@ Always include these sections, in order:
 6. `Human-readable task graph`
 7. `bdui review` (with repo link + fallback commands)
 8. `What I need from you next`
+9. `Phase Error Summary` (`none` or issue list with status)
+
+Issue reporting rules:
+- Report step issues explicitly when they happen (severity, impact, next action).
+- Non-critical issues do not stop Beads planning/approval flow.
+- Critical blockers must include exact reason and remediation.
 
 ## Invocation
 - Trigger strongly on `$pm-beads-plan <request>`.
