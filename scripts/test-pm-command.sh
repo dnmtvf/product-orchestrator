@@ -68,6 +68,18 @@ EOF
 require_tool git
 require_tool jq
 require_tool bash
+require_tool diff
+
+echo "[test-pm-command] case: routing policy fallback contract is runtime-based"
+routing_contract="$(cat "$ROOT_DIR/skills/pm/agents/model-routing.yaml")"
+assert_contains "$routing_contract" 'profile: any'
+assert_contains "$routing_contract" 'requires_runtime: claude-code-mcp'
+assert_contains "$routing_contract" 'fallback_runtime: codex-native'
+
+echo "[test-pm-command] case: workflow instruction copies stay synchronized"
+if ! diff -u "$ROOT_DIR/instructions/pm_workflow.md" "$ROOT_DIR/.config/opencode/instructions/pm_workflow.md" >/dev/null; then
+  fail "workflow instruction files drifted; sync instructions/pm_workflow.md and .config/opencode/instructions/pm_workflow.md"
+fi
 
 TMPDIR="$(mktemp -d)"
 cleanup() {
@@ -88,6 +100,7 @@ help_out="$("$HELPER" help)"
 assert_contains "$help_out" '$pm help'
 assert_contains "$help_out" '$pm plan: <feature request>'
 assert_contains "$help_out" '$pm lead-model show|set|reset'
+assert_contains "$help_out" '$pm telemetry init-db|log-step|query-task|query-run'
 assert_contains "$help_out" '$pm self-update'
 assert_contains "$help_out" 'Self-update policy:'
 assert_contains "$help_out" 'Filter non-pipeline changes and emit integration-plan suggestions'
@@ -249,28 +262,25 @@ if "$HELPER" plan gate --route invalid --state-file "$LEAD_MODEL_STATE_FILE" >/d
   fail "plan gate unexpectedly accepted invalid route"
 fi
 
-echo "[test-pm-command] case: claude-first preflight blocks when claude-code MCP is unavailable"
-blocked_output_file="$TMPDIR/plan-gate-blocked.out"
-if PM_LEAD_MODEL_FORCE_CLAUDE_MCP_UNAVAILABLE=1 \
-   "$HELPER" plan gate --route default --lead-model claude-first --state-file "$LEAD_MODEL_STATE_FILE" >"$blocked_output_file" 2>&1; then
-  fail "plan gate unexpectedly continued without claude-code MCP availability"
-fi
-blocked_out="$(cat "$blocked_output_file")"
-assert_contains "$blocked_out" 'LEAD_MODEL_GATE|route=default'
-assert_contains "$blocked_out" 'BLOCKED|reason=claude_code_mcp_unavailable|route=default|selected_profile=claude-first'
-assert_contains "$blocked_out" 'remediation=codex mcp add claude-code -- claude mcp serve'
-if grep -Fq 'PLAN_ROUTE_READY|' <<<"$blocked_out"; then
-  fail "blocked plan gate should not emit PLAN_ROUTE_READY"
-fi
+echo "[test-pm-command] case: claude-first preflight falls back when claude-code MCP is unavailable"
+fallback_output_file="$TMPDIR/plan-gate-fallback.out"
+PM_LEAD_MODEL_FORCE_CLAUDE_MCP_UNAVAILABLE=1 \
+  "$HELPER" plan gate --route default --lead-model claude-first --state-file "$LEAD_MODEL_STATE_FILE" >"$fallback_output_file" 2>&1
+fallback_out="$(cat "$fallback_output_file")"
+assert_contains "$fallback_out" 'LEAD_MODEL_GATE|route=default'
+assert_contains "$fallback_out" 'ROUTING_FALLBACK|route=default|selected_profile=claude-first|reason=claude_code_mcp_unavailable'
+assert_contains "$fallback_out" 'remediation=codex mcp add claude-code -- claude mcp serve'
+assert_contains "$fallback_out" 'ROUTING_PROFILE|route=default|profile=claude-first|main_runtime=codex-native|main_model=gpt-5.3-codex|fallback_active=1'
+assert_contains "$fallback_out" 'PLAN_ROUTE_READY|route=default|selected_profile=claude-first|selected_label=Claude Opus 4.6 Thinking|discovery_can_start=1'
 
-echo "[test-pm-command] case: claude-first preflight blocks when claude-code MCP is disabled"
-blocked_disabled_file="$TMPDIR/plan-gate-blocked-disabled.out"
-if PM_LEAD_MODEL_CLAUDE_MCP_LIST_OVERRIDE='claude-code disabled' \
-   "$HELPER" plan gate --route default --lead-model claude-first --state-file "$LEAD_MODEL_STATE_FILE" >"$blocked_disabled_file" 2>&1; then
-  fail "plan gate unexpectedly continued with disabled claude-code MCP"
-fi
-blocked_disabled_out="$(cat "$blocked_disabled_file")"
-assert_contains "$blocked_disabled_out" 'BLOCKED|reason=claude_code_mcp_unavailable|route=default|selected_profile=claude-first'
+echo "[test-pm-command] case: codex-first still applies fallback to claude-mapped subroles when claude-code MCP is disabled"
+fallback_disabled_file="$TMPDIR/plan-gate-fallback-disabled.out"
+PM_LEAD_MODEL_CLAUDE_MCP_LIST_OVERRIDE='claude-code disabled' \
+  "$HELPER" plan gate --route default --lead-model codex-first --state-file "$LEAD_MODEL_STATE_FILE" >"$fallback_disabled_file" 2>&1
+fallback_disabled_out="$(cat "$fallback_disabled_file")"
+assert_contains "$fallback_disabled_out" 'ROUTING_FALLBACK|route=default|selected_profile=codex-first|reason=claude_code_mcp_unavailable'
+assert_contains "$fallback_disabled_out" 'remediation=codex mcp add claude-code -- claude mcp serve'
+assert_contains "$fallback_disabled_out" 'ROUTING_ROLE|role=librarian|class=sub|runtime=codex-native|model=gpt-5.3-codex|agent_type=default'
 
 echo "[test-pm-command] case: lead-model reset repairs corrupt state file"
 printf 'not-json\n' >"$LEAD_MODEL_STATE_FILE"
