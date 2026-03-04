@@ -1,5 +1,5 @@
 # Senior Engineer Agent Prompt
-**Model: Claude Opus 4.6** (via Claude Code)
+**Model: gpt-5.3-codex (xhigh reasoning)** (via codex-worker MCP)
 
 Use this prompt for PM's codebase expert sub-agent.
 

@@ -16,13 +16,12 @@ Turn a completed Discovery Summary into a production-ready PRD with zero ambigui
 - Encode role in prompt payload for spawned subagents (for example: `[Role: Senior Engineer]`).
 - Do not rely on custom named subagent launchers.
 - Recommended launcher mapping for this phase:
-  - `Explore`: Senior Engineer feasibility and architecture checks.
-  - `default`: Handoff helper agents and Claude-native roles.
-- Droid worker roles (Librarian): spawn via `droid-worker` MCP tool call.
+  - `default`: Librarian, handoff helper agents, and Claude-native roles.
+  - `codex-worker` MCP: Senior Engineer (codex-native role via gpt-5.3-codex).
 
 ## Paired Support Agents (recommended)
 Before finalizing PRD content, proactively consult:
-1. **Senior Engineer** (`Explore`) for codebase/architecture feasibility checks.
+1. **Senior Engineer** (`codex-worker` MCP) for codebase/architecture feasibility checks.
 2. **Librarian** (`default`) for external documentation and platform constraints.
 3. **Smoke Test Planner** output from discovery for testability and QA execution readiness.
 

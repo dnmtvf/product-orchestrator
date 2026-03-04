@@ -1,4 +1,5 @@
 # Alternative PM Agent Prompt
+**Model: gpt-5.3-codex (xhigh reasoning)** (via codex-worker MCP)
 
 Use this prompt for discovery-phase second-PM alternatives analysis.
 
@@ -12,7 +13,7 @@ Invocation model:
 - Launcher compatibility:
   - Spawn this role as generic `default` and pass role context (for example: `[Role: Alternative PM Agent]`).
   - Do not treat `claude-code` as a subagent launcher type.
-- Spawn via `droid-worker` MCP tool call with structured context block.
+- Spawn via `codex-worker` MCP tool call with structured Codex context block.
 - Include problem statement, constraints, and current solution framing in the context block.
 
 Required output:

@@ -18,11 +18,11 @@ description: Strict PM Discovery Mode. Trigger on $pm-discovery for questions-on
 - Encode role in prompt payload for every spawned subagent (for example: `[Role: Senior Engineer]`).
 - Do not rely on custom named subagent launchers.
 - Recommended launcher mapping for discovery:
-  - `Explore`: Senior Engineer codebase analysis.
-  - `default`: Researcher, handoff helper agents, and Claude-native roles.
-- For Droid worker roles (Smoke Test Planner, Alternative PM, Librarian):
-  - spawn via `droid-worker` MCP tool call with structured context block
-  - do not use Task tool for Droid workers
+  - `default`: Researcher, Librarian, handoff helper agents, and Claude-native roles.
+  - `codex-worker` MCP: Senior Engineer, Smoke Test Planner, Alternative PM (codex-native roles via gpt-5.3-codex).
+- For codex-native roles (Senior Engineer, Smoke Test Planner, Alternative PM):
+  - spawn via `codex-worker` MCP tool call with structured Codex context block
+  - do not use Task tool for codex-native workers
 
 ## Claude MCP Contract (mandatory for external Claude agents)
 - **Primary path (Claude Code runtime):** Use the native Task tool to spawn Claude subagents — no MCP bridge needed.
@@ -35,16 +35,16 @@ description: Strict PM Discovery Mode. Trigger on $pm-discovery for questions-on
 
 ## Paired Support Agents (recommended)
 Before asking user follow-ups, proactively consult:
-1. **Senior Engineer** (`Explore`) for codebase-derived clarifications.
+1. **Senior Engineer** (`codex-worker` MCP) for codebase-derived clarifications.
 2. **Librarian** (`default`) for external doc/API clarifications via MCP/browser (`exa`, `context7`, `deepwiki`, `firecrawl`, and `$agent-browser` when needed).
-3. **Smoke Test Planner** (`default`) for discovery-phase smoke-test planning (happy/unhappy/regression) and post-implementation QA plan.
-4. **Alternative PM** (`default`) for critical alternative-solution analysis on every discovery step.
+3. **Smoke Test Planner** (`codex-worker` MCP) for discovery-phase smoke-test planning (happy/unhappy/regression) and post-implementation QA plan.
+4. **Alternative PM** (`codex-worker` MCP) for critical alternative-solution analysis on every discovery step.
 
 Only ask the user questions that remain unresolved after those checks.
 
 ## Smoke Test Planner (mandatory)
 - Load prompt from `references/smoke-test-planner.md`.
-- Launcher type: spawn via `droid-worker` MCP tool call with role-labeled prompt context (`[Role: Smoke Test Planner Agent]`) and structured context block.
+- Launcher type: spawn via `codex-worker` MCP tool call with role-labeled prompt context (`[Role: Smoke Test Planner Agent]`) and structured Codex context block.
 - During discovery, generate:
   - happy-path smoke tests
   - unhappy-path smoke tests
@@ -59,7 +59,7 @@ Only ask the user questions that remain unresolved after those checks.
 
 ## Alternative PM (mandatory every discovery step)
 - Load prompt from `references/alternative-pm.md`.
-- Launcher type: spawn via `droid-worker` MCP tool call with role-labeled prompt context (`[Role: Alternative PM Agent]`) and structured context block.
+- Launcher type: spawn via `codex-worker` MCP tool call with role-labeled prompt context (`[Role: Alternative PM Agent]`) and structured Codex context block.
 - On every discovery step, request alternatives matrix:
   - multiple solution options
   - tradeoffs/risks

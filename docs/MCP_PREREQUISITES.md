@@ -33,82 +33,41 @@ You should see all five names above in `enabled` state.
 - `exa` may require org/account authorization depending your setup.
 - `claude-code` requires `claude` CLI available in PATH and usable by the runtime.
 
-## Droid Worker Setup (hybrid architecture)
+## Codex Worker Setup
 
-The PM workflow uses a hybrid model: Claude Code (Opus 4.6) for lead roles, Droid CLI + MiniMax-M2.5 for cost-effective worker tasks.
+The PM workflow uses Claude Code for most roles and Codex CLI (gpt-5.3-codex xhigh) for specialized analysis/review tasks.
 
 ### Prerequisites
-- Droid CLI installed and available in PATH
-- A MiniMax API key (or compatible provider)
+- Codex CLI installed: `npm install -g @openai/codex` or `brew install --cask codex`
+- Authenticated: `codex login`
 
-### Environment variables
+### Register Codex worker MCP
+
+Run the setup script (one-time user-level setup):
 ```bash
-export ANTHROPIC_BASE_URL="https://api.minimax.io/anthropic"
-export ANTHROPIC_AUTH_TOKEN="your-minimax-api-key"
+./scripts/setup-codex-user.sh
 ```
 
-### Register Droid as MCP worker
-
-**Option A: User-level registration (recommended)**
-
-Run from any repo with the PM workflow:
-```bash
-/pm install droid mcp
-```
-
-Or run the setup script directly:
-```bash
-./scripts/setup-droid-user.sh
-```
-
-This is a one-time user-level configuration. After running, droid-worker is available in all repos (new and existing).
-
-Or manually add to `~/.claude.json`:
-```bash
-jq '.mcpServers["droid-worker"] = {type: "stdio", command: "'"$HOME"'/.local/bin/droid-mcp-server", args: ["--mcp"], env: {}}' ~/.claude.json > ~/.claude.json.tmp && mv ~/.claude.json.tmp ~/.claude.json
-```
-
-**Option B: Project-level registration (team sharing via .mcp.json)**
-
-Add to your project's `.mcp.json`:
-```json
-{
-  "mcpServers": {
-    "droid-worker": {
-      "type": "stdio",
-      "command": "./scripts/droid-mcp-server",
-      "args": ["--mcp"]
-    }
-  }
-}
-```
-
-Note: Project-level servers require approval. In Conductor workspaces, you may need:
-```bash
-claude config set -g enableAllProjectMcpServers true
-```
-
-### Model enforcement for lead roles
-Start your orchestrator session with `--model claude-opus-4-6` to ensure lead roles (PM, Team Lead, Senior Engineer, Researcher, Jazz) run on Opus 4.6. The `claude mcp serve` command inherits the ambient session model — no per-call override is available.
-
-```bash
-claude --model claude-opus-4-6
-```
+This registers `codex-worker` MCP via `claude mcp add codex-worker -- codex mcp-server`.
 
 ### Role-to-model table
 | Role | Model | Runtime |
 |---|---|---|
-| Project Manager | claude-opus-4-6 | Claude Code |
-| Team Lead | claude-opus-4-6 | Claude Code |
-| Senior Engineer | claude-opus-4-6 | Claude Code |
-| Researcher | claude-opus-4-6 | Claude Code |
-| Jazz Reviewer | claude-opus-4-6 | Claude Code |
-| Backend/Frontend/Security Engineers | MiniMax-M2.5 | Droid CLI |
-| Librarian | MiniMax-M2.5 | Droid CLI |
-| Smoke Test Planner | MiniMax-M2.5 | Droid CLI |
-| Alternative PM | MiniMax-M2.5 | Droid CLI |
-| AGENTS Compliance Reviewer | MiniMax-M2.5 | Droid CLI |
-| Manual QA | MiniMax-M2.5 | Droid CLI |
+| Project Manager | Not pinned | Claude Code (Task tool) |
+| Team Lead | Not pinned | Claude Code (Task tool) |
+| Librarian | Not pinned | Claude Code (Task tool) |
+| Researcher | Not pinned | Claude Code (Task tool) |
+| Backend Engineer | Not pinned | Claude Code (Task tool) |
+| Frontend Engineer | Not pinned | Claude Code (Task tool) |
+| Security Engineer | Not pinned | Claude Code (Task tool) |
+| AGENTS Compliance Reviewer | Not pinned | Claude Code (Task tool) |
+| Codex Reviewer | Not pinned | Claude Code (Task tool) |
+| Manual QA | Not pinned | Claude Code (Task tool) |
+| Task Verification | Not pinned | Claude Code (Task tool) |
+| Senior Engineer | gpt-5.3-codex xhigh | Codex CLI (codex-worker MCP) |
+| Smoke Test Planner | gpt-5.3-codex xhigh | Codex CLI (codex-worker MCP) |
+| Alternative PM | gpt-5.3-codex xhigh | Codex CLI (codex-worker MCP) |
+| Jazz Reviewer | gpt-5.3-codex xhigh | Codex CLI (codex-worker MCP) |
 
 ## Optional but recommended MCP servers
 Not hard-required by PM contract, but commonly useful in real runs:

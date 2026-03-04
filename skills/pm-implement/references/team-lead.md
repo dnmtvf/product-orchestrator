@@ -22,17 +22,17 @@ Subagent launcher compatibility (mandatory):
   - `[Role: Backend Engineer]`
   - `[Role: Frontend Engineer]`
   - `[Role: Security Engineer]`
-- Use `Explore` for read/analyze activities and `default` for implementation activities.
+- Use `default` for implementation activities.
+- Use `codex-worker` MCP for codex-native roles (Senior Engineer, Jazz Reviewer).
 - Use `default` for coordination/review/QA roles, including:
   - `[Role: Task Verification Agent]`
   - `[Role: AGENTS Compliance Reviewer]`
   - `[Role: Jazz Reviewer]`
   - `[Role: Manual QA Smoke Agent]`
   - `[Role: Librarian Documentation Sync]`
-- Spawn Codex Reviewer via `codex-reviewer` MCP tool call (not via Task tool):
+- Spawn Codex Reviewer via Task tool `default` with role-labeled prompt (`[Role: Codex Reviewer]`):
   - Load prompt from `references/codex-reviewer.md`
   - Include changed files, feature summary, PRD constraints, and task DoD
-  - If `codex-reviewer` MCP is unavailable, log warning and continue with Jazz + AGENTS Compliance only
 
 Responsibilities:
 1. Break implementation into parallelizable workstreams.
@@ -45,7 +45,7 @@ Responsibilities:
 8. After each completed task, run Task Verification agent via Claude Task tool (primary) or `claude-code` MCP (fallback), including task ID, acceptance criteria, and changed files.
 9. If verification fails, create a Beads fix/reimplementation ticket and ensure it is completed before review.
 10. Report status, blockers, and next actions to PM.
-11. Spawn AGENTS Compliance Reviewer and Jazz Reviewer as generic `default` subagents (role-labeled prompts), and spawn Codex Reviewer via `codex-reviewer` MCP tool call — all three in parallel. If Codex MCP is unavailable, log warning and proceed with Jazz + AGENTS only. Create Beads review-iteration fix tickets for actionable findings from all reviewers and orchestrate those fixes to completion before QA/final review.
+11. Spawn AGENTS Compliance Reviewer and Codex Reviewer as generic `default` subagents (role-labeled prompts), and spawn Jazz Reviewer via `codex-worker` MCP tool call — all three in parallel. Create Beads review-iteration fix tickets for actionable findings from all reviewers and orchestrate those fixes to completion before QA/final review.
 12. Spawn Manual QA Smoke agent as generic `default` subagent (role-labeled prompt) and block final handoff until smoke plan execution is complete.
 13. When implementation adds new logic or changes existing behavior/logic, create a Beads documentation-sync task and spawn Librarian Documentation Sync (`default`) to audit/update project docs before QA/final handoff.
 14. When PM forwards user final-review feedback, convert each actionable comment into Beads human-review fix tickets and orchestrate implementation to completion.
@@ -61,8 +61,8 @@ Claude prompt quality requirements (mandatory):
 - Always append this instruction:
   - `If you have missing or ambiguous context, ask specific clarifying questions before final recommendations.`
 
-Droid worker spawn context (mandatory):
-- Every Droid worker prompt must include this structured block:
+Codex worker spawn context (mandatory for codex-native roles):
+- Every codex-worker MCP prompt must include this structured block:
   ```
   --- CONTEXT ---
   Task: <task title from Beads>
@@ -76,7 +76,7 @@ Droid worker spawn context (mandatory):
 
   If anything is unclear or you need additional context before proceeding, ask your specific questions now — do not guess or make assumptions.
   ```
-- Collect Droid worker output and verify against DoD before closing the task.
+- Collect codex worker output and verify against DoD before closing the task.
 - If the worker asks questions, answer them before it proceeds.
 
 Claude invocation contract (mandatory):
@@ -85,14 +85,13 @@ Claude invocation contract (mandatory):
   - Required setup (once): `claude mcp add claude-code -- claude mcp serve`
   - Start via `claude-code` MCP tool call with the full prompt.
   - Continue follow-ups in the same Claude MCP session using its returned identifier.
-- For Jazz Reviewer (always Claude, not Droid):
-  - Primary: spawn as generic `default` via Task tool with role-labeled prompt (`[Role: Jazz Reviewer]`)
-  - Fallback: spawn `default`, then invoke via `claude-code` MCP
+- For Jazz Reviewer (codex-native):
+  - Primary: spawn via `codex-worker` MCP tool call with role-labeled prompt (`[Role: Jazz Reviewer]`)
   - Include scope, changed files, and constraints in the Jazz review prompt
-- For Codex Reviewer (always via Codex CLI MCP, not Claude or Droid):
-  - Spawn via `codex-reviewer` MCP tool call with changed files, feature summary, PRD constraints, and task DoD
-  - Codex runs 4 sequential layer passes (architecture → syntax → composition → logic) internally
-  - If `codex-reviewer` MCP is unavailable, log warning with exact reason and continue with Jazz + AGENTS Compliance only
+- For Codex Reviewer (Claude Code):
+  - Spawn via Task tool `default` with role-labeled prompt (`[Role: Codex Reviewer]`)
+  - Include changed files, feature summary, PRD constraints, and task DoD
+  - Codex Reviewer runs 4 sequential review passes (architecture → syntax → composition → logic) within a single subagent prompt
 
 Session completion (mandatory — do not skip):
 - At session end, before declaring work complete:

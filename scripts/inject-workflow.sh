@@ -173,11 +173,6 @@ install_claude_runtime() {
 
 install_claude_runtime "$REPO_PATH/.claude/skills"
 
-# Setup Droid MCP server at user level (one-time global setup)
-if [ -f "$SCRIPT_DIR/setup-droid-user.sh" ]; then
-  "$SCRIPT_DIR/setup-droid-user.sh"
-fi
-
 if [ "$COPY_WORKFLOW" -eq 1 ]; then
   WORKFLOW_SRC="$SOURCE_ROOT/instructions/pm_workflow.md"
   WORKFLOW_DST="$REPO_PATH/instructions/pm_workflow.md"

@@ -1,91 +1,101 @@
 # Model Routing Configuration
-# Hybrid Claude Opus 4.6 + Droid MiniMax-M2.5 architecture
+# Claude Code + Codex CLI (gpt-5.3-codex) architecture
 # This file documents which model each role uses in the orchestrator
 
-# Lead roles - use Claude Opus 4.6 via Claude Code
-lead_roles:
+# Claude-code roles - spawned via Claude Code native Task tool (subagent_type: default)
+# Model is not pinned in repo — inherits from the ambient Claude Code session
+claude_code_roles:
   - name: "Project Manager"
-    model: "claude-opus-4-6"
     runtime: "claude-code"
+    launcher: "native"
     description: "Main orchestrator for PM workflow"
 
   - name: "Team Lead"
-    model: "claude-opus-4-6"
     runtime: "claude-code"
+    launcher: "task-tool-default"
     description: "Orchestrates implementation subagents"
 
-  - name: "Senior Engineer"
-    model: "claude-opus-4-6"
-    runtime: "claude-code"
-    description: "Codebase analysis and feasibility"
-
-  - name: "Researcher"
-    model: "claude-opus-4-6"
-    runtime: "claude-code"
-    description: "Complex research questions"
-
-  - name: "Jazz Reviewer"
-    model: "claude-opus-4-6"
-    runtime: "claude-code"
-    description: "Critical code review"
-
-# Worker roles - use Droid CLI with MiniMax-M2.5
-worker_roles:
   - name: "Librarian"
-    model: "MiniMax-M2.5"
-    runtime: "droid"
-    autonomy: "high"
+    runtime: "claude-code"
+    launcher: "task-tool-default"
     description: "External docs and research"
 
-  - name: "Smoke Test Planner"
-    model: "MiniMax-M2.5"
-    runtime: "droid"
-    autonomy: "medium"
-    description: "Test planning"
-
-  - name: "Alternative PM"
-    model: "MiniMax-M2.5"
-    runtime: "droid"
-    autonomy: "medium"
-    description: "Alternative solution analysis"
+  - name: "Researcher"
+    runtime: "claude-code"
+    launcher: "task-tool-default"
+    description: "Complex research questions"
 
   - name: "Backend Engineer"
-    model: "MiniMax-M2.5"
-    runtime: "droid"
-    autonomy: "high"
+    runtime: "claude-code"
+    launcher: "task-tool-default"
     description: "Backend implementation"
 
   - name: "Frontend Engineer"
-    model: "MiniMax-M2.5"
-    runtime: "droid"
-    autonomy: "high"
+    runtime: "claude-code"
+    launcher: "task-tool-default"
     description: "Frontend implementation"
 
   - name: "Security Engineer"
-    model: "MiniMax-M2.5"
-    runtime: "droid"
-    autonomy: "high"
+    runtime: "claude-code"
+    launcher: "task-tool-default"
     description: "Security review and implementation"
 
   - name: "AGENTS Compliance Reviewer"
-    model: "MiniMax-M2.5"
-    runtime: "droid"
-    autonomy: "medium"
+    runtime: "claude-code"
+    launcher: "task-tool-default"
     description: "Repo rules compliance"
 
+  - name: "Codex Reviewer"
+    runtime: "claude-code"
+    launcher: "task-tool-default"
+    description: "4-layer code review (architecture, syntax, composition, logic)"
+
   - name: "Manual QA"
-    model: "MiniMax-M2.5"
-    runtime: "droid"
-    autonomy: "medium"
+    runtime: "claude-code"
+    launcher: "task-tool-default"
     description: "Smoke test execution"
 
-# Droid MCP server configuration
-droid_config:
-  model: "MiniMax-M2.5"
-  auto_level: "high"
-  output_format: "json"
-  mcp_server_command: "claude mcp add droid-worker -- ./scripts/droid-mcp-server --mcp"
-  # Note: Start orchestrator session with --model claude-opus-4-6 for lead role quality.
-  # claude mcp serve inherits the ambient session model; no per-call model override available.
-  # IMPORTANT: The lead_roles table above is documentation only — it is NOT runtime-enforced.
-  # Verify active model with: claude --version (or check model in Claude Code session header).
+  - name: "Task Verification"
+    runtime: "claude-code"
+    launcher: "task-tool-default"
+    description: "Per-task implementation verification"
+
+# Codex-native roles - spawned via codex-worker MCP server
+# Model: gpt-5.3-codex at xhigh reasoning effort
+codex_native_roles:
+  - name: "Senior Engineer"
+    model: "gpt-5.3-codex"
+    reasoning_effort: "xhigh"
+    runtime: "codex-native"
+    launcher: "codex-worker-mcp"
+    description: "Codebase analysis and feasibility"
+
+  - name: "Smoke Test Planner"
+    model: "gpt-5.3-codex"
+    reasoning_effort: "xhigh"
+    runtime: "codex-native"
+    launcher: "codex-worker-mcp"
+    description: "Test planning"
+
+  - name: "Alternative PM"
+    model: "gpt-5.3-codex"
+    reasoning_effort: "xhigh"
+    runtime: "codex-native"
+    launcher: "codex-worker-mcp"
+    description: "Alternative solution analysis"
+
+  - name: "Jazz Reviewer"
+    model: "gpt-5.3-codex"
+    reasoning_effort: "xhigh"
+    runtime: "codex-native"
+    launcher: "codex-worker-mcp"
+    description: "Critical code review"
+
+# Codex worker MCP server configuration
+codex_worker_config:
+  model: "gpt-5.3-codex"
+  reasoning_effort: "xhigh"
+  mcp_server_command: "claude mcp add codex-worker -- codex mcp-server"
+  setup_script: "./scripts/setup-codex-user.sh"
+  # Note: Lead roles inherit model from the ambient Claude Code session.
+  # Codex-native roles use gpt-5.3-codex via the codex-worker MCP server.

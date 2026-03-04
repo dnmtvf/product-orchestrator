@@ -153,12 +153,6 @@ install_claude_skills() {
 
 install_claude_skills "$REPO_PATH/.claude/skills"
 
-# Setup Droid MCP server at user level (one-time global setup)
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [ -f "$SCRIPT_DIR/setup-droid-user.sh" ]; then
-  "$SCRIPT_DIR/setup-droid-user.sh"
-fi
-
 WORKFLOW_SRC="$REPO_PATH/$SUBMODULE_PATH/instructions/pm_workflow.md"
 WORKFLOW_DST="$REPO_PATH/.config/opencode/instructions/pm_workflow.md"
 

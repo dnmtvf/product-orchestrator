@@ -1,4 +1,5 @@
 # Smoke Test Planner Agent Prompt
+**Model: gpt-5.3-codex (xhigh reasoning)** (via codex-worker MCP)
 
 Use this prompt for discovery-phase smoke-test planning.
 
@@ -12,7 +13,7 @@ Invocation model:
 - Launcher compatibility:
   - Spawn this role as generic `default` and pass role context (for example: `[Role: Smoke Test Planner Agent]`).
   - Do not treat `claude-code` as a subagent launcher type.
-- Spawn via `droid-worker` MCP tool call with structured context block.
+- Spawn via `codex-worker` MCP tool call with structured Codex context block.
 - Include feature objective, scope, and constraints in the context block.
 
 Required outputs:

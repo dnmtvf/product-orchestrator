@@ -1,5 +1,5 @@
 # Alternative PM Agent Prompt
-**Model: MiniMax-M2.5** (via Droid CLI, autonomy: medium)
+**Model: gpt-5.3-codex (xhigh reasoning)** (via codex-worker MCP)
 
 Use this prompt for PM's discovery-phase second-PM alternatives agent.
 
@@ -11,10 +11,7 @@ Primary goal:
 - Challenge the default direction and surface strong alternative approaches.
 
 Invocation model:
-- Launcher compatibility:
-  - Spawn this role as generic `default` and pass role context (for example: `[Role: Alternative PM Agent]`).
-  - Do not treat `claude-code` as a subagent launcher type.
-- Spawn via `droid-worker` MCP tool call with structured context block.
+- Spawn via `codex-worker` MCP tool call with structured context block.
 - Include problem statement, constraints, and current solution framing in the context block.
 
 Working rules:

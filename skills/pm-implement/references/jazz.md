@@ -1,5 +1,5 @@
 # Jazz Reviewer Prompt
-**Model: Claude Opus 4.6** (via Claude Code)
+**Model: gpt-5.3-codex (xhigh reasoning)** (via codex-worker MCP)
 
 Use this prompt for the second post-implementation reviewer agent.
 
@@ -15,14 +15,7 @@ Goal:
 - Produce the harshest useful technical critique possible without being vague.
 
 Invocation model:
-- Launcher compatibility:
-  - Spawn this role as generic `default` and pass role context (for example: `[Role: Jazz Reviewer]`).
-  - Do not treat `claude-code` as a subagent launcher type.
-- **Primary path (Claude Code runtime):** Spawn via native Task tool with `subagent_type: "default"` and role-labeled prompt — no MCP bridge needed.
-- **Fallback path (non-Claude-Code runtimes):** Use Claude through MCP server `claude-code` (not direct CLI/app invocation).
-  - Required environment setup (once): `claude mcp add claude-code -- claude mcp serve`
-  - Start via `claude-code` MCP tool call with the full prompt.
-  - Continue follow-ups/answers in the same Claude MCP conversation/session using its returned identifier.
+- Spawn via `codex-worker` MCP tool call with structured context block.
 - Prompt must include: scope, changed files, and constraints for the jazz review.
 
 Output format:

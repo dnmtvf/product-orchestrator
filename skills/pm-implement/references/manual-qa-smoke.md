@@ -1,5 +1,5 @@
 # Manual QA Smoke Agent Prompt
-**Model: MiniMax-M2.5** (via Droid CLI, autonomy: medium)
+**Model: Claude Code** (via Task tool, subagent_type: default)
 
 Use this prompt for post-implementation smoke-test execution.
 

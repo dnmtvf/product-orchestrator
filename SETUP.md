@@ -20,28 +20,16 @@ Referencing a path from `AGENTS.md` is not enough to make `/skill` invocable. Th
 ## Prerequisites
 - MCP requirements: `docs/MCP_PREREQUISITES.md`
 
-## Hybrid Architecture: Droid Worker Setup
-The PM workflow runs Claude Code (Opus 4.6) for lead roles and Droid CLI + MiniMax-M2.5 for cost-effective workers.
+## Codex Worker Setup
+The PM workflow runs Claude Code for most roles and Codex CLI (gpt-5.3-codex xhigh) for specialized analysis/review tasks.
 
-1. Install Droid CLI and ensure it is in PATH.
-2. Set environment variables:
+1. Install Codex CLI: `npm install -g @openai/codex` or `brew install --cask codex`
+2. Authenticate: `codex login`
+3. Register Codex as an MCP server (one-time user-level setup):
    ```bash
-   export ANTHROPIC_BASE_URL="https://api.minimax.io/anthropic"
-   export ANTHROPIC_AUTH_TOKEN="your-minimax-api-key"
+   ./scripts/setup-codex-user.sh
    ```
-3. Register Droid as an MCP server (one-time user-level setup):
-   ```bash
-   /pm install droid mcp
-   ```
-   Or run the script directly:
-   ```bash
-   ./scripts/setup-droid-user.sh
-   ```
-   This copies `droid-mcp-server` to `~/.local/bin/` and adds it to `~/.claude.json`. After this one-time setup, droid-worker works in all repos (new and existing) without any additional configuration.
-4. Start Claude Code with Opus 4.6 for lead role quality:
-   ```bash
-   claude --model claude-opus-4-6
-   ```
+   This registers `codex-worker` MCP via `claude mcp add codex-worker -- codex mcp-server`.
 
 See `docs/MCP_PREREQUISITES.md` for the full role-to-model table.
 

@@ -687,7 +687,7 @@ Self-update policy:
 
 Runtime policy:
 - Claude Code runtime execution path (Claude Code is primary orchestrator)
-- Droid/MiniMax-M2.5 handles cost-effective worker tasks
+- Codex CLI (gpt-5.3-codex) handles specialized analysis/review tasks
 EOF
 }
 
