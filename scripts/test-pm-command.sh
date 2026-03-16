@@ -17,6 +17,14 @@ assert_contains() {
   fi
 }
 
+assert_not_contains() {
+  local haystack="$1"
+  local needle="$2"
+  if grep -Fq "$needle" <<<"$haystack"; then
+    fail "expected output to not contain: $needle"
+  fi
+}
+
 extract_prefixed_value() {
   local haystack="$1"
   local prefix="$2"
@@ -42,11 +50,17 @@ write_codex_config() {
   local config_path="$1"
   local model="$2"
   local reasoning_effort="$3"
+  local extra_config="${4:-}"
 
   mkdir -p "$(dirname "$config_path")"
   cat >"$config_path" <<EOF
 model = "$model"
 model_reasoning_effort = "$reasoning_effort"
+
+[mcp_servers.claude-code]
+command = "claude"
+args = ["mcp", "serve"]
+$extra_config
 EOF
 }
 
@@ -84,6 +98,12 @@ require_tool diff
 
 echo "[test-pm-command] case: routing policy fallback contract is runtime-based"
 routing_contract="$(cat "$ROOT_DIR/skills/pm/agents/model-routing.yaml")"
+assert_contains "$routing_contract" 'default_profile: codex-main'
+assert_contains "$routing_contract" 'full-codex: Full Codex Orchestration'
+assert_contains "$routing_contract" 'codex-main: Codex as Main Agent'
+assert_contains "$routing_contract" 'claude-main: Claude as Main Orchestrator'
+assert_contains "$routing_contract" 'model: gpt-5.4'
+assert_contains "$routing_contract" 'reasoning_effort: xhigh'
 assert_contains "$routing_contract" 'profile: any'
 assert_contains "$routing_contract" 'requires_runtime: claude-code-mcp'
 assert_contains "$routing_contract" 'fallback_runtime: codex-native'
@@ -101,6 +121,14 @@ trap cleanup EXIT
 export HOME="$TMPDIR/home"
 mkdir -p "$HOME"
 write_codex_config "$HOME/.codex/config.toml" "gpt-global" "medium"
+
+FAKE_CLAUDE_BIN="$TMPDIR/fake-claude-bin"
+mkdir -p "$FAKE_CLAUDE_BIN"
+cat >"$FAKE_CLAUDE_BIN/claude" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+chmod +x "$FAKE_CLAUDE_BIN/claude"
 
 cd "$TMPDIR"
 git init -q
@@ -120,14 +148,16 @@ assert_contains "$help_out" '$pm self-update'
 assert_contains "$help_out" 'Self-update policy:'
 assert_contains "$help_out" 'Filter non-pipeline changes and emit integration-plan suggestions'
 assert_contains "$help_out" 'Lead-model options are:'
-assert_contains "$help_out" 'Configured Codex'
-assert_contains "$help_out" 'Claude Opus 4.6 Thinking'
-assert_contains "$help_out" 'Configured Codex resolves top-level `model` and `model_reasoning_effort` from repo `.codex/config.toml`, then `~/.codex/config.toml`'
+assert_contains "$help_out" 'Full Codex Orchestration'
+assert_contains "$help_out" 'Codex as Main Agent'
+assert_contains "$help_out" 'Claude as Main Orchestrator'
+assert_contains "$help_out" 'Codex-native orchestrator roles are pinned to `gpt-5.4` with `xhigh` reasoning effort'
 assert_contains "$help_out" 'Issue reporting policy:'
 assert_contains "$help_out" 'End each phase with a Phase Error Summary'
 assert_contains "$help_out" '$pm claude-contract validate-context|evaluate-response'
 assert_contains "$help_out" 'Claude delegation contract:'
 assert_contains "$help_out" 'claude-contract run-loop'
+assert_contains "$help_out" 'Claude availability requires both a healthy `codex mcp list` entry and an executable configured command in the actual PM runtime'
 
 CLAUDE_CONTEXT_FILE="$TMPDIR/claude-context-valid.json"
 cat >"$CLAUDE_CONTEXT_FILE" <<'EOF'
@@ -224,60 +254,70 @@ assert_contains "$loop_complete_out" 'CLAUDE_LOOP|status=complete|role=task_veri
 
 LEAD_MODEL_STATE_FILE="$TMPDIR/.codex/pm-lead-model-state.json"
 
-echo "[test-pm-command] case: lead-model state bootstraps to codex-first"
+echo "[test-pm-command] case: lead-model state bootstraps to codex-main"
 lead_show="$("$HELPER" lead-model show --state-file "$LEAD_MODEL_STATE_FILE")"
-assert_contains "$lead_show" 'LEAD_MODEL_STATE|action=show|profile=codex-first|label=Configured Codex|codex_model=gpt-global|codex_reasoning_effort=medium'
-jq -e '.selected_profile == "codex-first"' "$LEAD_MODEL_STATE_FILE" >/dev/null || fail "lead-model default profile should be codex-first"
+assert_contains "$lead_show" 'LEAD_MODEL_STATE|action=show|profile=codex-main|label=Codex as Main Agent|codex_model=gpt-5.4|codex_reasoning_effort=xhigh'
+jq -e '.selected_profile == "codex-main"' "$LEAD_MODEL_STATE_FILE" >/dev/null || fail "lead-model default profile should be codex-main"
 
-echo "[test-pm-command] case: lead-model state persists claude-first selection"
-lead_set_claude="$("$HELPER" lead-model set --state-file "$LEAD_MODEL_STATE_FILE" --profile claude-first)"
-assert_contains "$lead_set_claude" 'LEAD_MODEL_STATE|action=set|profile=claude-first|label=Claude Opus 4.6 Thinking'
-jq -e '.selected_profile == "claude-first"' "$LEAD_MODEL_STATE_FILE" >/dev/null || fail "lead-model profile did not persist claude-first"
+echo "[test-pm-command] case: legacy lead-model state migrates to canonical claude-main profile"
+cat >"$LEAD_MODEL_STATE_FILE" <<'EOF'
+{
+  "schema_version": 1,
+  "selected_profile": "claude-first",
+  "selected_label": "Claude Opus 4.6 Thinking",
+  "updated_at": "2026-03-16T00:00:00Z",
+  "last_selected_by": "legacy_test"
+}
+EOF
+lead_show_legacy="$("$HELPER" lead-model show --state-file "$LEAD_MODEL_STATE_FILE")"
+assert_contains "$lead_show_legacy" 'LEAD_MODEL_STATE|action=show|profile=claude-main|label=Claude as Main Orchestrator|codex_model=gpt-5.4|codex_reasoning_effort=xhigh'
+jq -e '.selected_profile == "claude-main"' "$LEAD_MODEL_STATE_FILE" >/dev/null || fail "legacy lead-model state did not migrate to claude-main"
 
-echo "[test-pm-command] case: plan gate on default route emits persisted claude-first routing"
+echo "[test-pm-command] case: plan gate on default route emits persisted claude-main routing"
 plan_gate_default="$(
   PM_LEAD_MODEL_FORCE_CLAUDE_MCP_AVAILABLE=1 \
   "$HELPER" plan gate --route default --state-file "$LEAD_MODEL_STATE_FILE"
 )"
 assert_contains "$plan_gate_default" 'LEAD_MODEL_GATE|route=default'
-assert_contains "$plan_gate_default" 'selected_profile=claude-first'
-assert_contains "$plan_gate_default" 'codex_model=gpt-global|codex_reasoning_effort=medium'
-assert_contains "$plan_gate_default" 'ROUTING_PROFILE|route=default|profile=claude-first|main_runtime=claude-code-mcp|main_model=<unpinned>|main_reasoning_effort=<unpinned>'
+assert_contains "$plan_gate_default" 'options=Full Codex Orchestration;Codex as Main Agent;Claude as Main Orchestrator'
+assert_contains "$plan_gate_default" 'selected_profile=claude-main'
+assert_contains "$plan_gate_default" 'codex_model=gpt-5.4|codex_reasoning_effort=xhigh'
+assert_contains "$plan_gate_default" 'ROUTING_PROFILE|route=default|profile=claude-main|main_runtime=claude-code-mcp|main_model=<unpinned>|main_reasoning_effort=<unpinned>|fallback_active=0'
 assert_contains "$plan_gate_default" 'ROUTING_ROLE|role=pm_beads_plan_handoff|class=main|runtime=claude-code-mcp|model=<unpinned>|reasoning_effort=<unpinned>|agent_type=default'
 assert_contains "$plan_gate_default" 'ROUTING_ROLE|role=pm_implement_handoff|class=main|runtime=claude-code-mcp|model=<unpinned>|reasoning_effort=<unpinned>|agent_type=default'
 assert_contains "$plan_gate_default" 'ROUTING_ROLE|role=task_verification|class=sub|runtime=claude-code-mcp|model=<unpinned>|reasoning_effort=<unpinned>|agent_type=default'
-assert_contains "$plan_gate_default" 'PLAN_ROUTE_READY|route=default|selected_profile=claude-first|selected_label=Claude Opus 4.6 Thinking|discovery_can_start=1'
+assert_contains "$plan_gate_default" 'PLAN_ROUTE_READY|route=default|selected_profile=claude-main|selected_label=Claude as Main Orchestrator|discovery_can_start=1'
 
-echo "[test-pm-command] case: plan gate on big-feature route can override to codex-first"
-plan_gate_big="$(
-  PM_LEAD_MODEL_FORCE_CLAUDE_MCP_AVAILABLE=1 \
-  "$HELPER" plan gate --route big-feature --lead-model codex-first --state-file "$LEAD_MODEL_STATE_FILE"
+echo "[test-pm-command] case: full-codex route is ready without Claude availability"
+plan_gate_full_codex="$(
+  PM_LEAD_MODEL_FORCE_CLAUDE_MCP_UNAVAILABLE=1 \
+  "$HELPER" plan gate --route big-feature --lead-model full-codex --state-file "$LEAD_MODEL_STATE_FILE"
 )"
-assert_contains "$plan_gate_big" 'LEAD_MODEL_GATE|route=big-feature'
-assert_contains "$plan_gate_big" 'selected_profile=codex-first'
-assert_contains "$plan_gate_big" 'ROUTING_PROFILE|route=big-feature|profile=codex-first|main_runtime=codex-native|main_model=gpt-global|main_reasoning_effort=medium'
-assert_contains "$plan_gate_big" 'ROUTING_ROLE|role=pm_beads_plan_handoff|class=main|runtime=codex-native|model=gpt-global|reasoning_effort=medium|agent_type=default'
-assert_contains "$plan_gate_big" 'ROUTING_ROLE|role=pm_implement_handoff|class=main|runtime=codex-native|model=gpt-global|reasoning_effort=medium|agent_type=default'
-assert_contains "$plan_gate_big" 'ROUTING_ROLE|role=task_verification|class=sub|runtime=codex-native|model=<unpinned>|reasoning_effort=<unpinned>|agent_type=default'
-assert_contains "$plan_gate_big" 'PLAN_ROUTE_READY|route=big-feature|selected_profile=codex-first|selected_label=Configured Codex|discovery_can_start=1'
-jq -e '.selected_profile == "codex-first"' "$LEAD_MODEL_STATE_FILE" >/dev/null || fail "plan gate override did not persist codex-first profile"
+assert_contains "$plan_gate_full_codex" 'LEAD_MODEL_GATE|route=big-feature'
+assert_contains "$plan_gate_full_codex" 'selected_profile=full-codex'
+assert_contains "$plan_gate_full_codex" 'ROUTING_PROFILE|route=big-feature|profile=full-codex|main_runtime=codex-native|main_model=gpt-5.4|main_reasoning_effort=xhigh|fallback_active=0'
+assert_contains "$plan_gate_full_codex" 'ROUTING_ROLE|role=librarian|class=sub|runtime=codex-native|model=gpt-5.4|reasoning_effort=xhigh|agent_type=default'
+assert_contains "$plan_gate_full_codex" 'ROUTING_ROLE|role=task_verification|class=sub|runtime=codex-native|model=gpt-5.4|reasoning_effort=xhigh|agent_type=default'
+assert_contains "$plan_gate_full_codex" 'PLAN_ROUTE_READY|route=big-feature|selected_profile=full-codex|selected_label=Full Codex Orchestration|discovery_can_start=1'
+jq -e '.selected_profile == "full-codex"' "$LEAD_MODEL_STATE_FILE" >/dev/null || fail "plan gate override did not persist full-codex profile"
 
-write_codex_config "$TMPDIR/.codex/config.toml" "gpt-local" "high"
-
-echo "[test-pm-command] case: repo-local codex config overrides global config"
-plan_gate_local="$(
+echo "[test-pm-command] case: codex-main route stays pinned and Claude-routed when Claude is available"
+plan_gate_codex_main="$(
   PM_LEAD_MODEL_FORCE_CLAUDE_MCP_AVAILABLE=1 \
-  "$HELPER" plan gate --route default --lead-model codex-first --state-file "$LEAD_MODEL_STATE_FILE"
+  "$HELPER" plan gate --route default --lead-model codex-main --state-file "$LEAD_MODEL_STATE_FILE"
 )"
-assert_contains "$plan_gate_local" 'codex_model=gpt-local|codex_reasoning_effort=high'
-assert_contains "$plan_gate_local" 'ROUTING_PROFILE|route=default|profile=codex-first|main_runtime=codex-native|main_model=gpt-local|main_reasoning_effort=high'
-assert_contains "$plan_gate_local" 'ROUTING_ROLE|role=project_manager|class=main|runtime=codex-native|model=gpt-local|reasoning_effort=high|agent_type=default'
+assert_contains "$plan_gate_codex_main" 'selected_profile=codex-main'
+assert_contains "$plan_gate_codex_main" 'ROUTING_PROFILE|route=default|profile=codex-main|main_runtime=codex-native|main_model=gpt-5.4|main_reasoning_effort=xhigh|fallback_active=0'
+assert_contains "$plan_gate_codex_main" 'ROUTING_ROLE|role=project_manager|class=main|runtime=codex-native|model=gpt-5.4|reasoning_effort=xhigh|agent_type=default'
+assert_contains "$plan_gate_codex_main" 'ROUTING_ROLE|role=librarian|class=sub|runtime=claude-code-mcp|model=<unpinned>|reasoning_effort=<unpinned>|agent_type=default'
+assert_contains "$plan_gate_codex_main" 'ROUTING_ROLE|role=task_verification|class=sub|runtime=codex-native|model=gpt-5.4|reasoning_effort=xhigh|agent_type=default'
+assert_contains "$plan_gate_codex_main" 'PLAN_ROUTE_READY|route=default|selected_profile=codex-main|selected_label=Codex as Main Agent|discovery_can_start=1'
 
 echo "[test-pm-command] case: lead-model reset is idempotent"
 lead_reset_one="$("$HELPER" lead-model reset --state-file "$LEAD_MODEL_STATE_FILE")"
 lead_reset_two="$("$HELPER" lead-model reset --state-file "$LEAD_MODEL_STATE_FILE")"
-assert_contains "$lead_reset_one" 'LEAD_MODEL_STATE|action=reset|profile=codex-first|label=Configured Codex|codex_model=gpt-local|codex_reasoning_effort=high'
-assert_contains "$lead_reset_two" 'LEAD_MODEL_STATE|action=reset|profile=codex-first|label=Configured Codex|codex_model=gpt-local|codex_reasoning_effort=high'
+assert_contains "$lead_reset_one" 'LEAD_MODEL_STATE|action=reset|profile=codex-main|label=Codex as Main Agent|codex_model=gpt-5.4|codex_reasoning_effort=xhigh'
+assert_contains "$lead_reset_two" 'LEAD_MODEL_STATE|action=reset|profile=codex-main|label=Codex as Main Agent|codex_model=gpt-5.4|codex_reasoning_effort=xhigh'
 
 echo "[test-pm-command] case: invalid lead-model and route inputs fail"
 if "$HELPER" lead-model set --state-file "$LEAD_MODEL_STATE_FILE" --profile invalid >/dev/null 2>&1; then
@@ -290,31 +330,61 @@ if "$HELPER" plan gate --route invalid --state-file "$LEAD_MODEL_STATE_FILE" >/d
   fail "plan gate unexpectedly accepted invalid route"
 fi
 
-echo "[test-pm-command] case: claude-first preflight falls back when claude-code MCP is unavailable"
-fallback_output_file="$TMPDIR/plan-gate-fallback.out"
-PM_LEAD_MODEL_FORCE_CLAUDE_MCP_UNAVAILABLE=1 \
-  "$HELPER" plan gate --route default --lead-model claude-first --state-file "$LEAD_MODEL_STATE_FILE" >"$fallback_output_file" 2>&1
-fallback_out="$(cat "$fallback_output_file")"
-assert_contains "$fallback_out" 'LEAD_MODEL_GATE|route=default'
-assert_contains "$fallback_out" 'ROUTING_FALLBACK|route=default|selected_profile=claude-first|reason=claude_code_mcp_unavailable'
-assert_contains "$fallback_out" 'remediation=codex mcp add claude-code -- claude mcp serve'
-assert_contains "$fallback_out" 'ROUTING_PROFILE|route=default|profile=claude-first|main_runtime=codex-native|main_model=gpt-local|main_reasoning_effort=high|fallback_active=1'
-assert_contains "$fallback_out" 'PLAN_ROUTE_READY|route=default|selected_profile=claude-first|selected_label=Claude Opus 4.6 Thinking|discovery_can_start=1'
+echo "[test-pm-command] case: codex-main blocks and offers full-codex fallback when Claude command is not executable"
+blocked_codex_main_file="$TMPDIR/plan-gate-blocked-codex-main.out"
+if PM_LEAD_MODEL_CLAUDE_MCP_LIST_OVERRIDE='claude-code enabled' \
+  PM_LEAD_MODEL_CLAUDE_COMMAND_OVERRIDE='definitely-missing-claude-command' \
+  "$HELPER" plan gate --route default --lead-model codex-main --state-file "$LEAD_MODEL_STATE_FILE" >"$blocked_codex_main_file" 2>&1; then
+  fail "codex-main unexpectedly proceeded when Claude command was not executable"
+fi
+blocked_codex_main_out="$(cat "$blocked_codex_main_file")"
+assert_contains "$blocked_codex_main_out" 'LEAD_MODEL_GATE|route=default'
+assert_contains "$blocked_codex_main_out" 'PLAN_ROUTE_BLOCKED|route=default|selected_profile=codex-main|selected_label=Codex as Main Agent|reason=claude_code_mcp_command_not_executable'
+assert_contains "$blocked_codex_main_out" 'fallback_offer=1|fallback_profile=full-codex|fallback_label=Full Codex Orchestration|next_action=ask_user_for_full_codex_fallback|discovery_can_start=0'
+assert_not_contains "$blocked_codex_main_out" 'PLAN_ROUTE_READY|'
 
-echo "[test-pm-command] case: codex-first still applies fallback to claude-mapped subroles when claude-code MCP is disabled"
-fallback_disabled_file="$TMPDIR/plan-gate-fallback-disabled.out"
-PM_LEAD_MODEL_CLAUDE_MCP_LIST_OVERRIDE='claude-code disabled' \
-  "$HELPER" plan gate --route default --lead-model codex-first --state-file "$LEAD_MODEL_STATE_FILE" >"$fallback_disabled_file" 2>&1
-fallback_disabled_out="$(cat "$fallback_disabled_file")"
-assert_contains "$fallback_disabled_out" 'ROUTING_FALLBACK|route=default|selected_profile=codex-first|reason=claude_code_mcp_unavailable'
-assert_contains "$fallback_disabled_out" 'remediation=codex mcp add claude-code -- claude mcp serve'
-assert_contains "$fallback_disabled_out" 'ROUTING_ROLE|role=librarian|class=sub|runtime=codex-native|model=gpt-local|reasoning_effort=high|agent_type=default'
+echo "[test-pm-command] case: mcp_servers.claude-code.env PATH makes codex-main gate pass"
+write_codex_config "$HOME/.codex/config.toml" "gpt-global" "medium" "
+
+[mcp_servers.claude-code.env]
+PATH = \"$FAKE_CLAUDE_BIN\"
+"
+config_path_pass_out="$(
+  PM_LEAD_MODEL_CLAUDE_MCP_LIST_OVERRIDE='claude-code enabled' \
+  "$HELPER" plan gate --route default --lead-model codex-main --state-file "$LEAD_MODEL_STATE_FILE"
+)"
+assert_contains "$config_path_pass_out" 'PLAN_ROUTE_READY|route=default|selected_profile=codex-main|selected_label=Codex as Main Agent'
+assert_not_contains "$config_path_pass_out" 'PLAN_ROUTE_BLOCKED|'
+
+echo "[test-pm-command] case: shell_environment_policy.set PATH also makes codex-main gate pass"
+write_codex_config "$HOME/.codex/config.toml" "gpt-global" "medium" "
+
+[shell_environment_policy.set]
+PATH = \"$FAKE_CLAUDE_BIN\"
+"
+shell_env_path_pass_out="$(
+  PM_LEAD_MODEL_CLAUDE_MCP_LIST_OVERRIDE='claude-code enabled' \
+  "$HELPER" plan gate --route default --lead-model codex-main --state-file "$LEAD_MODEL_STATE_FILE"
+)"
+assert_contains "$shell_env_path_pass_out" 'PLAN_ROUTE_READY|route=default|selected_profile=codex-main|selected_label=Codex as Main Agent'
+assert_not_contains "$shell_env_path_pass_out" 'PLAN_ROUTE_BLOCKED|'
+
+echo "[test-pm-command] case: claude-main blocks without fallback when Claude MCP is unavailable"
+blocked_claude_main_file="$TMPDIR/plan-gate-blocked-claude-main.out"
+if PM_LEAD_MODEL_FORCE_CLAUDE_MCP_UNAVAILABLE=1 \
+  "$HELPER" plan gate --route default --lead-model claude-main --state-file "$LEAD_MODEL_STATE_FILE" >"$blocked_claude_main_file" 2>&1; then
+  fail "claude-main unexpectedly proceeded when Claude MCP was unavailable"
+fi
+blocked_claude_main_out="$(cat "$blocked_claude_main_file")"
+assert_contains "$blocked_claude_main_out" 'PLAN_ROUTE_BLOCKED|route=default|selected_profile=claude-main|selected_label=Claude as Main Orchestrator|reason=claude_code_mcp_unavailable'
+assert_contains "$blocked_claude_main_out" 'fallback_offer=0|fallback_profile=|fallback_label=|next_action=fix_claude_mcp_or_choose_supported_mode|discovery_can_start=0'
+assert_not_contains "$blocked_claude_main_out" 'PLAN_ROUTE_READY|'
 
 echo "[test-pm-command] case: lead-model reset repairs corrupt state file"
 printf 'not-json\n' >"$LEAD_MODEL_STATE_FILE"
 repair_out="$("$HELPER" lead-model reset --state-file "$LEAD_MODEL_STATE_FILE")"
-assert_contains "$repair_out" 'LEAD_MODEL_STATE|action=reset|profile=codex-first|label=Configured Codex|codex_model=gpt-local|codex_reasoning_effort=high'
-jq -e '.selected_profile == "codex-first"' "$LEAD_MODEL_STATE_FILE" >/dev/null || fail "lead-model reset did not repair corrupt state"
+assert_contains "$repair_out" 'LEAD_MODEL_STATE|action=reset|profile=codex-main|label=Codex as Main Agent|codex_model=gpt-5.4|codex_reasoning_effort=xhigh'
+jq -e '.selected_profile == "codex-main"' "$LEAD_MODEL_STATE_FILE" >/dev/null || fail "lead-model reset did not repair corrupt state"
 
 STATE_FILE="$TMPDIR/.claude/pm-self-update-state.json"
 PRD_PATH="$TMPDIR/docs/prd/self-update.md"

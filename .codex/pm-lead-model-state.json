@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "selected_profile": "codex-first",
-  "selected_label": "GPT-5.3-Codex XHigh",
-  "updated_at": "2026-03-04T13:51:40Z",
+  "selected_profile": "codex-main",
+  "selected_label": "Codex as Main Agent",
+  "updated_at": "2026-03-16T00:00:00Z",
   "last_selected_by": "default_bootstrap"
 }
