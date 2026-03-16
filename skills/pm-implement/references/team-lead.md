@@ -76,7 +76,7 @@ Claude invocation contract (mandatory):
   - Required setup (once): `codex mcp add claude-code -- claude mcp serve`
   - `codex mcp list` only verifies that `claude-code` is configured/enabled; it does not prove the current runtime exposes a usable Claude launcher.
   - Do not use `mcp__claude-code__Agent` / implicit `general-purpose` agent launching as the Jazz Claude path.
-  - If the current runtime reports `Agent type 'general-purpose' not found`, `no supported agent type`, or equivalent, treat Claude as unavailable for Jazz and fall back to codex-native instead of repeating install instructions.
+  - If the current runtime reports `Agent type 'general-purpose' not found`, `no supported agent type`, or equivalent, treat Claude as unavailable for Jazz, stop the Jazz Claude path, and return a blocking runtime error to PM/Team Lead instead of rerouting to codex-native.
 - For Jazz Reviewer:
   - Spawn as generic `default` with role-labeled prompt (`[Role: Jazz Reviewer]`), then invoke via `claude-code` MCP.
   - Include scope, changed files, and constraints in the Jazz review prompt.

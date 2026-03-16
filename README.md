@@ -175,7 +175,7 @@ Codex-native orchestrator roles are pinned to `gpt-5.4` with `xhigh` reasoning e
 `Codex as Main Agent` checks Claude MCP availability immediately after selection and, on failure, blocks with an offer to fall back to `Full Codex Orchestration`.
 `Claude as Main Orchestrator` checks Claude MCP availability immediately after selection and blocks before Discovery if Claude is unavailable.
 Claude availability requires both a healthy `codex mcp list` entry and an executable configured command in the PM runtime. That executability can come from an absolute `command`, from `[shell_environment_policy.set].PATH`, or from `[mcp_servers.claude-code.env].PATH`.
-Use `codex mcp add claude-code -- claude mcp serve` when the server is actually missing. If the server is enabled but the launcher is unusable, report that limitation and continue with fallback instead of repeating the install command.
+Use `codex mcp add claude-code -- claude mcp serve` when the server is actually missing. If the server is enabled but the launcher is unusable, report that limitation, block the Claude-dependent mode or phase, and do not continue in degraded fallback.
 Telemetry helpers are available in PM command helper:
 - `./.codex/skills/pm/scripts/pm-command.sh telemetry init-db --dsn <postgres-dsn>`
 - `./.codex/skills/pm/scripts/pm-command.sh telemetry log-step --workflow-run-id <id> --step-id <id> ...`

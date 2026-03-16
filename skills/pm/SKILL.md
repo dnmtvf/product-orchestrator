@@ -61,6 +61,9 @@ description: Strict PM orchestration workflow for any repo. Trigger when user in
   - `Full Codex Orchestration` must remain usable without Claude MCP.
   - `Codex as Main Agent` must check Claude MCP availability immediately after selection and, if unavailable, block with an explicit fallback offer to `Full Codex Orchestration`.
   - `Claude as Main Orchestrator` must check Claude MCP availability immediately after selection and block before Discovery if Claude is unavailable.
+  - The helper gate output is authoritative. If it returns `PLAN_ROUTE_BLOCKED` or `discovery_can_start=0`, do not invoke Discovery or any downstream phase.
+  - For a blocked `Codex as Main Agent` route, the only allowed continuation is to ask whether to switch to `Full Codex Orchestration`.
+  - Do not describe a blocked route as degraded mode.
   - Claude availability requires both:
     - healthy `claude-code` registration in `codex mcp list`
     - an executable configured command in the actual PM runtime
@@ -166,11 +169,15 @@ description: Strict PM orchestration workflow for any repo. Trigger when user in
   - `codex mcp add claude-code -- claude mcp serve`
 - `codex mcp list` only verifies that `claude-code` is configured/enabled; it does not prove the current environment exposes a usable Claude launcher.
 - Only use a `claude-code` MCP tool that explicitly provides prompt/session semantics in the current environment. `mcp__claude-code__Agent` with implicit `general-purpose` is not the PM contract.
-- If the launcher reports `Agent type 'general-purpose' not found`, `no supported agent type`, or equivalent, treat `claude-code` runtime as unavailable for the current session.
-- In that case, continue with `codex-native` fallback for roles mapped to `claude-code-mcp` and emit explicit warning + remediation.
+- If the launcher reports `Agent type 'general-purpose' not found`, `no supported agent type`, or equivalent, treat `claude-code` runtime as unavailable for the current phase.
+- Do not auto-fallback to `codex-native` inside `codex-main` or `claude-main`. Surface a critical phase block and return control to PM.
+- Recovery split:
+  - `codex-main` -> ask whether to switch to `Full Codex Orchestration`
+  - `claude-main` -> fix Claude MCP or choose a supported mode
+  - `full-codex` -> Claude should not be required
 - Remediation split:
   - server missing/not configured -> `codex mcp add claude-code -- claude mcp serve`
-  - server enabled but launcher unusable -> report the launcher limitation and continue with fallback; do not loop on reinstall instructions
+  - server enabled but launcher unusable -> report the launcher limitation, block the current phase, and do not loop on reinstall instructions
 - For Claude MCP agents, prompt must start with:
   - `use agent swarm for <objective>`
 - Before each external-Claude call, validate a context-pack JSON with:

@@ -18,7 +18,7 @@ Invocation model:
 - Required environment setup (once):
   - `codex mcp add claude-code -- claude mcp serve`
 - `codex mcp list` only verifies that `claude-code` is configured/enabled; it does not prove the current runtime exposes a usable Claude launcher.
-- If the current runtime reports `Agent type 'general-purpose' not found`, `no supported agent type`, or equivalent, treat Claude as unavailable for this role and fall back to codex-native instead of repeating install instructions.
+- If the current runtime reports `Agent type 'general-purpose' not found`, `no supported agent type`, or equivalent, treat Claude as unavailable for this role, stop the Claude path, and return a blocking runtime error to PM instead of rerouting to codex-native.
 - Prompt must start with:
   - `use agent swarm for <problem statement and constraints>`
 

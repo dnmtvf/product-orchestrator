@@ -13,6 +13,11 @@ description: Strict PM Discovery Mode. Trigger on $pm-discovery for questions-on
 - Never provide solutions, implementation ideas, PRD drafts, task breakdowns, or code.
 - Do not skip ambiguous or unanswered areas.
 
+## Phase Entry Gate (mandatory)
+- Discovery may start only if the preceding `plan gate` returned `PLAN_ROUTE_READY` and `discovery_can_start=1`.
+- If the active orchestration mode is `codex-main` and the gate blocks on Claude availability, do not proceed in degraded mode. Return control to PM and ask whether to switch to `Full Codex Orchestration`.
+- If the active orchestration mode is `claude-main` and the gate blocks on Claude availability, stop and ask PM/user to fix Claude MCP or choose a supported mode.
+
 ## Subagent Launcher Compatibility (mandatory)
 - Spawn only supported generic agent types: `default`, `explorer`, `worker`.
 - Encode role in prompt payload for every spawned subagent (for example: `[Role: Senior Engineer]`).
@@ -33,10 +38,10 @@ description: Strict PM Discovery Mode. Trigger on $pm-discovery for questions-on
 - `codex mcp list` only verifies that `claude-code` is configured/enabled; it does not prove the current environment exposes a usable Claude launcher.
 - Only use a `claude-code` MCP tool that explicitly provides prompt/session semantics in the current environment. `mcp__claude-code__Agent` with implicit `general-purpose` is not the Discovery contract.
 - If the launcher reports `Agent type 'general-purpose' not found`, `no supported agent type`, or equivalent, treat `claude-code` runtime as unavailable for that step.
-- In that case, fallback to `codex-native` and emit a precise warning.
+- Do not auto-fallback to `codex-native` inside Discovery. Treat this as a critical phase block and return control to PM.
 - Remediation split:
   - server missing/not configured -> `codex mcp add claude-code -- claude mcp serve`
-  - server enabled but launcher unusable -> report the launcher limitation and continue with fallback; do not loop on reinstall instructions
+  - server enabled but launcher unusable -> report the launcher limitation, block Discovery, and do not loop on reinstall instructions
 - For Claude MCP agents, prompt must start with:
   - `use agent swarm for <objective>`
 - Before each external-Claude call, validate a context-pack JSON with:

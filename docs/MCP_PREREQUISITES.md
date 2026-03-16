@@ -1,6 +1,6 @@
 # MCP Prerequisites For PM Workflow
 
-This PM workflow requires specific MCP servers. If they are missing, parts of the flow will degrade and emit warnings.
+This PM workflow requires specific MCP servers. Missing optional doc/research servers can reduce evidence quality, but Claude-dependent orchestration modes must not continue in degraded mode when Claude is unavailable.
 
 ## Required MCP servers (required for full behavior)
 From the PM skill contract, these are required for full behavior:
@@ -10,10 +10,13 @@ From the PM skill contract, these are required for full behavior:
 - `deepwiki`
 - `firecrawl`
 
-Fallback policy:
-- If `claude-code` is unavailable, roles mapped to Claude runtime fallback to codex-native and workflow continues with explicit remediation warnings.
+Claude availability policy:
+- `Full Codex Orchestration` remains usable without Claude MCP.
+- `Codex as Main Agent` blocks before Discovery when Claude is unavailable and offers explicit fallback to `Full Codex Orchestration`.
+- `Claude as Main Orchestrator` blocks before Discovery until Claude MCP is fixed or the user chooses a supported mode.
 - `codex mcp list` only proves `claude-code` is configured/enabled. It does not prove the current Codex runtime exposes a usable Claude launcher.
-- If the launcher reports `Agent type 'general-purpose' not found`, `no supported agent type`, or equivalent, treat Claude runtime as unavailable for that session and fallback to codex-native.
+- If the launcher reports `Agent type 'general-purpose' not found`, `no supported agent type`, or equivalent, treat Claude runtime as unavailable for that session.
+- If a required Claude-routed phase step later loses launcher availability, stop that phase and return control to PM. Do not continue with codex-native fallback.
 
 ## Install commands (Codex CLI)
 
@@ -40,7 +43,7 @@ For `claude-code`, also require a usable Claude launch path in the current runti
 - `exa` may require org/account authorization depending your setup.
 - `claude-code` requires the configured `command` to be executable in the runtime that launches it.
 - That executability can come from an absolute command path, from `[shell_environment_policy.set].PATH`, or from `[mcp_servers.claude-code.env].PATH`.
-- If `claude-code` is enabled but PM still reports `no supported agent type`, the MCP server is present but the current runtime does not expose a usable Claude launcher for PM. In that case, continue with codex-native fallback rather than repeating the install command.
+- If `claude-code` is enabled but PM still reports `no supported agent type`, the MCP server is present but the current runtime does not expose a usable Claude launcher for PM. In that case, block the Claude-dependent phase rather than repeating the install command.
 
 ## Optional but recommended MCP servers
 Not hard-required by PM contract, but commonly useful in real runs:

@@ -26,6 +26,11 @@ If any precondition fails:
   - `readiness.doctor_pass=true`
 - If not queue-ready, do not start implementation for that PRD and report blocked reason.
 
+## Claude-Dependent Phase Blocking (mandatory)
+- Implementation and review phases must not reinterpret an earlier blocked orchestration gate as degraded mode.
+- If a required Claude-routed role becomes unavailable during implementation, verification, review, or manual QA, stop the affected phase and return control to PM/Team Lead.
+- Do not auto-fallback to `codex-native` inside implementation or review phases when a required Claude-routed role is unavailable.
+
 ## Claude MCP Contract (mandatory for external Claude agents)
 - Use Claude through MCP server `claude-code` (not direct CLI/app invocation).
 - Required environment setup (once):
@@ -33,10 +38,10 @@ If any precondition fails:
 - `codex mcp list` only verifies that `claude-code` is configured/enabled; it does not prove the current environment exposes a usable Claude launcher.
 - Only use a `claude-code` MCP tool that explicitly provides prompt/session semantics in the current environment. `mcp__claude-code__Agent` with implicit `general-purpose` is not the implementation contract.
 - If the launcher reports `Agent type 'general-purpose' not found`, `no supported agent type`, or equivalent, treat `claude-code` runtime as unavailable for that step.
-- In that case, fallback to `codex-native` and emit a precise warning.
+- In that case, block the current phase and return control to PM/Team Lead.
 - Remediation split:
   - server missing/not configured -> `codex mcp add claude-code -- claude mcp serve`
-  - server enabled but launcher unusable -> report the launcher limitation and continue with fallback; do not loop on reinstall instructions
+  - server enabled but launcher unusable -> report the launcher limitation, block the current phase, and do not loop on reinstall instructions
 
 ## Codex Reviewer Contract (native-first)
 - Codex reviewer runs with the Codex-native `model` and `model_reasoning_effort` resolved from repo `.codex/config.toml`, then `~/.codex/config.toml`.

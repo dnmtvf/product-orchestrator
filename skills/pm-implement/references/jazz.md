@@ -22,7 +22,7 @@ Invocation model:
   - Required environment setup (once):
     - `codex mcp add claude-code -- claude mcp serve`
   - `codex mcp list` only verifies that `claude-code` is configured/enabled; it does not prove the current runtime exposes a usable Claude launcher.
-  - If the current runtime reports `Agent type 'general-purpose' not found`, `no supported agent type`, or equivalent, treat Claude as unavailable for Jazz and fall back to codex-native instead of repeating install instructions.
+  - If the current runtime reports `Agent type 'general-purpose' not found`, `no supported agent type`, or equivalent, treat Claude as unavailable for Jazz, stop the Jazz Claude path, and return a blocking runtime error to Team Lead instead of rerouting to codex-native.
   - Prompt must start with: `use agent swarm for jazz review: <scope + changed files + constraints>`.
 - Prompt must include scope, changed files, and constraints for the jazz review.
 

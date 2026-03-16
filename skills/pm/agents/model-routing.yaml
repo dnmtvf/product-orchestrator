@@ -2,7 +2,7 @@
 # Policy contract for PM role-to-runtime mapping by lead-model profile.
 # pm-command plan gate outputs must remain conformance-aligned with this matrix.
 
-version: 3
+version: 4
 
 policy:
   default_profile: codex-main
@@ -21,14 +21,13 @@ policy:
     - team_lead
     - pm_beads_plan_handoff
     - pm_implement_handoff
-  fallback_when:
-    - profile: any
-      requires_runtime: claude-code-mcp
-      applies_to_roles: any_role_mapped_to_claude_code_mcp
-      remediation: "If claude-code is missing, run codex mcp add claude-code -- claude mcp serve. If it is enabled but no supported Claude launcher is verified for the current runtime, fall back to codex-native instead of retrying install."
-      fallback_runtime: codex-native
-      fallback_model: gpt-5.4
-      fallback_reasoning_effort: xhigh
+  phase_entry_requirements:
+    - plan gate must emit PLAN_ROUTE_READY and discovery_can_start=1 before Discovery starts
+    - codex-main with unavailable claude-code blocks and offers fallback to full-codex
+    - claude-main with unavailable claude-code blocks until Claude is fixed or the mode changes
+  runtime_failure_policy:
+    - if a required claude-code-mcp role later becomes unavailable under codex-main or claude-main, stop the current phase and return control to PM
+    - do not auto-fallback blocked Claude-dependent phases to codex-native
 
 runtimes:
   codex-native:
@@ -44,7 +43,7 @@ runtimes:
     setup_command: "codex mcp add claude-code -- claude mcp serve"
     availability_requirements:
       - claude-code MCP server registered and enabled
-      - runtime fallback if the actual Claude invocation reports no supported agent type or equivalent launcher failure
+      - a required Claude-routed phase must block if the actual Claude invocation reports no supported agent type or equivalent launcher failure
     invalid_paths:
       - mcp__claude-code__Agent with implicit general-purpose launcher
 
@@ -337,5 +336,6 @@ guardrails:
     - Full Codex Orchestration must remain usable without Claude MCP.
     - Codex-native orchestrator roles are pinned to gpt-5.4 with xhigh reasoning effort.
     - codex mcp list is necessary but not sufficient for claude-code runtime availability.
-    - If claude-code MCP is missing, unhealthy, or launcher-unverified, roles mapped to claude-code-mcp fallback to codex-native and emit warning/remediation.
+    - If plan gate reports discovery_can_start=0, PM must not enter Discovery or any downstream phase.
+    - If a required claude-code-mcp role is unavailable under codex-main or claude-main, block the current phase and return control to PM instead of falling back automatically.
     - Main model/runtime selection must propagate to pm_beads_plan_handoff and pm_implement_handoff.

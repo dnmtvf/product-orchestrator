@@ -1812,7 +1812,8 @@ Approval gates:
 - Selected orchestration mode persists in .codex and is reused by default
 - `Codex as Main Agent` checks Claude MCP immediately after selection and offers fallback to `Full Codex Orchestration` when unavailable
 - `Claude as Main Orchestrator` fails before Discovery when Claude MCP is unavailable or unusable
-- If Claude invocation later fails at runtime (for example `no supported agent type`), workflow falls back to codex-native and emits reason-specific remediation
+- If the plan gate reports `PLAN_ROUTE_BLOCKED` or `discovery_can_start=0`, do not enter Discovery or any downstream phase
+- If a required Claude-routed role later fails at runtime (for example `no supported agent type`), block the current phase and return control to PM with reason-specific remediation
 
 Self-update policy:
 - Manual-only invocation
@@ -1825,8 +1826,8 @@ Runtime policy:
 - Orchestration-mode-driven runtime (`codex-main` default, `full-codex` and `claude-main` optional)
 - Claude usage is permitted only through claude-code MCP
 - Claude availability requires both a healthy `codex mcp list` entry and an executable configured command in the actual PM runtime
-- Claude-mapped roles fallback to codex-native when claude-code MCP is missing, unhealthy, or runtime Claude invocation fails
-- Fallbacks must emit warning telemetry and phase error reporting
+- Blocked Claude-dependent modes or phases must not continue in degraded fallback
+- Phase blocks must emit warning telemetry and phase error reporting
 
 Issue reporting policy:
 - Report issues explicitly when they occur (no silent failures)

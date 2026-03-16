@@ -96,7 +96,7 @@ require_tool jq
 require_tool bash
 require_tool diff
 
-echo "[test-pm-command] case: routing policy fallback contract is runtime-based"
+echo "[test-pm-command] case: routing policy blocks Claude-dependent phases instead of degrading them"
 routing_contract="$(cat "$ROOT_DIR/skills/pm/agents/model-routing.yaml")"
 assert_contains "$routing_contract" 'default_profile: codex-main'
 assert_contains "$routing_contract" 'full-codex: Full Codex Orchestration'
@@ -104,14 +104,41 @@ assert_contains "$routing_contract" 'codex-main: Codex as Main Agent'
 assert_contains "$routing_contract" 'claude-main: Claude as Main Orchestrator'
 assert_contains "$routing_contract" 'model: gpt-5.4'
 assert_contains "$routing_contract" 'reasoning_effort: xhigh'
-assert_contains "$routing_contract" 'profile: any'
-assert_contains "$routing_contract" 'requires_runtime: claude-code-mcp'
-assert_contains "$routing_contract" 'fallback_runtime: codex-native'
+assert_contains "$routing_contract" 'phase_entry_requirements:'
+assert_contains "$routing_contract" 'runtime_failure_policy:'
+assert_contains "$routing_contract" 'do not auto-fallback blocked Claude-dependent phases to codex-native'
+assert_not_contains "$routing_contract" 'fallback_when:'
+assert_not_contains "$routing_contract" 'fallback_runtime: codex-native'
 
 echo "[test-pm-command] case: workflow instruction copies stay synchronized"
 if ! diff -u "$ROOT_DIR/instructions/pm_workflow.md" "$ROOT_DIR/.config/opencode/instructions/pm_workflow.md" >/dev/null; then
   fail "workflow instruction files drifted; sync instructions/pm_workflow.md and .config/opencode/instructions/pm_workflow.md"
 fi
+
+echo "[test-pm-command] case: live PM contracts forbid degraded fallback after a blocked gate"
+live_contracts="$(
+  cat \
+    "$ROOT_DIR/README.md" \
+    "$ROOT_DIR/docs/MCP_PREREQUISITES.md" \
+    "$ROOT_DIR/instructions/pm_workflow.md" \
+    "$ROOT_DIR/skills/pm/SKILL.md" \
+    "$ROOT_DIR/skills/pm-discovery/SKILL.md" \
+    "$ROOT_DIR/skills/pm-implement/SKILL.md" \
+    "$ROOT_DIR/skills/pm/references/smoke-test-planner.md" \
+    "$ROOT_DIR/skills/pm/references/alternative-pm.md" \
+    "$ROOT_DIR/skills/pm/references/researcher.md" \
+    "$ROOT_DIR/skills/pm-discovery/references/smoke-test-planner.md" \
+    "$ROOT_DIR/skills/pm-discovery/references/alternative-pm.md" \
+    "$ROOT_DIR/skills/pm-implement/references/jazz.md" \
+    "$ROOT_DIR/skills/pm-implement/references/team-lead.md"
+)"
+assert_contains "$live_contracts" 'The helper gate output is authoritative. If it returns `PLAN_ROUTE_BLOCKED` or `discovery_can_start=0`, do not invoke Discovery or any downstream phase.'
+assert_contains "$live_contracts" 'Discovery may start only if the preceding `plan gate` returned `PLAN_ROUTE_READY` and `discovery_can_start=1`.'
+assert_contains "$live_contracts" 'Do not auto-fallback to `codex-native` inside Discovery. Treat this as a critical phase block and return control to PM.'
+assert_contains "$live_contracts" 'Do not auto-fallback to `codex-native` inside `codex-main` or `claude-main`. Surface a critical phase block and return control to PM.'
+assert_contains "$live_contracts" 'Do not auto-fallback to `codex-native` inside implementation or review phases when a required Claude-routed role is unavailable.'
+assert_not_contains "$live_contracts" 'fall back to codex-native instead of repeating install instructions'
+assert_not_contains "$live_contracts" 'workflow continues with explicit remediation warnings'
 
 TMPDIR="$(mktemp -d)"
 cleanup() {
@@ -152,12 +179,16 @@ assert_contains "$help_out" 'Full Codex Orchestration'
 assert_contains "$help_out" 'Codex as Main Agent'
 assert_contains "$help_out" 'Claude as Main Orchestrator'
 assert_contains "$help_out" 'Codex-native orchestrator roles are pinned to `gpt-5.4` with `xhigh` reasoning effort'
+assert_contains "$help_out" 'If the plan gate reports `PLAN_ROUTE_BLOCKED` or `discovery_can_start=0`, do not enter Discovery or any downstream phase'
+assert_contains "$help_out" 'If a required Claude-routed role later fails at runtime (for example `no supported agent type`), block the current phase and return control to PM with reason-specific remediation'
 assert_contains "$help_out" 'Issue reporting policy:'
 assert_contains "$help_out" 'End each phase with a Phase Error Summary'
 assert_contains "$help_out" '$pm claude-contract validate-context|evaluate-response'
 assert_contains "$help_out" 'Claude delegation contract:'
 assert_contains "$help_out" 'claude-contract run-loop'
 assert_contains "$help_out" 'Claude availability requires both a healthy `codex mcp list` entry and an executable configured command in the actual PM runtime'
+assert_not_contains "$help_out" 'workflow falls back to codex-native'
+assert_not_contains "$help_out" 'Claude-mapped roles fallback to codex-native'
 
 CLAUDE_CONTEXT_FILE="$TMPDIR/claude-context-valid.json"
 cat >"$CLAUDE_CONTEXT_FILE" <<'EOF'
@@ -386,7 +417,7 @@ repair_out="$("$HELPER" lead-model reset --state-file "$LEAD_MODEL_STATE_FILE")"
 assert_contains "$repair_out" 'LEAD_MODEL_STATE|action=reset|profile=codex-main|label=Codex as Main Agent|codex_model=gpt-5.4|codex_reasoning_effort=xhigh'
 jq -e '.selected_profile == "codex-main"' "$LEAD_MODEL_STATE_FILE" >/dev/null || fail "lead-model reset did not repair corrupt state"
 
-STATE_FILE="$TMPDIR/.claude/pm-self-update-state.json"
+STATE_FILE="$TMPDIR/.codex/pm-self-update-state.json"
 PRD_PATH="$TMPDIR/docs/prd/self-update.md"
 
 BOOTSTRAP_CHANGELOG=$'Codex CLI 0.104.0'
@@ -537,7 +568,7 @@ latest_commit_msg="$(git log -1 --pretty=%s)"
 assert_contains "$latest_commit_msg" 'chore(pm-self-update): checkpoint codex version 0.106.0-alpha.2'
 
 commit_files="$(git show --name-only --pretty=format: HEAD)"
-assert_contains "$commit_files" '.claude/pm-self-update-state.json'
+assert_contains "$commit_files" '.codex/pm-self-update-state.json'
 if grep -Fq 'unrelated.txt' <<<"$commit_files"; then
   fail "checkpoint commit included unrelated staged file"
 fi

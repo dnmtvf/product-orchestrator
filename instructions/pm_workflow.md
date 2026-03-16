@@ -49,6 +49,9 @@ This workflow is the source of truth for PM orchestration in OpenCode.
 - `Full Codex Orchestration` must remain usable without Claude MCP.
 - `Codex as Main Agent` must check Claude MCP availability immediately after selection and, if unavailable, block with an explicit fallback offer to `Full Codex Orchestration`.
 - `Claude as Main Orchestrator` must check Claude MCP availability immediately after selection and block before Discovery if Claude is unavailable.
+- The plan gate result is authoritative. If it emits `PLAN_ROUTE_BLOCKED` or `discovery_can_start=0`, do not start Discovery or any downstream phase.
+- For blocked `Codex as Main Agent`, the only allowed continuation is to ask whether to switch to `Full Codex Orchestration`.
+- Do not describe a blocked route as degraded mode.
 - Claude availability requires both:
   - healthy `claude-code` registration in `codex mcp list`
   - an executable configured command in the actual PM runtime
@@ -127,6 +130,7 @@ This workflow is the source of truth for PM orchestration in OpenCode.
 - Implementation coding tasks follow active profile routing matrix.
 - External Claude agents are allowed only through `claude-code` MCP contract.
 - Direct Claude CLI/app orchestration is not allowed.
+- If a required Claude-routed role is unavailable under `codex-main` or `claude-main`, block the current phase and return control to PM. Do not auto-fallback to codex-native.
 
 ## Git / Shipping Policy
 - No `git commit` or `git push` during PM execution phases (Discovery through Awaiting Final Review).
