@@ -47,6 +47,16 @@ runtimes:
     invalid_paths:
       - mcp__claude-code__Agent with implicit general-purpose launcher
 
+  claude-native:
+    description: Native Claude runtime for roles executed when Claude is already the outer orchestrator.
+
+  codex-worker-mcp:
+    description: External Codex MCP path for Codex-routed roles when Claude is the outer runtime.
+    setup_command: "claude mcp add codex-worker -- codex mcp-server"
+    availability_requirements:
+      - codex-worker MCP server registered and enabled in the Claude runtime
+      - codex executable resolvable in the runtime that launches codex-worker
+
 profiles:
   full-codex:
     description: Codex handles all orchestration and support roles without requiring Claude MCP.
@@ -254,79 +264,71 @@ profiles:
     roles:
       project_manager:
         class: main
-        runtime: claude-code-mcp
+        runtime: claude-native
         agent_type: default
       team_lead:
         class: main
-        runtime: claude-code-mcp
+        runtime: claude-native
         agent_type: default
       pm_beads_plan_handoff:
         class: main
-        runtime: claude-code-mcp
+        runtime: claude-native
         agent_type: default
       pm_implement_handoff:
         class: main
-        runtime: claude-code-mcp
+        runtime: claude-native
         agent_type: default
       senior_engineer:
         class: sub
-        runtime: codex-native
-        model: gpt-5.4
-        reasoning_effort: xhigh
+        runtime: codex-worker-mcp
         agent_type: explorer
       librarian:
         class: sub
-        runtime: claude-code-mcp
+        runtime: claude-native
         agent_type: default
       smoke_test_planner:
         class: sub
-        runtime: codex-native
-        model: gpt-5.4
-        reasoning_effort: xhigh
+        runtime: codex-worker-mcp
         agent_type: default
       alternative_pm:
         class: sub
-        runtime: codex-native
-        model: gpt-5.4
-        reasoning_effort: xhigh
+        runtime: codex-worker-mcp
         agent_type: default
       researcher:
         class: sub
-        runtime: claude-code-mcp
+        runtime: claude-native
         agent_type: default
       backend_engineer:
         class: sub
-        runtime: claude-code-mcp
+        runtime: claude-native
         agent_type: worker
       frontend_engineer:
         class: sub
-        runtime: claude-code-mcp
+        runtime: claude-native
         agent_type: worker
       security_engineer:
         class: sub
-        runtime: claude-code-mcp
+        runtime: claude-native
         agent_type: worker
       agents_compliance_reviewer:
         class: sub
-        runtime: claude-code-mcp
+        runtime: claude-native
         agent_type: default
       jazz_reviewer:
         class: sub
-        runtime: codex-native
-        model: gpt-5.4
-        reasoning_effort: xhigh
+        runtime: codex-worker-mcp
         agent_type: default
       codex_reviewer:
         class: sub
-        runtime: claude-code-mcp
+        runtime: claude-native
         agent_type: default
       manual_qa:
         class: sub
-        runtime: claude-code-mcp
+        runtime: claude-native
         agent_type: default
       task_verification:
         class: sub
-        runtime: claude-code-mcp
+        runtime: claude-native
         agent_type: default
 
 guardrails:
@@ -339,3 +341,4 @@ guardrails:
     - If plan gate reports discovery_can_start=0, PM must not enter Discovery or any downstream phase.
     - If a required claude-code-mcp role is unavailable under codex-main or claude-main, block the current phase and return control to PM instead of falling back automatically.
     - Main model/runtime selection must propagate to pm_beads_plan_handoff and pm_implement_handoff.
+    - In claude-main, Claude-native roles stay native and Codex-routed roles use codex-worker MCP as the secondary runtime.

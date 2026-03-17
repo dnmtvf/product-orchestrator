@@ -28,8 +28,13 @@ If any precondition fails:
 
 ## Claude-Dependent Phase Blocking (mandatory)
 - Implementation and review phases must not reinterpret an earlier blocked orchestration gate as degraded mode.
-- If a required Claude-routed role becomes unavailable during implementation, verification, review, or manual QA, stop the affected phase and return control to PM/Team Lead.
+- If a required Claude-routed role under `codex-main`, or a required `codex-worker` role under `claude-main`, becomes unavailable during implementation, verification, review, or manual QA, stop the affected phase and return control to PM/Team Lead.
 - Do not auto-fallback to `codex-native` inside implementation or review phases when a required Claude-routed role is unavailable.
+
+## PM Helper Path Resolution
+- source repo or submodule checkout: `./skills/pm/scripts/pm-command.sh`
+- installed target repo from Codex: `./.codex/skills/pm/scripts/pm-command.sh`
+- installed target repo from Claude: `./.claude/skills/pm/scripts/pm-command.sh`
 
 ## Claude MCP Contract (mandatory for external Claude agents)
 - Use Claude through MCP server `claude-code` (not direct CLI/app invocation).
@@ -118,15 +123,15 @@ Whenever Team Lead invokes any external Claude agent, the prompt must include su
 7. Explicit instruction:
    - `If you have missing or ambiguous context, ask specific clarifying questions before final recommendations.`
 - Before each external-Claude call, Team Lead must validate the context-pack JSON:
-  - `./.codex/skills/pm/scripts/pm-command.sh claude-contract validate-context --context-file <json> --role <role>`
+  - `<pm-helper> claude-contract validate-context --context-file <json> --role <role>`
 - Context-pack JSON must include keys:
   - `feature_objective, prd_context, task_id, acceptance_criteria, implementation_status, changed_files, constraints, evidence, clarifying_instruction`
 - Claude missing-context handshake marker must be:
   - `CONTEXT_REQUEST|needed_fields=<csv>|questions=<numbered items>`
 - After each Claude response, Team Lead must parse handshake status:
-  - `./.codex/skills/pm/scripts/pm-command.sh claude-contract evaluate-response --response-file <txt> --session-id <id> --role <role>`
+  - `<pm-helper> claude-contract evaluate-response --response-file <txt> --session-id <id> --role <role>`
 - Optional wrapper for multi-step sessions:
-  - `./.codex/skills/pm/scripts/pm-command.sh claude-contract run-loop --context-file <json> --response-file <txt> [--response-file <txt> ...] --session-id <id> --role <role>`
+  - `<pm-helper> claude-contract run-loop --context-file <json> --response-file <txt> [--response-file <txt> ...] --session-id <id> --role <role>`
 - If parser/wrapper returns `status=context_needed` or `status=awaiting_context`, Team Lead must gather requested details and continue in the same Claude session before accepting recommendations.
 
 ## Per-Task Verification Gate (mandatory before review)
@@ -179,7 +184,10 @@ After implementation tasks are complete, automatically run all three reviewers i
    - Load prompt from `references/jazz.md`.
    - Persona: grumpy, nitpicky old fart.
    - Behavior: doubt assumptions, challenge weak logic, call out edge cases and missing rigor.
-   - Runner: spawn as generic `default` with role-labeled prompt, then invoke via `claude-code` MCP.
+   - Runner: use active profile routing from `model-routing.yaml`:
+     - `full-codex`: run codex-native as configured.
+     - `codex-main`: spawn as generic `default` with role-labeled prompt, then invoke via `claude-code` MCP.
+     - `claude-main`: invoke via `codex-worker` MCP in the Claude runtime.
    - Return concrete defects and demanded fixes.
 
 3. **Codex Reviewer**

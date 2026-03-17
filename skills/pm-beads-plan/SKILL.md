@@ -16,16 +16,16 @@ Convert an **APPROVED** PRD into an executable Beads graph:
 - Human review gate before implementation starts
 
 ## Subagent Launcher Compatibility (mandatory)
-- Spawn only supported Claude Code Task tool `subagent_type` values: `default`, `Explore`, `Plan`.
+- Spawn only supported generic launcher types: `default`, `explorer`, `worker`.
 - Encode role in prompt payload for spawned subagents (for example: `[Role: Senior Engineer]`).
 - Do not rely on custom named subagent launchers.
 - Recommended launcher mapping for this phase:
-  - `default`: Librarian, implementation handoff helper agents, and Claude-native roles.
-  - `codex-worker` MCP: Senior Engineer (codex-native role via gpt-5.3-codex).
+  - `explorer`: Senior Engineer dependency and sequencing review.
+  - `default`: Librarian and implementation handoff helper agents.
 
 ## Paired Support Agents (recommended)
 Before locking the task graph, proactively consult:
-1. **Senior Engineer** (`codex-worker` MCP) for dependency correctness and implementation sequencing.
+1. **Senior Engineer** (`explorer`) for dependency correctness and implementation sequencing.
 2. **Librarian** (`default`) for external constraints (API quotas, platform requirements, compliance notes).
 3. **Smoke Test Planner output** from discovery/PRD for QA task coverage.
 
@@ -92,7 +92,7 @@ After task graph is generated:
 When user responds `approved` at this gate:
 - Automatically invoke `$pm-implement` with PRD path and epic ID.
 - Do not ask the user to manually run the next command.
-- Preferred orchestration path: invoke via Task tool with `subagent_type: "default"` and role-labeled context (`[Role: PM Implement Handoff]`) and wait for completion.
+- Preferred orchestration path: invoke via generic `default` subagent with role-labeled context (`[Role: PM Implement Handoff]`) and wait for completion.
 
 ## Minimal Repo Bootstrap (only if needed)
 - Ensure `docs/beads.md` exists.

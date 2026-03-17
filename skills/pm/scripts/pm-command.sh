@@ -32,6 +32,16 @@ CLAUDE_MCP_LAST_COMMAND=""
 CLAUDE_MCP_LAST_COMMAND_SOURCE=""
 CLAUDE_MCP_LAST_PATH_OVERRIDE=""
 CLAUDE_MCP_LAST_PATH_OVERRIDE_SOURCE=""
+CODEX_WORKER_MCP_INSTALL_COMMAND="claude mcp add codex-worker -- codex mcp-server"
+CODEX_WORKER_MCP_REMEDIATION_MISSING="$CODEX_WORKER_MCP_INSTALL_COMMAND"
+CODEX_WORKER_MCP_LAST_REASON=""
+CODEX_WORKER_MCP_LAST_REMEDIATION=""
+CODEX_WORKER_MCP_LAST_DETAIL=""
+CODEX_WORKER_MCP_LAST_COMMAND=""
+CODEX_WORKER_MCP_LAST_COMMAND_SOURCE=""
+CLAUDE_WRAPPER_RUNTIME="claude-code-mcp"
+CLAUDE_WRAPPER_TEMPLATE_RELATIVE_PATH="../references/internal-claude-wrapper.md"
+CLAUDE_WRAPPER_UNSUPPORTED_LAUNCHER_PATTERN="Agent type 'general-purpose' not found|no supported agent type|unsupported launcher"
 CLAUDE_CONTEXT_REQUEST_PREFIX="CONTEXT_REQUEST|"
 CLAUDE_CONTEXT_REQUIRED_FIELDS_CSV="feature_objective,prd_context,task_id,acceptance_criteria,implementation_status,changed_files,constraints,evidence,clarifying_instruction"
 CLAUDE_CLARIFYING_INSTRUCTION="If you have missing or ambiguous context, ask specific clarifying questions before final recommendations."
@@ -55,6 +65,9 @@ Usage:
   pm-command.sh claude-contract validate-context --context-file PATH [--role ROLE]
   pm-command.sh claude-contract evaluate-response --response-file PATH [--session-id ID] [--role ROLE]
   pm-command.sh claude-contract run-loop --context-file PATH [--response-file PATH ...] [--session-id ID] [--role ROLE] [--max-rounds N]
+  pm-command.sh claude-wrapper prepare --context-file PATH --prompt-file PATH --objective TEXT [--session-id ID] [--role ROLE]
+  pm-command.sh claude-wrapper evaluate --context-file PATH --response-file PATH [--session-id ID] [--role ROLE]
+  pm-command.sh claude-wrapper run --context-file PATH --prompt-file PATH --objective TEXT [--response-file PATH ...] [--session-id ID] [--role ROLE] [--max-rounds N]
   pm-command.sh telemetry init-db [--dsn POSTGRES_DSN]
   pm-command.sh telemetry log-step --workflow-run-id ID --step-id ID [--event-id ID] [fields...]
   pm-command.sh telemetry query-task --task-id ID [--workflow-run-id ID] [--limit N]
@@ -67,6 +80,7 @@ Commands:
   lead-model    Read/update persistent PM orchestration mode selection state.
   plan          Run plan-route orchestration mode gate and routing preflight.
   claude-contract Enforce Claude context-pack and missing-context handshake.
+  claude-wrapper Internal-only adapter for Claude-routed prompt generation and result normalization.
   telemetry     Persist/query PM step telemetry in PostgreSQL.
   self-update   Manual self-update orchestration. Defaults to check mode.
 
@@ -130,6 +144,16 @@ project_codex_config_file() {
 
 global_codex_config_file() {
   printf '%s/.codex/config.toml' "$HOME"
+}
+
+script_dir() {
+  cd "$(dirname "${BASH_SOURCE[0]}")" && pwd
+}
+
+internal_claude_wrapper_template_path() {
+  local base
+  base="$(script_dir)"
+  printf '%s/%s' "$base" "$CLAUDE_WRAPPER_TEMPLATE_RELATIVE_PATH"
 }
 
 display_path() {
@@ -270,6 +294,77 @@ resolved_codex_model() {
 
 resolved_codex_reasoning_effort() {
   printf '%s' "$CODEX_PINNED_REASONING_EFFORT"
+}
+
+conductor_workspace_path() {
+  if [ -n "${PM_PLAN_GATE_WORKSPACE_PATH_OVERRIDE:-}" ]; then
+    printf '%s' "$PM_PLAN_GATE_WORKSPACE_PATH_OVERRIDE"
+    return 0
+  fi
+
+  repo_root
+}
+
+in_conductor_workspace() {
+  local workspace_path
+
+  workspace_path="$(conductor_workspace_path)"
+  case "$workspace_path" in
+    */conductor/workspaces/*)
+      return 0
+      ;;
+  esac
+
+  return 1
+}
+
+codex_runtime_detected() {
+  [ -n "${CODEX_THREAD_ID:-}" ] || [ -n "${CODEX_INTERNAL_ORIGINATOR_OVERRIDE:-}" ]
+}
+
+conductor_runtime_profile() {
+  local runtime_override="${PM_PLAN_GATE_CONDUCTOR_RUNTIME_OVERRIDE:-}"
+
+  case "$runtime_override" in
+    codex)
+      printf '%s' "$LEAD_MODEL_PROFILE_CODEX_MAIN"
+      return 0
+      ;;
+    claude)
+      printf '%s' "$LEAD_MODEL_PROFILE_CLAUDE_MAIN"
+      return 0
+      ;;
+    off|none)
+      return 1
+      ;;
+    "")
+      ;;
+    *)
+      die "Invalid PM_PLAN_GATE_CONDUCTOR_RUNTIME_OVERRIDE: $runtime_override"
+      ;;
+  esac
+
+  if ! in_conductor_workspace; then
+    return 1
+  fi
+
+  if codex_runtime_detected; then
+    printf '%s' "$LEAD_MODEL_PROFILE_CODEX_MAIN"
+  else
+    printf '%s' "$LEAD_MODEL_PROFILE_CLAUDE_MAIN"
+  fi
+}
+
+lead_model_selection_source() {
+  local selection_source="persisted_state"
+
+  if [ -n "${1:-}" ]; then
+    selection_source="explicit_override"
+  elif [ -n "${2:-}" ]; then
+    selection_source="conductor_auto"
+  fi
+
+  printf '%s' "$selection_source"
 }
 
 telemetry_new_event_id() {
@@ -838,7 +933,7 @@ claude_mcp_available() {
 
   CLAUDE_MCP_LAST_REASON="claude_code_mcp_unavailable"
   CLAUDE_MCP_LAST_REMEDIATION="$CLAUDE_MCP_REMEDIATION_MISSING"
-  CLAUDE_MCP_LAST_DETAIL="Claude MCP server is missing, disabled, or unhealthy. Falling back to codex-native runtime for mapped roles."
+  CLAUDE_MCP_LAST_DETAIL="Claude MCP server is missing, disabled, or unhealthy. The selected orchestration mode cannot continue."
   CLAUDE_MCP_LAST_COMMAND=""
   CLAUDE_MCP_LAST_COMMAND_SOURCE=""
   CLAUDE_MCP_LAST_PATH_OVERRIDE=""
@@ -883,6 +978,80 @@ claude_mcp_available() {
   CLAUDE_MCP_LAST_REASON=""
   CLAUDE_MCP_LAST_REMEDIATION=""
   CLAUDE_MCP_LAST_DETAIL=""
+  return 0
+}
+
+codex_worker_mcp_server_healthy() {
+  local mcp_list mcp_list_override
+
+  mcp_list_override="${PM_LEAD_MODEL_CODEX_MCP_LIST_OVERRIDE:-}"
+  if [ -n "$mcp_list_override" ]; then
+    mcp_list="$mcp_list_override"
+  else
+    if ! command -v claude >/dev/null 2>&1; then
+      return 1
+    fi
+    mcp_list="$(claude mcp list 2>/dev/null || true)"
+  fi
+  [ -n "$mcp_list" ] || return 1
+
+  printf '%s\n' "$mcp_list" | awk '
+    BEGIN { IGNORECASE=1; found=0; healthy=0 }
+    /(^|[[:space:]])codex-worker([[:space:]]|$)/ {
+      found=1
+      if ($0 !~ /(disabled|error|failed|unavailable|inactive|stopped)/) {
+        healthy=1
+      }
+    }
+    END { exit !(found && healthy) }
+  '
+}
+
+codex_worker_mcp_available() {
+  local force_available force_unavailable configured_command resolved_command
+
+  force_available="$(resolve_bool_setting "PM_LEAD_MODEL_FORCE_CODEX_MCP_AVAILABLE" "" 0)"
+  force_unavailable="$(resolve_bool_setting "PM_LEAD_MODEL_FORCE_CODEX_MCP_UNAVAILABLE" "" 0)"
+
+  CODEX_WORKER_MCP_LAST_REASON="codex_worker_mcp_unavailable"
+  CODEX_WORKER_MCP_LAST_REMEDIATION="$CODEX_WORKER_MCP_REMEDIATION_MISSING"
+  CODEX_WORKER_MCP_LAST_DETAIL="Codex worker MCP server is missing, disabled, or unhealthy. The selected orchestration mode cannot continue."
+  CODEX_WORKER_MCP_LAST_COMMAND=""
+  CODEX_WORKER_MCP_LAST_COMMAND_SOURCE=""
+
+  if [ "$force_unavailable" -eq 1 ]; then
+    return 1
+  fi
+
+  if [ "$force_available" -eq 1 ]; then
+    CODEX_WORKER_MCP_LAST_REASON=""
+    CODEX_WORKER_MCP_LAST_REMEDIATION=""
+    CODEX_WORKER_MCP_LAST_DETAIL=""
+    return 0
+  fi
+
+  if ! codex_worker_mcp_server_healthy; then
+    return 1
+  fi
+
+  configured_command="${PM_LEAD_MODEL_CODEX_COMMAND_OVERRIDE:-codex}"
+  CODEX_WORKER_MCP_LAST_COMMAND_SOURCE="${PM_LEAD_MODEL_CODEX_COMMAND_OVERRIDE:+env:PM_LEAD_MODEL_CODEX_COMMAND_OVERRIDE}"
+  if [ -z "$CODEX_WORKER_MCP_LAST_COMMAND_SOURCE" ]; then
+    CODEX_WORKER_MCP_LAST_COMMAND_SOURCE="default(command=codex)"
+  fi
+
+  resolved_command="$(resolve_runtime_executable "$configured_command" "${PM_LEAD_MODEL_CODEX_PATH_OVERRIDE:-}" || true)"
+  if [ -z "$resolved_command" ]; then
+    CODEX_WORKER_MCP_LAST_REASON="codex_worker_command_not_executable"
+    CODEX_WORKER_MCP_LAST_REMEDIATION="$(sanitize_single_line "Register codex-worker with \`$CODEX_WORKER_MCP_INSTALL_COMMAND\`, or fix the runtime PATH so $configured_command resolves.")"
+    CODEX_WORKER_MCP_LAST_DETAIL="$(sanitize_single_line "codex-worker is registered, but configured command $configured_command from $CODEX_WORKER_MCP_LAST_COMMAND_SOURCE is not executable in this runtime.")"
+    return 1
+  fi
+
+  CODEX_WORKER_MCP_LAST_COMMAND="$resolved_command"
+  CODEX_WORKER_MCP_LAST_REASON=""
+  CODEX_WORKER_MCP_LAST_REMEDIATION=""
+  CODEX_WORKER_MCP_LAST_DETAIL=""
   return 0
 }
 
@@ -974,23 +1143,23 @@ emit_routing_matrix_for_profile() {
       emit_routing_role "task_verification" "codex-native" "$codex_model" "$codex_reasoning_effort" "default" "sub"
       ;;
     "$LEAD_MODEL_PROFILE_CLAUDE_MAIN")
-      emit_routing_role "project_manager" "claude-code-mcp" "" "" "default" "main"
-      emit_routing_role "team_lead" "claude-code-mcp" "" "" "default" "main"
-      emit_routing_role "pm_beads_plan_handoff" "claude-code-mcp" "" "" "default" "main"
-      emit_routing_role "pm_implement_handoff" "claude-code-mcp" "" "" "default" "main"
-      emit_routing_role "senior_engineer" "codex-native" "$codex_model" "$codex_reasoning_effort" "explorer" "sub"
-      emit_routing_role "librarian" "claude-code-mcp" "" "" "default" "sub"
-      emit_routing_role "smoke_test_planner" "codex-native" "$codex_model" "$codex_reasoning_effort" "default" "sub"
-      emit_routing_role "alternative_pm" "codex-native" "$codex_model" "$codex_reasoning_effort" "default" "sub"
-      emit_routing_role "researcher" "claude-code-mcp" "" "" "default" "sub"
-      emit_routing_role "backend_engineer" "claude-code-mcp" "" "" "worker" "sub"
-      emit_routing_role "frontend_engineer" "claude-code-mcp" "" "" "worker" "sub"
-      emit_routing_role "security_engineer" "claude-code-mcp" "" "" "worker" "sub"
-      emit_routing_role "agents_compliance_reviewer" "claude-code-mcp" "" "" "default" "sub"
-      emit_routing_role "jazz_reviewer" "codex-native" "$codex_model" "$codex_reasoning_effort" "default" "sub"
-      emit_routing_role "codex_reviewer" "claude-code-mcp" "" "" "default" "sub"
-      emit_routing_role "manual_qa" "claude-code-mcp" "" "" "default" "sub"
-      emit_routing_role "task_verification" "claude-code-mcp" "" "" "default" "sub"
+      emit_routing_role "project_manager" "claude-native" "" "" "default" "main"
+      emit_routing_role "team_lead" "claude-native" "" "" "default" "main"
+      emit_routing_role "pm_beads_plan_handoff" "claude-native" "" "" "default" "main"
+      emit_routing_role "pm_implement_handoff" "claude-native" "" "" "default" "main"
+      emit_routing_role "senior_engineer" "codex-worker-mcp" "" "" "explorer" "sub"
+      emit_routing_role "librarian" "claude-native" "" "" "default" "sub"
+      emit_routing_role "smoke_test_planner" "codex-worker-mcp" "" "" "default" "sub"
+      emit_routing_role "alternative_pm" "codex-worker-mcp" "" "" "default" "sub"
+      emit_routing_role "researcher" "claude-native" "" "" "default" "sub"
+      emit_routing_role "backend_engineer" "claude-native" "" "" "worker" "sub"
+      emit_routing_role "frontend_engineer" "claude-native" "" "" "worker" "sub"
+      emit_routing_role "security_engineer" "claude-native" "" "" "worker" "sub"
+      emit_routing_role "agents_compliance_reviewer" "claude-native" "" "" "default" "sub"
+      emit_routing_role "jazz_reviewer" "codex-worker-mcp" "" "" "default" "sub"
+      emit_routing_role "codex_reviewer" "claude-native" "" "" "default" "sub"
+      emit_routing_role "manual_qa" "claude-native" "" "" "default" "sub"
+      emit_routing_role "task_verification" "claude-native" "" "" "default" "sub"
       ;;
     *)
       die "Unknown routing profile: $profile"
@@ -1811,7 +1980,7 @@ Approval gates:
 - Codex-native orchestrator roles are pinned to `gpt-5.4` with `xhigh` reasoning effort
 - Selected orchestration mode persists in .codex and is reused by default
 - `Codex as Main Agent` checks Claude MCP immediately after selection and offers fallback to `Full Codex Orchestration` when unavailable
-- `Claude as Main Orchestrator` fails before Discovery when Claude MCP is unavailable or unusable
+- `Claude as Main Orchestrator` fails before Discovery when `codex-worker` is unavailable or `codex` is not executable in the Claude runtime
 - If the plan gate reports `PLAN_ROUTE_BLOCKED` or `discovery_can_start=0`, do not enter Discovery or any downstream phase
 - If a required Claude-routed role later fails at runtime (for example `no supported agent type`), block the current phase and return control to PM with reason-specific remediation
 
@@ -1913,10 +2082,14 @@ run_plan_gate() {
   local route=""
   local state_file=""
   local lead_model_override=""
+  local conductor_profile=""
+  local selection_source=""
   local persisted_profile selected_profile selected_label selected_main_runtime selected_main_model selected_main_reasoning_effort
   local codex_model codex_reasoning_effort
   local requires_claude_mcp=0
+  local requires_codex_worker_mcp=0
   local claude_available=0
+  local codex_worker_available=0
   local block_reason=""
   local block_remediation=""
   local block_detail=""
@@ -1972,12 +2145,20 @@ run_plan_gate() {
     lead_model_state_set_profile "$state_file" "$lead_model_override" "plan_gate_override"
   fi
 
-  selected_profile="$(lead_model_state_get_profile "$state_file")"
+  conductor_profile="$(conductor_runtime_profile || true)"
+  if [ -n "$lead_model_override" ]; then
+    selected_profile="$(lead_model_state_get_profile "$state_file")"
+  elif [ -n "$conductor_profile" ]; then
+    selected_profile="$conductor_profile"
+  else
+    selected_profile="$(lead_model_state_get_profile "$state_file")"
+  fi
+  selection_source="$(lead_model_selection_source "$lead_model_override" "$conductor_profile")"
   selected_label="$(lead_model_label_for_profile "$selected_profile")"
   codex_model="$(resolved_codex_model)"
   codex_reasoning_effort="$(resolved_codex_reasoning_effort)"
 
-  echo "LEAD_MODEL_GATE|route=$route|question=Select orchestration mode before Discovery|options=$LEAD_MODEL_OPTION_FULL_CODEX;$LEAD_MODEL_OPTION_CODEX_MAIN;$LEAD_MODEL_OPTION_CLAUDE_MAIN|persisted_profile=$persisted_profile|selected_profile=$selected_profile|selected_label=$selected_label|codex_model=$codex_model|codex_reasoning_effort=$codex_reasoning_effort|state_file=$(display_path "$state_file")"
+  echo "LEAD_MODEL_GATE|route=$route|question=Select orchestration mode before Discovery|options=$LEAD_MODEL_OPTION_FULL_CODEX;$LEAD_MODEL_OPTION_CODEX_MAIN;$LEAD_MODEL_OPTION_CLAUDE_MAIN|persisted_profile=$persisted_profile|selected_profile=$selected_profile|selected_label=$selected_label|selection_source=$selection_source|codex_model=$codex_model|codex_reasoning_effort=$codex_reasoning_effort|state_file=$(display_path "$state_file")"
 
   case "$selected_profile" in
     "$LEAD_MODEL_PROFILE_FULL_CODEX")
@@ -1992,10 +2173,10 @@ run_plan_gate() {
       requires_claude_mcp=1
       ;;
     "$LEAD_MODEL_PROFILE_CLAUDE_MAIN")
-      selected_main_runtime="claude-code-mcp"
+      selected_main_runtime="claude-native"
       selected_main_model="$UNPINNED_MODEL_VALUE"
       selected_main_reasoning_effort="$UNPINNED_REASONING_VALUE"
-      requires_claude_mcp=1
+      requires_codex_worker_mcp=1
       ;;
     *)
       die "Unsupported selected lead-model profile: $selected_profile"
@@ -2004,6 +2185,9 @@ run_plan_gate() {
 
   if [ "$requires_claude_mcp" -eq 1 ] && claude_mcp_available; then
     claude_available=1
+  fi
+  if [ "$requires_codex_worker_mcp" -eq 1 ] && codex_worker_mcp_available; then
+    codex_worker_available=1
   fi
 
   if [ "$requires_claude_mcp" -eq 1 ] && [ "$claude_available" -eq 0 ]; then
@@ -2021,7 +2205,7 @@ run_plan_gate() {
         next_action="fix_claude_mcp_or_choose_supported_mode"
         ;;
     esac
-    echo "PLAN_ROUTE_BLOCKED|route=$route|selected_profile=$selected_profile|selected_label=$selected_label|reason=$block_reason|remediation=$block_remediation|detail=$block_detail|fallback_offer=$fallback_offer|fallback_profile=$fallback_profile|fallback_label=$fallback_label|next_action=$next_action|discovery_can_start=0"
+    echo "PLAN_ROUTE_BLOCKED|route=$route|selected_profile=$selected_profile|selected_label=$selected_label|selection_source=$selection_source|reason=$block_reason|remediation=$block_remediation|detail=$block_detail|fallback_offer=$fallback_offer|fallback_profile=$fallback_profile|fallback_label=$fallback_label|next_action=$next_action|discovery_can_start=0"
     telemetry_record_event_nonblocking \
       "$(telemetry_new_event_id "plan-gate" "blocked")" \
       "${PM_WORKFLOW_RUN_ID:-plan-gate}" \
@@ -2051,11 +2235,50 @@ run_plan_gate() {
       "" \
       "" \
       "" \
-      "{\"route\":\"$route\",\"selected_profile\":\"$selected_profile\",\"fallback_offer\":$fallback_offer}"
+      "{\"route\":\"$route\",\"selected_profile\":\"$selected_profile\",\"selection_source\":\"$selection_source\",\"fallback_offer\":$fallback_offer}"
     return 1
   fi
 
-  echo "ROUTING_PROFILE|route=$route|profile=$selected_profile|main_runtime=$selected_main_runtime|main_model=$selected_main_model|main_reasoning_effort=$selected_main_reasoning_effort|fallback_active=0"
+  if [ "$requires_codex_worker_mcp" -eq 1 ] && [ "$codex_worker_available" -eq 0 ]; then
+    block_reason="${CODEX_WORKER_MCP_LAST_REASON:-codex_worker_mcp_unavailable}"
+    block_remediation="${CODEX_WORKER_MCP_LAST_REMEDIATION:-$CODEX_WORKER_MCP_REMEDIATION_MISSING}"
+    block_detail="${CODEX_WORKER_MCP_LAST_DETAIL:-Codex worker MCP unavailable. Discovery cannot start for this orchestration mode.}"
+    next_action="fix_codex_worker_mcp_or_choose_supported_mode"
+    echo "PLAN_ROUTE_BLOCKED|route=$route|selected_profile=$selected_profile|selected_label=$selected_label|selection_source=$selection_source|reason=$block_reason|remediation=$block_remediation|detail=$block_detail|fallback_offer=0|fallback_profile=|fallback_label=|next_action=$next_action|discovery_can_start=0"
+    telemetry_record_event_nonblocking \
+      "$(telemetry_new_event_id "plan-gate" "blocked")" \
+      "${PM_WORKFLOW_RUN_ID:-plan-gate}" \
+      "${PM_TASK_ID:-}" \
+      "plan.gate.blocked" \
+      "" \
+      "Plan Gate" \
+      "Plan Gate Blocked" \
+      "warning" \
+      "project_manager" \
+      "project_manager" \
+      "$selected_main_runtime" \
+      "codex" \
+      "$selected_main_model" \
+      "$gate_started_at" \
+      "" \
+      "" \
+      "" \
+      "" \
+      "" \
+      "$TELEMETRY_DEFAULT_USAGE_SOURCE" \
+      "missing_runtime" \
+      "warning" \
+      "$block_reason" \
+      "$block_detail" \
+      "$block_remediation" \
+      "" \
+      "" \
+      "" \
+      "{\"route\":\"$route\",\"selected_profile\":\"$selected_profile\",\"selection_source\":\"$selection_source\",\"fallback_offer\":0}"
+    return 1
+  fi
+
+  echo "ROUTING_PROFILE|route=$route|profile=$selected_profile|selection_source=$selection_source|main_runtime=$selected_main_runtime|main_model=$selected_main_model|main_reasoning_effort=$selected_main_reasoning_effort|fallback_active=0"
   emit_routing_matrix_for_profile "$selected_profile"
 
   gate_ended_at="$(now_utc)"
@@ -2090,8 +2313,8 @@ run_plan_gate() {
     "${PM_REQUEST_ID:-}" \
     "${PM_TRACE_ID:-}" \
     "${PM_SPAN_ID:-}" \
-    "{\"route\":\"$route\",\"fallback_active\":0}"
-  echo "PLAN_ROUTE_READY|route=$route|selected_profile=$selected_profile|selected_label=$selected_label|discovery_can_start=1"
+    "{\"route\":\"$route\",\"selection_source\":\"$selection_source\",\"fallback_active\":0}"
+  echo "PLAN_ROUTE_READY|route=$route|selected_profile=$selected_profile|selected_label=$selected_label|selection_source=$selection_source|discovery_can_start=1"
 }
 
 run_plan() {
@@ -2321,6 +2544,333 @@ run_claude_contract() {
       ;;
     *)
       die "Unknown claude-contract subcommand: $subcommand"
+      ;;
+  esac
+}
+
+claude_wrapper_generated_session_id() {
+  local role="$1"
+  local objective="$2"
+  local context_hash="$3"
+  local seed
+
+  seed="$(hash_string "${role}|${objective}|${context_hash}")"
+  printf 'claude-wrapper-%s' "${seed:0:12}"
+}
+
+claude_wrapper_detect_unsupported_launcher() {
+  local response_file="$1"
+  grep -Eim1 "$CLAUDE_WRAPPER_UNSUPPORTED_LAUNCHER_PATTERN" "$response_file" || true
+}
+
+write_internal_claude_wrapper_prompt() {
+  local template_path="$1"
+  local prompt_file="$2"
+  local objective="$3"
+  local role="$4"
+  local session_id="$5"
+  local context_file="$6"
+  local context_hash="$7"
+
+  mkdir -p "$(dirname "$prompt_file")"
+
+  {
+    printf 'use agent swarm for %s\n\n' "$(sanitize_single_line "$objective")"
+    cat "$template_path"
+    printf '\n[Role: %s]\n' "$role"
+    printf 'Wrapper session id: %s\n' "$session_id"
+    printf 'Wrapper runtime: %s\n' "$CLAUDE_WRAPPER_RUNTIME"
+    printf 'Context pack file: %s\n' "$(display_path "$context_file")"
+    printf 'Context hash: %s\n' "$context_hash"
+    printf '\nContext Pack JSON:\n'
+    jq . "$context_file"
+    printf '\n'
+  } >"$prompt_file"
+}
+
+run_claude_wrapper_prepare() {
+  local context_file=""
+  local prompt_file=""
+  local objective=""
+  local role="unspecified"
+  local session_id=""
+  local validate_out validate_rc context_hash template_path
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --context-file)
+        context_file="${2:-}"
+        shift 2
+        ;;
+      --prompt-file)
+        prompt_file="${2:-}"
+        shift 2
+        ;;
+      --objective)
+        objective="${2:-}"
+        shift 2
+        ;;
+      --role)
+        role="${2:-}"
+        shift 2
+        ;;
+      --session-id)
+        session_id="${2:-}"
+        shift 2
+        ;;
+      -h|--help)
+        usage
+        exit 0
+        ;;
+      *)
+        die "Unknown claude-wrapper prepare argument: $1"
+        ;;
+    esac
+  done
+
+  [ -n "$context_file" ] || die "--context-file is required for claude-wrapper prepare"
+  [ -n "$prompt_file" ] || die "--prompt-file is required for claude-wrapper prepare"
+  [ -n "$objective" ] || die "--objective is required for claude-wrapper prepare"
+
+  if validate_out="$(run_claude_contract_validate_context --context-file "$context_file" --role "$role")"; then
+    validate_rc=0
+  else
+    validate_rc=$?
+  fi
+  [ -n "$validate_out" ] && echo "$validate_out"
+  if [ "$validate_rc" -ne 0 ]; then
+    echo "CLAUDE_WRAPPER_RESULT|status=invalid_context|role=$role|session_id=${session_id:-<pending>}|runtime=$CLAUDE_WRAPPER_RUNTIME|context_file=$(display_path "$context_file")|next_action=fix_context_pack"
+    return "$validate_rc"
+  fi
+
+  context_hash="$(pipe_kv_get "$validate_out" "context_hash" || true)"
+  [ -n "$context_hash" ] || die "Unable to derive context hash from claude-contract validation output"
+
+  if [ -z "$session_id" ]; then
+    session_id="$(claude_wrapper_generated_session_id "$role" "$objective" "$context_hash")"
+  fi
+
+  template_path="$(internal_claude_wrapper_template_path)"
+  [ -f "$template_path" ] || die "Internal Claude wrapper template not found: $template_path"
+
+  write_internal_claude_wrapper_prompt "$template_path" "$prompt_file" "$objective" "$role" "$session_id" "$context_file" "$context_hash"
+  echo "CLAUDE_WRAPPER_READY|status=ready|role=$role|session_id=$session_id|runtime=$CLAUDE_WRAPPER_RUNTIME|context_file=$(display_path "$context_file")|context_hash=$context_hash|prompt_file=$(display_path "$prompt_file")|next_action=invoke_claude_mcp"
+}
+
+run_claude_wrapper_evaluate() {
+  local context_file=""
+  local response_file=""
+  local role="unspecified"
+  local session_id="<unknown>"
+  local prepare_out prepare_rc context_hash runtime_error evaluate_out evaluate_rc
+  local needed_fields questions response_hash
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --context-file)
+        context_file="${2:-}"
+        shift 2
+        ;;
+      --response-file)
+        response_file="${2:-}"
+        shift 2
+        ;;
+      --role)
+        role="${2:-}"
+        shift 2
+        ;;
+      --session-id)
+        session_id="${2:-}"
+        shift 2
+        ;;
+      -h|--help)
+        usage
+        exit 0
+        ;;
+      *)
+        die "Unknown claude-wrapper evaluate argument: $1"
+        ;;
+    esac
+  done
+
+  [ -n "$context_file" ] || die "--context-file is required for claude-wrapper evaluate"
+  [ -n "$response_file" ] || die "--response-file is required for claude-wrapper evaluate"
+  [ -f "$response_file" ] || die "Response file not found: $response_file"
+
+  if prepare_out="$(run_claude_contract_validate_context --context-file "$context_file" --role "$role")"; then
+    prepare_rc=0
+  else
+    prepare_rc=$?
+  fi
+  [ -n "$prepare_out" ] && echo "$prepare_out"
+  if [ "$prepare_rc" -ne 0 ]; then
+    echo "CLAUDE_WRAPPER_RESULT|status=invalid_context|role=$role|session_id=$session_id|runtime=$CLAUDE_WRAPPER_RUNTIME|context_file=$(display_path "$context_file")|next_action=fix_context_pack"
+    return "$prepare_rc"
+  fi
+
+  context_hash="$(pipe_kv_get "$prepare_out" "context_hash" || true)"
+  [ -n "$context_hash" ] || die "Unable to derive context hash from claude-contract validation output"
+
+  runtime_error="$(claude_wrapper_detect_unsupported_launcher "$response_file")"
+  if [ -n "$runtime_error" ]; then
+    runtime_error="$(sanitize_single_line "$runtime_error")"
+    echo "CLAUDE_WRAPPER_RESULT|status=runtime_error|error=unsupported_launcher|role=$role|session_id=$session_id|runtime=$CLAUDE_WRAPPER_RUNTIME|context_hash=$context_hash|response_file=$(display_path "$response_file")|detail=$runtime_error|next_action=return_to_parent"
+    return 6
+  fi
+
+  if evaluate_out="$(run_claude_contract_evaluate_response --response-file "$response_file" --session-id "$session_id" --role "$role")"; then
+    evaluate_rc=0
+  else
+    evaluate_rc=$?
+  fi
+  [ -n "$evaluate_out" ] && echo "$evaluate_out"
+
+  case "$evaluate_rc" in
+    0)
+      response_hash="$(hash_string "$(cat "$response_file")")"
+      echo "CLAUDE_WRAPPER_RESULT|status=complete|role=$role|session_id=$session_id|runtime=$CLAUDE_WRAPPER_RUNTIME|context_hash=$context_hash|response_file=$(display_path "$response_file")|response_hash=$response_hash|next_action=return_to_parent"
+      ;;
+    3)
+      needed_fields="$(pipe_kv_get "$evaluate_out" "needed_fields" || true)"
+      questions="$(pipe_kv_get "$evaluate_out" "questions" || true)"
+      echo "CLAUDE_WRAPPER_RESULT|status=context_needed|role=$role|session_id=$session_id|runtime=$CLAUDE_WRAPPER_RUNTIME|context_hash=$context_hash|needed_fields=$(sanitize_single_line "${needed_fields:-<unspecified>}")|questions=$(sanitize_single_line "${questions:-<unspecified>}")|next_action=continue_session"
+      ;;
+    *)
+      return "$evaluate_rc"
+      ;;
+  esac
+
+  return "$evaluate_rc"
+}
+
+run_claude_wrapper_run() {
+  local context_file=""
+  local prompt_file=""
+  local objective=""
+  local role="unspecified"
+  local session_id=""
+  local max_rounds=6
+  local prepare_out prepare_rc evaluate_out evaluate_rc
+  local ready_line=""
+  local round=0 response_file
+  local -a response_files=()
+  local -a prepare_args=()
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --context-file)
+        context_file="${2:-}"
+        shift 2
+        ;;
+      --prompt-file)
+        prompt_file="${2:-}"
+        shift 2
+        ;;
+      --objective)
+        objective="${2:-}"
+        shift 2
+        ;;
+      --response-file)
+        response_files+=("${2:-}")
+        shift 2
+        ;;
+      --role)
+        role="${2:-}"
+        shift 2
+        ;;
+      --session-id)
+        session_id="${2:-}"
+        shift 2
+        ;;
+      --max-rounds)
+        max_rounds="${2:-}"
+        shift 2
+        ;;
+      -h|--help)
+        usage
+        exit 0
+        ;;
+      *)
+        die "Unknown claude-wrapper run argument: $1"
+        ;;
+    esac
+  done
+
+  [[ "$max_rounds" =~ ^[0-9]+$ ]] || die "--max-rounds must be a positive integer"
+  [ "$max_rounds" -ge 1 ] || die "--max-rounds must be >= 1"
+
+  prepare_args=(--context-file "$context_file" --prompt-file "$prompt_file" --objective "$objective" --role "$role")
+  if [ -n "$session_id" ]; then
+    prepare_args+=(--session-id "$session_id")
+  fi
+
+  if prepare_out="$(run_claude_wrapper_prepare "${prepare_args[@]}")"; then
+    prepare_rc=0
+  else
+    prepare_rc=$?
+  fi
+  [ -n "$prepare_out" ] && echo "$prepare_out"
+  [ "$prepare_rc" -eq 0 ] || return "$prepare_rc"
+
+  ready_line="$(awk 'index($0, "CLAUDE_WRAPPER_READY|") == 1 { print; exit }' <<<"$prepare_out" || true)"
+  session_id="$(pipe_kv_get "$ready_line" "session_id" || true)"
+  [ -n "$session_id" ] || die "Unable to derive session_id from claude-wrapper prepare output"
+
+  if [ "${#response_files[@]}" -eq 0 ]; then
+    return 0
+  fi
+
+  for response_file in "${response_files[@]}"; do
+    round=$((round + 1))
+    if [ "$round" -gt "$max_rounds" ]; then
+      echo "CLAUDE_WRAPPER_RESULT|status=max_rounds_exceeded|role=$role|session_id=$session_id|runtime=$CLAUDE_WRAPPER_RUNTIME|max_rounds=$max_rounds|responses_seen=$((round - 1))|next_action=return_to_parent"
+      return 5
+    fi
+
+    if evaluate_out="$(run_claude_wrapper_evaluate --context-file "$context_file" --response-file "$response_file" --role "$role" --session-id "$session_id")"; then
+      evaluate_rc=0
+    else
+      evaluate_rc=$?
+    fi
+    [ -n "$evaluate_out" ] && echo "$evaluate_out"
+
+    case "$evaluate_rc" in
+      0|6)
+        return "$evaluate_rc"
+        ;;
+      3)
+        if [ "$round" -lt "${#response_files[@]}" ]; then
+          echo "CLAUDE_WRAPPER_RESULT|status=context_requested|role=$role|session_id=$session_id|runtime=$CLAUDE_WRAPPER_RUNTIME|round=$round|next_action=continue_session"
+          continue
+        fi
+        return 3
+        ;;
+      *)
+        return "$evaluate_rc"
+        ;;
+    esac
+  done
+
+  echo "CLAUDE_WRAPPER_RESULT|status=incomplete|role=$role|session_id=$session_id|runtime=$CLAUDE_WRAPPER_RUNTIME|responses_seen=$round|next_action=provide_more_responses"
+  return 4
+}
+
+run_claude_wrapper() {
+  local subcommand="${1:-}"
+  shift || true
+
+  case "$subcommand" in
+    prepare)
+      run_claude_wrapper_prepare "$@"
+      ;;
+    evaluate)
+      run_claude_wrapper_evaluate "$@"
+      ;;
+    run)
+      run_claude_wrapper_run "$@"
+      ;;
+    *)
+      die "Unknown claude-wrapper subcommand: $subcommand"
       ;;
   esac
 }
@@ -3106,6 +3656,9 @@ main() {
       ;;
     claude-contract)
       run_claude_contract "$@"
+      ;;
+    claude-wrapper)
+      run_claude_wrapper "$@"
       ;;
     telemetry)
       run_telemetry "$@"

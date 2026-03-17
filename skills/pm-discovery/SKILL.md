@@ -16,7 +16,12 @@ description: Strict PM Discovery Mode. Trigger on $pm-discovery for questions-on
 ## Phase Entry Gate (mandatory)
 - Discovery may start only if the preceding `plan gate` returned `PLAN_ROUTE_READY` and `discovery_can_start=1`.
 - If the active orchestration mode is `codex-main` and the gate blocks on Claude availability, do not proceed in degraded mode. Return control to PM and ask whether to switch to `Full Codex Orchestration`.
-- If the active orchestration mode is `claude-main` and the gate blocks on Claude availability, stop and ask PM/user to fix Claude MCP or choose a supported mode.
+- If the active orchestration mode is `claude-main` and the gate blocks on `codex-worker` availability, stop and ask PM/user to fix the secondary Codex runtime or choose a supported mode.
+
+## PM Helper Path Resolution
+- source repo or submodule checkout: `./skills/pm/scripts/pm-command.sh`
+- installed target repo from Codex: `./.codex/skills/pm/scripts/pm-command.sh`
+- installed target repo from Claude: `./.claude/skills/pm/scripts/pm-command.sh`
 
 ## Subagent Launcher Compatibility (mandatory)
 - Spawn only supported generic agent types: `default`, `explorer`, `worker`.
@@ -45,15 +50,15 @@ description: Strict PM Discovery Mode. Trigger on $pm-discovery for questions-on
 - For Claude MCP agents, prompt must start with:
   - `use agent swarm for <objective>`
 - Before each external-Claude call, validate a context-pack JSON with:
-  - `./.codex/skills/pm/scripts/pm-command.sh claude-contract validate-context --context-file <json> --role <role>`
+  - `<pm-helper> claude-contract validate-context --context-file <json> --role <role>`
 - Required context-pack fields:
   - `feature_objective, prd_context, task_id, acceptance_criteria, implementation_status, changed_files, constraints, evidence, clarifying_instruction`
 - Claude missing-context handshake marker must be:
   - `CONTEXT_REQUEST|needed_fields=<csv>|questions=<numbered items>`
 - After each Claude response, parse handshake status with:
-  - `./.codex/skills/pm/scripts/pm-command.sh claude-contract evaluate-response --response-file <txt> --session-id <id> --role <role>`
+  - `<pm-helper> claude-contract evaluate-response --response-file <txt> --session-id <id> --role <role>`
 - Optional wrapper for multi-step sessions:
-  - `./.codex/skills/pm/scripts/pm-command.sh claude-contract run-loop --context-file <json> --response-file <txt> [--response-file <txt> ...] --session-id <id> --role <role>`
+  - `<pm-helper> claude-contract run-loop --context-file <json> --response-file <txt> [--response-file <txt> ...] --session-id <id> --role <role>`
 - If parser/wrapper returns `status=context_needed` or `status=awaiting_context`, Discovery must gather requested info and continue in the same Claude session.
 
 ## Paired Support Agents (recommended)
@@ -68,7 +73,10 @@ Only ask the user questions that remain unresolved after those checks.
 ## Smoke Test Planner (mandatory)
 - Load prompt from `references/smoke-test-planner.md`.
 - Launcher type: spawn as generic `default` with role-labeled prompt context (`[Role: Smoke Test Planner Agent]`).
-- Invoke via `claude-code` MCP using the Claude MCP Contract.
+- Runner: use active profile routing from `model-routing.yaml`:
+  - `full-codex`: run codex-native as configured.
+  - `codex-main`: invoke via `claude-code` MCP using the Claude MCP Contract.
+  - `claude-main`: invoke via `codex-worker` MCP in the Claude runtime.
 - Prompt must start with:
   - `use agent swarm for smoke test planning: <feature objective + constraints>`
 - Do not treat `claude-code` as a subagent launcher type.
@@ -87,7 +95,10 @@ Only ask the user questions that remain unresolved after those checks.
 ## Alternative PM (mandatory every discovery step)
 - Load prompt from `references/alternative-pm.md`.
 - Launcher type: spawn as generic `default` with role-labeled prompt context (`[Role: Alternative PM Agent]`).
-- Invoke via `claude-code` MCP using the Claude MCP Contract.
+- Runner: use active profile routing from `model-routing.yaml`:
+  - `full-codex`: run codex-native as configured.
+  - `codex-main`: invoke via `claude-code` MCP using the Claude MCP Contract.
+  - `claude-main`: invoke via `codex-worker` MCP in the Claude runtime.
 - Do not treat `claude-code` as a subagent launcher type.
 - Prompt must start with:
   - `use agent swarm for <problem statement and constraints>`

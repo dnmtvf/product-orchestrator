@@ -2,17 +2,15 @@
 
 Use this mode when you want to copy the current orchestrator version directly into a target repo.
 
-## Global Skill Convention
+## Managed Runtime Layout
 
-The PM orchestrator skills are installed globally at `~/.claude/skills/` and **must always point to the `main` branch** for stable production use.
+The injector copies repo-local runtime assets into the target repo. It does not rely on global skill folders or symlinks.
 
-The stable reference workspace is:
-- `/Users/d/conductor/workspaces/product-orchestrator/main` (tracks `main` branch)
+The managed runtime roots are:
+- `.codex/skills/`
+- `.claude/skills/`
 
-**Only point symlinks to a worktree or other branch when explicitly asked for testing/unstable versions.**
-After development/testing, always point back to `main`.
-
-## Behavior with existing `.claude`
+## Behavior with existing runtime folders
 The injector is safe for repos that already contain these folders:
 - It only manages these skill folders:
   - `pm`
@@ -21,7 +19,7 @@ The injector is safe for repos that already contain these folders:
   - `pm-beads-plan`
   - `pm-implement`
   - `agent-browser`
-- Other skills/files in `.claude/skills` are left untouched.
+- Other skills/files in `.codex/skills` and `.claude/skills` are left untouched.
 - If a managed folder already exists, it is moved to a timestamped backup and replaced (default mode).
 
 ## Prerequisites
@@ -65,8 +63,11 @@ To avoid replacing existing managed paths:
 ```
 
 ## What gets copied
+- `.codex/skills/{pm,pm-discovery,pm-create-prd,pm-beads-plan,pm-implement,agent-browser}`
 - `.claude/skills/{pm,pm-discovery,pm-create-prd,pm-beads-plan,pm-implement,agent-browser}`
-- PM helper script is included under `.claude/skills/pm/scripts/pm-command.sh`
+- PM helper script is included under both `.codex/skills/pm/scripts/pm-command.sh` and `.claude/skills/pm/scripts/pm-command.sh`
+- `instructions/pm_workflow.md`
+- `.config/opencode/instructions/pm_workflow.md`
 - `.orchestrator-injected.json` (metadata: source path, commit, timestamp)
 
 ## Backups and rollback
@@ -76,7 +77,7 @@ Backups are written to:
 Rollback:
 1. Move backed-up folders/files back to original paths.
 2. Remove copied managed folders if needed.
-3. Restart Claude session.
+3. Restart the matching Codex or Claude session.
 
 ## Update model
 This mode is copy-based. After orchestrator changes, run injector again to refresh target repo.

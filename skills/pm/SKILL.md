@@ -35,16 +35,20 @@ description: Strict PM orchestration workflow for any repo. Trigger when user in
 - Once started, downstream PM phases are auto-invoked by the orchestrator; user should not need to type intermediate PM commands.
 
 ## Command Routing (mandatory)
+- PM helper path resolution:
+  - source repo or submodule checkout: `./skills/pm/scripts/pm-command.sh`
+  - installed target repo from Codex: `./.codex/skills/pm/scripts/pm-command.sh`
+  - installed target repo from Claude: `./.claude/skills/pm/scripts/pm-command.sh`
 - Default planning route:
   - Trigger: `/pm plan: ...` or `$pm plan: ...`
   - Behavior: single-PRD planning workflow (existing default).
   - Required pre-Discovery gate command:
-    - `./.codex/skills/pm/scripts/pm-command.sh plan gate --route default [--lead-model full-codex|codex-main|claude-main]`
+    - `<pm-helper> plan gate --route default [--lead-model full-codex|codex-main|claude-main]`
 - Big-feature planning route:
   - Trigger: `/pm plan big feature: ...` or `$pm plan big feature: ...`
   - Behavior: big-feature planning workflow with multi-PRD decomposition.
   - Required pre-Discovery gate command:
-    - `./.codex/skills/pm/scripts/pm-command.sh plan gate --route big-feature [--lead-model full-codex|codex-main|claude-main]`
+    - `<pm-helper> plan gate --route big-feature [--lead-model full-codex|codex-main|claude-main]`
 - Lead-model gate (applies to both plan routes before Discovery):
   - Ask lead model with exactly three options:
     - `Full Codex Orchestration`
@@ -52,6 +56,8 @@ description: Strict PM orchestration workflow for any repo. Trigger when user in
     - `Claude as Main Orchestrator`
   - Codex-native orchestrator roles are pinned to `gpt-5.4` with `xhigh` reasoning effort.
   - Persist selected profile across sessions until explicitly changed.
+  - Selection precedence is explicit `--lead-model` override, then Conductor runtime auto-detection, then persisted lead-model state.
+  - In Conductor workspaces, Codex sessions auto-select `codex-main` and Claude sessions auto-select `claude-main`.
   - Re-echo active profile at workflow start on every invocation.
   - Main roles must follow selected profile runtime/model:
     - `project_manager`
@@ -60,30 +66,36 @@ description: Strict PM orchestration workflow for any repo. Trigger when user in
     - `pm_implement_handoff`
   - `Full Codex Orchestration` must remain usable without Claude MCP.
   - `Codex as Main Agent` must check Claude MCP availability immediately after selection and, if unavailable, block with an explicit fallback offer to `Full Codex Orchestration`.
-  - `Claude as Main Orchestrator` must check Claude MCP availability immediately after selection and block before Discovery if Claude is unavailable.
+  - `Claude as Main Orchestrator` must keep Claude-native main roles as the outer runtime and check `codex-worker` availability immediately after selection for Codex-routed roles.
   - The helper gate output is authoritative. If it returns `PLAN_ROUTE_BLOCKED` or `discovery_can_start=0`, do not invoke Discovery or any downstream phase.
   - For a blocked `Codex as Main Agent` route, the only allowed continuation is to ask whether to switch to `Full Codex Orchestration`.
   - Do not describe a blocked route as degraded mode.
   - Claude availability requires both:
     - healthy `claude-code` registration in `codex mcp list`
     - an executable configured command in the actual PM runtime
+  - `codex-worker` availability for `claude-main` requires both:
+    - healthy `codex-worker` registration in `claude mcp list`
+    - an executable `codex` command in the actual Claude runtime
   - PM must treat `[shell_environment_policy.set].PATH`, `[mcp_servers.claude-code.env].PATH`, or an absolute command path as valid ways to satisfy the executable-command requirement.
+  - PM must treat the Claude runtime `PATH` (including wrappers or absolute command paths) as valid for the `codex-worker` `codex` executability requirement.
   - If the server is actually missing, remediation is:
     - `codex mcp add claude-code -- claude mcp serve`
+  - If `codex-worker` is actually missing for `claude-main`, remediation is:
+    - `claude mcp add codex-worker -- codex mcp-server`
 - Help route:
   - Trigger: `/pm help` or `$pm help`
   - Behavior: print basic workflow invocations, required phase sequence, and exact approval gate token.
 - Lead-model route:
   - Trigger: `/pm lead-model show|set|reset` or `$pm lead-model show|set|reset`
   - Behavior:
-    - `./.codex/skills/pm/scripts/pm-command.sh lead-model show`
-    - `./.codex/skills/pm/scripts/pm-command.sh lead-model set --profile full-codex|codex-main|claude-main`
-    - `./.codex/skills/pm/scripts/pm-command.sh lead-model reset`
+    - `<pm-helper> lead-model show`
+    - `<pm-helper> lead-model set --profile full-codex|codex-main|claude-main`
+    - `<pm-helper> lead-model reset`
 - Self-update route (manual only):
   - Trigger: `/pm self-update` or `$pm self-update`
   - Behavior:
     1. Run Codex self-update check helper:
-       - `./.codex/skills/pm/scripts/pm-command.sh self-update check`
+       - `<pm-helper> self-update check`
     2. Interpret check results with these rules:
        - changelog website is source of truth
        - release/npm signals are corroborative only
@@ -96,7 +108,7 @@ description: Strict PM orchestration workflow for any repo. Trigger when user in
     3. If update is available, immediately trigger default planning route:
        - `/pm plan: Inspect latest Codex changes and align orchestrator behavior with lead-model profile runtime policy.`
     4. After full PM flow completion gate, advance processed version with:
-       - `./.codex/skills/pm/scripts/pm-command.sh self-update complete --approval approved --prd-approval approved --beads-approval approved --prd-path docs/prd/<approved-prd>.md`
+       - `<pm-helper> self-update complete --approval approved --prd-approval approved --beads-approval approved --prd-path docs/prd/<approved-prd>.md`
        - completion requires PRD evidence covering all pending batch versions and empty `Open Questions`
   - Do not run in background/scheduled mode.
 - Backward-compatibility rule:
@@ -173,23 +185,24 @@ description: Strict PM orchestration workflow for any repo. Trigger when user in
 - Do not auto-fallback to `codex-native` inside `codex-main` or `claude-main`. Surface a critical phase block and return control to PM.
 - Recovery split:
   - `codex-main` -> ask whether to switch to `Full Codex Orchestration`
-  - `claude-main` -> fix Claude MCP or choose a supported mode
+  - `claude-main` -> fix `codex-worker` / `codex` executability in the Claude runtime or choose a supported mode
   - `full-codex` -> Claude should not be required
 - Remediation split:
   - server missing/not configured -> `codex mcp add claude-code -- claude mcp serve`
+  - `codex-worker` missing/not configured for `claude-main` -> `claude mcp add codex-worker -- codex mcp-server`
   - server enabled but launcher unusable -> report the launcher limitation, block the current phase, and do not loop on reinstall instructions
 - For Claude MCP agents, prompt must start with:
   - `use agent swarm for <objective>`
 - Before each external-Claude call, validate a context-pack JSON with:
-  - `./.codex/skills/pm/scripts/pm-command.sh claude-contract validate-context --context-file <json> --role <role>`
+  - `<pm-helper> claude-contract validate-context --context-file <json> --role <role>`
 - Required context-pack fields:
   - `feature_objective, prd_context, task_id, acceptance_criteria, implementation_status, changed_files, constraints, evidence, clarifying_instruction`
 - Claude missing-context handshake marker must be:
   - `CONTEXT_REQUEST|needed_fields=<csv>|questions=<numbered items>`
 - After each Claude response, parse handshake status with:
-  - `./.codex/skills/pm/scripts/pm-command.sh claude-contract evaluate-response --response-file <txt> --session-id <id> --role <role>`
+  - `<pm-helper> claude-contract evaluate-response --response-file <txt> --session-id <id> --role <role>`
 - Optional wrapper for multi-step sessions:
-  - `./.codex/skills/pm/scripts/pm-command.sh claude-contract run-loop --context-file <json> --response-file <txt> [--response-file <txt> ...] --session-id <id> --role <role>`
+  - `<pm-helper> claude-contract run-loop --context-file <json> --response-file <txt> [--response-file <txt> ...] --session-id <id> --role <role>`
 - If parser/wrapper returns `status=context_needed` or `status=awaiting_context`, PM must collect requested info from orchestrator/user and continue in the same Claude session.
 
 ## Paired Support Agents (mandatory)
@@ -219,7 +232,7 @@ During Discovery, run an additional agent:
    - Runner: use active profile routing from `model-routing.yaml`:
      - `full-codex`: run codex-native as configured.
      - `codex-main`: invoke via `claude-code` MCP using the Claude MCP Contract.
-     - `claude-main`: run codex-native as configured.
+     - `claude-main`: invoke via `codex-worker` MCP in the Claude runtime.
    - Mandatory key phrase: start prompt with `use agent swarm for smoke test planning: <feature objective + constraints>`.
    - Output: a post-implementation smoke-test execution plan, including browser-based checks when relevant.
 
@@ -232,7 +245,10 @@ During Discovery, run an additional agent for non-obvious or research-heavy ques
    - Load prompt from `references/researcher.md`.
    - Purpose: answer complex questions that do not have a straight answer and require deeper investigation/synthesis.
    - Launcher type: spawn as generic `default` with role-labeled prompt context (`[Role: Researcher Agent]`).
-   - Runner: invoke via `claude-code` MCP tool call; continue in same MCP conversation/session for follow-ups.
+   - Runner: use active profile routing from `model-routing.yaml`:
+     - `full-codex`: run codex-native as configured.
+     - `codex-main`: invoke via `claude-code` MCP using the Claude MCP Contract.
+     - `claude-main`: keep the role Claude-native in the outer runtime.
    - Advanced mode: invoke with exact prefix `use agent swarm for <research objective>`.
    - Output: researched findings, tradeoffs, risks, and recommendation with evidence.
 
@@ -246,7 +262,7 @@ During Discovery, run an additional second-PM agent to challenge solution framin
    - Runner: use active profile routing from `model-routing.yaml`:
      - `full-codex`: run codex-native as configured.
      - `codex-main`: invoke via `claude-code` MCP using the Claude MCP Contract.
-     - `claude-main`: run codex-native as configured.
+     - `claude-main`: invoke via `codex-worker` MCP in the Claude runtime.
    - Mandatory key phrase: start prompt with `use agent swarm for <problem statement and constraints>`.
    - Output: alternatives matrix with options, tradeoffs, risks, assumptions, and recommendation.
 
@@ -279,10 +295,10 @@ At each phase transition and whenever ambiguity appears:
 6. Ask user only unresolved product decisions.
 
 Discovery extension:
-1. Spawn Smoke Test Planner (`default`) in parallel with Senior Engineer and Librarian, then invoke via `claude-code` MCP with prefix `use agent swarm for ...`.
+1. Spawn Smoke Test Planner (`default`) in parallel with Senior Engineer and Librarian, then route it using the active profile from `model-routing.yaml`.
 2. Spawn Researcher (`default`) for complex/no-straight-answer discovery questions.
 3. For deep investigations, use Researcher advanced mode with `use agent swarm for ...`.
-4. Spawn Alternative PM (`default`) on every discovery step using Claude MCP Contract + `use agent swarm for ...`.
+4. Spawn Alternative PM (`default`) on every discovery step using the active profile routing + `use agent swarm for ...`.
 5. Merge smoke-test proposals, research findings, and alternatives analysis into Discovery Summary and PRD test plan.
 
 ## Phase Rules
@@ -371,7 +387,7 @@ Immediately after implementation completion, run all three reviewers:
    - Runner: use active profile routing from `model-routing.yaml`:
      - `full-codex`: run codex-native as configured.
      - `codex-main`: invoke via `claude-code` MCP using the Claude MCP Contract.
-     - `claude-main`: run codex-native as configured.
+     - `claude-main`: invoke via `codex-worker` MCP in the Claude runtime.
    - Mandatory key phrase: start prompt with `use agent swarm for jazz review: <scope + changed files + constraints>`.
    - Output: strict critique with concrete defects, edge cases, and ambiguity callouts.
 

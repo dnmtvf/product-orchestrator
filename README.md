@@ -12,6 +12,7 @@ It installs PM skills plus a workflow policy file into target repositories so fe
 The workflow source of truth in this repo is:
 
 - `instructions/pm_workflow.md`
+- copied into target repos as both `instructions/pm_workflow.md` and `.config/opencode/instructions/pm_workflow.md`
 
 ## What this repository contains
 
@@ -94,12 +95,23 @@ git -C /path/to/target-repo submodule update --init --recursive .orchestrator
 ## What gets installed into the target repo
 
 - `.codex/skills/{pm,pm-discovery,pm-create-prd,pm-beads-plan,pm-implement,agent-browser}`
+- `.claude/skills/{pm,pm-discovery,pm-create-prd,pm-beads-plan,pm-implement,agent-browser}`
+- `instructions/pm_workflow.md`
 - `.config/opencode/instructions/pm_workflow.md`
+- helper copies at `.codex/skills/pm/scripts/pm-command.sh` and `.claude/skills/pm/scripts/pm-command.sh`
 - Backup snapshots under `.orchestrator-backups/<timestamp>/`
 
 Injection mode also writes:
 
 - `.orchestrator-injected.json`
+
+## Helper path contract
+
+Use the PM helper path that matches where you are running:
+
+- Source repo or submodule checkout: `./skills/pm/scripts/pm-command.sh`
+- Installed target repo from Codex: `./.codex/skills/pm/scripts/pm-command.sh`
+- Installed target repo from Claude: `./.claude/skills/pm/scripts/pm-command.sh`
 
 ## How to use the orchestrator
 
@@ -152,14 +164,14 @@ Big-feature mode selector:
 
 Manual self-update mode:
 - Check latest Codex changes and stage pending version:
-  - `./.codex/skills/pm/scripts/pm-command.sh self-update check`
+  - `./skills/pm/scripts/pm-command.sh self-update check`
 - Check output also includes:
   - pipeline relevance filtering (`RELEVANCE_SUMMARY`, `RELEVANT_CHANGES_JSON`, `IGNORED_CHANGES_JSON`)
   - integration proposals for relevant items (`INTEGRATION_PLAN_JSON`)
 - The command outputs a required planning trigger in this format:
   - `/pm plan: Inspect latest Codex changes and align orchestrator behavior with lead-model profile runtime policy.`
 - After full PM completion gate succeeds, finalize processed version checkpoint:
-  - `./.codex/skills/pm/scripts/pm-command.sh self-update complete --approval approved --prd-approval approved --beads-approval approved --prd-path docs/prd/<approved-prd>.md`
+  - `./skills/pm/scripts/pm-command.sh self-update complete --approval approved --prd-approval approved --beads-approval approved --prd-path docs/prd/<approved-prd>.md`
 
 ## Fixed phase order
 
@@ -170,17 +182,23 @@ Manual self-update mode:
 Execution is tracked in Beads (`bd`) and `.beads/` should stay committed in Git.
 For big-feature queue mode, persist queue state in `docs/prd/_queue/<feature-slug>.json` using the contract in `docs/QUEUE_WORKFLOW.md`.
 Runtime policy is lead-model profile driven with `codex-main` default, plus optional `full-codex` and `claude-main`.
+The public orchestration contract uses only generic subagent types (`default`, `explorer`, `worker`).
+Claude remains an external MCP runtime rather than a public launcher type, and any Codex-side Claude wrapper is internal-only if implemented.
 Codex-native orchestrator roles are pinned to `gpt-5.4` with `xhigh` reasoning effort.
+Selection precedence is explicit `--lead-model` override, then Conductor runtime auto-detection, then persisted lead-model state.
+In Conductor workspaces, Codex sessions auto-select `codex-main` and Claude sessions auto-select `claude-main`.
 `Full Codex Orchestration` requires no Claude runtime.
 `Codex as Main Agent` checks Claude MCP availability immediately after selection and, on failure, blocks with an offer to fall back to `Full Codex Orchestration`.
-`Claude as Main Orchestrator` checks Claude MCP availability immediately after selection and blocks before Discovery if Claude is unavailable.
+`Claude as Main Orchestrator` keeps Claude-native roles as the outer runtime and checks `codex-worker` availability immediately after selection for Codex-routed roles.
 Claude availability requires both a healthy `codex mcp list` entry and an executable configured command in the PM runtime. That executability can come from an absolute `command`, from `[shell_environment_policy.set].PATH`, or from `[mcp_servers.claude-code.env].PATH`.
+`codex-worker` availability for `claude-main` requires both a healthy `claude mcp list` entry and an executable `codex` command in the Claude runtime.
 Use `codex mcp add claude-code -- claude mcp serve` when the server is actually missing. If the server is enabled but the launcher is unusable, report that limitation, block the Claude-dependent mode or phase, and do not continue in degraded fallback.
+Use `claude mcp add codex-worker -- codex mcp-server` when `claude-main` is selected and the secondary Codex runtime is actually missing. If `codex-worker` is enabled but `codex` is not executable in the Claude runtime, block before Discovery and fix that runtime instead of continuing.
 Telemetry helpers are available in PM command helper:
-- `./.codex/skills/pm/scripts/pm-command.sh telemetry init-db --dsn <postgres-dsn>`
-- `./.codex/skills/pm/scripts/pm-command.sh telemetry log-step --workflow-run-id <id> --step-id <id> ...`
-- `./.codex/skills/pm/scripts/pm-command.sh telemetry query-task --task-id <id> --dsn <postgres-dsn>`
-- `./.codex/skills/pm/scripts/pm-command.sh telemetry query-run --workflow-run-id <id> --dsn <postgres-dsn>`
+- `./skills/pm/scripts/pm-command.sh telemetry init-db --dsn <postgres-dsn>`
+- `./skills/pm/scripts/pm-command.sh telemetry log-step --workflow-run-id <id> --step-id <id> ...`
+- `./skills/pm/scripts/pm-command.sh telemetry query-task --task-id <id> --dsn <postgres-dsn>`
+- `./skills/pm/scripts/pm-command.sh telemetry query-run --workflow-run-id <id> --dsn <postgres-dsn>`
 Smoke evidence for dual planning modes is tracked in `docs/smoke/2026-02-26-big-feature-planning-modes.md`.
 Common commands:
 
@@ -193,8 +211,8 @@ bd graph <epic-id> --compact
 ## Troubleshooting
 
 - `/pm` does not invoke:
-  - confirm skill folders exist under `.codex/skills`
-  - restart Codex session so skill indexes reload
+  - confirm skill folders exist under `.codex/skills` for Codex sessions or `.claude/skills` for Claude sessions
+  - restart the matching runtime session so skill indexes reload
 - Workflow blocks on missing tooling:
   - run `codex mcp list` and confirm required MCP servers are enabled
 - Beads planning issues in worktrees:

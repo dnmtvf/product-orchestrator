@@ -2,12 +2,17 @@
 
 ## Overview
 
-This is the **PM Orchestrator** — a strict project management skill set for Claude Code. It provides a complete Discovery → PRD → Beads Planning → Implementation → Review → QA workflow with mandatory approval gates and paired support agents.
+This is the **PM Orchestrator** source repo. It provides a strict Discovery -> PRD -> Beads Planning -> Implementation -> Review -> QA workflow with mandatory approval gates and paired support agents.
 
 ## Architecture
 
-- **Claude-code roles** (via Claude Code native Task tool, model not pinned): PM, Team Lead, Librarian, Researcher, Backend/Frontend/Security Engineers, AGENTS Compliance Reviewer, Codex Reviewer, Manual QA, Task Verification
-- **Codex-native roles** (gpt-5.3-codex xhigh via `codex-worker` MCP): Senior Engineer, Smoke Test Planner, Alternative PM, Jazz Reviewer
+- **Public subagent contract**: only generic launcher types are supported: `default`, `explorer`, and `worker`
+- **Runtime policy**:
+  - `full-codex`: all roles stay Codex-native
+  - `codex-main`: main roles stay Codex-native and Claude-routed roles use `claude-code` MCP
+  - `claude-main`: main roles stay Claude-native and Codex-routed roles use `codex-worker` MCP
+- **Claude integration**: Claude is an external MCP runtime, not a public launcher type
+- **Wrapper boundary**: if a Codex-side Claude wrapper exists, it is internal-only and must not become the public PM contract
 - **Execution tracking**: Beads CLI (`bd`) with `.beads/` committed to git
 - **Workflow spec**: `instructions/pm_workflow.md` is the source of truth
 
@@ -39,8 +44,9 @@ Only these skills are available:
 - Two hard approval gates require the exact reply `approved`: PRD approval and Beads approval
 - PRD `Open Questions` must be empty before execution starts
 - Beads (`bd`) is the execution source of truth
-- Claude Code Task tool `subagent_type` values: `default`, `Explore`, `Plan`
-- Worker subagents are spawned via Claude Code Task tool with structured context blocks
+- Spawn only generic launcher types: `default`, `explorer`, `worker`
+- Encode the functional role in prompt payloads instead of relying on named agents or runtime-specific launcher APIs
+- Do not depend on `mcp__claude-code__Agent` or implicit `general-purpose` launching for PM orchestration
 
 ## Git Policy
 

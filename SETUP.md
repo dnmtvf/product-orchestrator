@@ -10,18 +10,21 @@ This repository is the source of truth for PM orchestration skills and workflow 
 - `skills/pm-implement`
 - `skills/agent-browser`
 - `instructions/pm_workflow.md`
-- `skills/pm/scripts/pm-command.sh` (manual self-update + deterministic `$pm help` output helper)
+- `skills/pm/scripts/pm-command.sh` (source-repo helper; installed copies land under `.codex/skills/pm/scripts/pm-command.sh` and `.claude/skills/pm/scripts/pm-command.sh`)
 
-## Why symlinks are required
-The runtime `Skill` loader resolves skills from runtime skill directories (for this machine: `~/.claude/skills`).
+## Runtime layout
+The installer and injector manage dual runtime copies in target repos:
 
-Referencing a path from `AGENTS.md` is not enough to make `/skill` invocable. The skill must be discoverable from runtime skill directories.
+- `.codex/skills/...` for Codex sessions
+- `.claude/skills/...` for Claude sessions
+
+Referencing a path from `AGENTS.md` is not enough to make `/skill` invocable. The skill must be discoverable from the runtime skill directory used by the active session.
 
 ## Prerequisites
 - MCP requirements: `docs/MCP_PREREQUISITES.md`
 
 ## Codex Worker Setup
-The PM workflow runs Claude Code for most roles and Codex CLI (gpt-5.3-codex xhigh) for specialized analysis/review tasks.
+The PM workflow uses `codex-worker` only for Codex-routed roles that run inside Claude sessions (`claude-main`) and for any explicit Claude-side Codex checks.
 
 1. Install Codex CLI: `npm install -g @openai/codex` or `brew install --cask codex`
 2. Authenticate: `codex login`
@@ -44,4 +47,4 @@ See `docs/MCP_PREREQUISITES.md` for the full role-to-model table.
 - Script: `scripts/install-workflow.sh`
 
 ## Runtime reload
-After any install/update, restart Claude session so skill indexes reload.
+After any install/update, restart the matching runtime session so skill indexes reload.

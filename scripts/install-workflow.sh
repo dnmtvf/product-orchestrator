@@ -7,7 +7,7 @@ usage() {
   cat <<'EOF'
 Install PM orchestrator workflow into a target repository using:
 - git submodule (source of truth)
-- copied Codex runtime skill folders (no symlinks)
+- copied Codex and Claude runtime skill folders (no symlinks)
 
 Usage:
   install-workflow.sh --repo <path> --orchestrator-url <git-url> [options]
@@ -70,7 +70,7 @@ while [ $# -gt 0 ]; do
       shift
       ;;
     --no-claude|--no-codex)
-      err "Legacy runtime flag '$1' is not supported. This installer is Codex-only."
+      err "Legacy runtime flag '$1' is not supported."
       shift
       ;;
     -h|--help)
@@ -130,10 +130,11 @@ TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 BACKUP_ROOT="$REPO_PATH/.orchestrator-backups/$TIMESTAMP"
 mkdir -p "$BACKUP_ROOT"
 
-install_claude_skills() {
-  local runtime_dir="$1"
+install_runtime_skills() {
+  local runtime_name="$1"
+  local runtime_dir="$2"
   mkdir -p "$runtime_dir"
-  local runtime_backup="$BACKUP_ROOT/claude"
+  local runtime_backup="$BACKUP_ROOT/$runtime_name"
   mkdir -p "$runtime_backup"
 
   for skill in "${SKILLS[@]}"; do
@@ -151,15 +152,23 @@ install_claude_skills() {
   done
 }
 
-install_claude_skills "$REPO_PATH/.claude/skills"
+install_runtime_skills "codex" "$REPO_PATH/.codex/skills"
+install_runtime_skills "claude" "$REPO_PATH/.claude/skills"
+
+install_workflow_file() {
+  local src="$1"
+  local dst="$2"
+
+  mkdir -p "$(dirname "$dst")"
+  cp "$src" "$dst"
+  log "Installed workflow file -> $dst"
+}
 
 WORKFLOW_SRC="$REPO_PATH/$SUBMODULE_PATH/instructions/pm_workflow.md"
-WORKFLOW_DST="$REPO_PATH/.config/opencode/instructions/pm_workflow.md"
 
 if [ -f "$WORKFLOW_SRC" ]; then
-  mkdir -p "$(dirname "$WORKFLOW_DST")"
-  cp "$WORKFLOW_SRC" "$WORKFLOW_DST"
-  log "Installed workflow file -> $WORKFLOW_DST"
+  install_workflow_file "$WORKFLOW_SRC" "$REPO_PATH/instructions/pm_workflow.md"
+  install_workflow_file "$WORKFLOW_SRC" "$REPO_PATH/.config/opencode/instructions/pm_workflow.md"
 else
   log "Warning: workflow source missing: $WORKFLOW_SRC"
 fi
@@ -170,4 +179,4 @@ echo "Backups saved under: $BACKUP_ROOT"
 echo "Next steps:"
 echo "  1) Review changes: git -C \"$REPO_PATH\" status"
 echo "  2) Commit submodule + Codex skill files + workflow file"
-echo "  3) Restart Codex session in that repo so skills are re-indexed"
+echo "  3) Restart Codex or Claude session in that repo so skills are re-indexed"

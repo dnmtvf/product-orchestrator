@@ -2,15 +2,13 @@
 
 This setup makes `product-orchestrator` the independently updatable source via git submodule, while installing runtime skills into the target repo as regular folders (copied, not symlinked).
 
-## Global Skill Convention
+## Managed Runtime Layout
 
-The PM orchestrator skills are installed globally at `~/.claude/skills/` and **must always point to the `main` branch** for stable production use.
+This install mode copies repo-local runtime assets into the target repo. It does not require global skill folders or symlinks.
 
-The stable reference workspace is:
-- `/Users/d/conductor/workspaces/product-orchestrator/main` (tracks `main` branch)
-
-**Only point symlinks to a worktree or other branch when explicitly asked for testing/unstable versions.**
-After development/testing, always point back to `main`.
+The managed runtime roots are:
+- `<repo>/.codex/skills/`
+- `<repo>/.claude/skills/`
 
 ## Prerequisites
 - Configure MCP servers first: `docs/MCP_PREREQUISITES.md`
@@ -18,9 +16,13 @@ After development/testing, always point back to `main`.
 ## What gets installed in target repo
 - Submodule: `<repo>/.orchestrator` (configurable)
 - Copied skills:
+  - `<repo>/.codex/skills/{pm,pm-discovery,pm-create-prd,pm-beads-plan,pm-implement,agent-browser}`
   - `<repo>/.claude/skills/{pm,pm-discovery,pm-create-prd,pm-beads-plan,pm-implement,agent-browser}`
-  - PM helper script: `<repo>/.claude/skills/pm/scripts/pm-command.sh`
+  - PM helper scripts:
+    - `<repo>/.codex/skills/pm/scripts/pm-command.sh`
+    - `<repo>/.claude/skills/pm/scripts/pm-command.sh`
 - Workflow file:
+  - `<repo>/instructions/pm_workflow.md`
   - `<repo>/.config/opencode/instructions/pm_workflow.md`
 
 ## Why submodule + copy
@@ -68,9 +70,9 @@ Each install creates backups in target repo:
 - `<repo>/.orchestrator-backups/<timestamp>/claude/...`
 
 Rollback:
-1. Move backed-up folders back into `.claude/skills`
+1. Move backed-up folders back into `.codex/skills` and `.claude/skills`
 2. Revert/adjust submodule changes
-3. Restart session
+3. Restart the matching Codex or Claude session
 
 ## Notes
 - `AGENTS.md` alone does not register skills for slash/tool invocation.

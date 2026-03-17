@@ -1,6 +1,6 @@
-# OpenCode PM Workflow (Strict)
+# PM Workflow (Strict)
 
-This workflow is the source of truth for PM orchestration in OpenCode.
+This workflow is the source of truth for PM orchestration in this repo. Installed target repos receive the same file at both `instructions/pm_workflow.md` and `.config/opencode/instructions/pm_workflow.md`.
 
 ## Required Phase Order
 `Discovery -> PRD -> Awaiting PRD Approval -> Beads Planning -> Awaiting Beads Approval -> Team Lead Orchestration -> Implementation -> Post-Implementation Reviews -> Review Iteration -> Manual QA Smoke Tests -> Awaiting Final Review`
@@ -33,14 +33,20 @@ This workflow is the source of truth for PM orchestration in OpenCode.
 ## Command Routing
 - `/pm plan: ...` and `$pm plan: ...` map to default single-PRD planning flow.
 - `/pm plan big feature: ...` and `$pm plan big feature: ...` map to big-feature planning flow.
+- PM helper path resolution:
+  - source repo or submodule checkout: `./skills/pm/scripts/pm-command.sh`
+  - installed target repo from Codex: `./.codex/skills/pm/scripts/pm-command.sh`
+  - installed target repo from Claude: `./.claude/skills/pm/scripts/pm-command.sh`
 - Both plan routes must execute the helper gate before Discovery:
-  - `./.codex/skills/pm/scripts/pm-command.sh plan gate --route default|big-feature [--lead-model full-codex|codex-main|claude-main]`
+  - `<pm-helper> plan gate --route default|big-feature [--lead-model full-codex|codex-main|claude-main]`
 - Before Discovery for both plan routes, run a mandatory lead-model selection gate with exactly three options:
   - `Full Codex Orchestration`
   - `Codex as Main Agent`
   - `Claude as Main Orchestrator`
 - Codex-native orchestrator roles are pinned to `gpt-5.4` with `xhigh` reasoning effort.
 - Persist selected lead-model profile across sessions and reuse by default until changed.
+- Selection precedence is explicit `--lead-model` override, then Conductor runtime auto-detection, then persisted state.
+- In Conductor workspaces, Codex sessions auto-select `codex-main` and Claude sessions auto-select `claude-main`.
 - Selected lead model must drive runtime/model for:
   - `project_manager`
   - `team_lead`
@@ -48,21 +54,26 @@ This workflow is the source of truth for PM orchestration in OpenCode.
   - `pm_implement_handoff`
 - `Full Codex Orchestration` must remain usable without Claude MCP.
 - `Codex as Main Agent` must check Claude MCP availability immediately after selection and, if unavailable, block with an explicit fallback offer to `Full Codex Orchestration`.
-- `Claude as Main Orchestrator` must check Claude MCP availability immediately after selection and block before Discovery if Claude is unavailable.
+- `Claude as Main Orchestrator` must keep Claude-native main roles as the outer runtime and check `codex-worker` availability immediately after selection for Codex-routed roles.
 - The plan gate result is authoritative. If it emits `PLAN_ROUTE_BLOCKED` or `discovery_can_start=0`, do not start Discovery or any downstream phase.
 - For blocked `Codex as Main Agent`, the only allowed continuation is to ask whether to switch to `Full Codex Orchestration`.
 - Do not describe a blocked route as degraded mode.
 - Claude availability requires both:
   - healthy `claude-code` registration in `codex mcp list`
   - an executable configured command in the actual PM runtime
+- `codex-worker` availability for `claude-main` requires both:
+  - healthy `codex-worker` registration in `claude mcp list`
+  - an executable `codex` command in the actual Claude runtime
 - PM must treat `[shell_environment_policy.set].PATH`, `[mcp_servers.claude-code.env].PATH`, or an absolute command path as valid ways to satisfy the executable-command requirement.
+- PM must treat the Claude runtime `PATH` (including wrapper scripts or absolute command paths) as valid ways to satisfy the `codex-worker` `codex` executability requirement.
 - `mcp__claude-code__Agent` / implicit `general-purpose` agent launching is not a valid PM orchestration path.
 - Use `codex mcp add claude-code -- claude mcp serve` only when the server is actually missing; if the launcher reports `no supported agent type` or the command is not executable in the PM runtime, treat Claude runtime as unavailable for that session.
+- Use `claude mcp add codex-worker -- codex mcp-server` only when `codex-worker` is actually missing; if `codex-worker` is enabled but `codex` is not executable in the Claude runtime, treat `claude-main` as unavailable for that session.
 - `/pm help` and `$pm help` print command invocations, required phase order, and approval-gate reminders.
 - `/pm lead-model show|set|reset` and `$pm lead-model show|set|reset` must route to:
-  - `./.codex/skills/pm/scripts/pm-command.sh lead-model show`
-  - `./.codex/skills/pm/scripts/pm-command.sh lead-model set --profile full-codex|codex-main|claude-main`
-  - `./.codex/skills/pm/scripts/pm-command.sh lead-model reset`
+  - `<pm-helper> lead-model show`
+  - `<pm-helper> lead-model set --profile full-codex|codex-main|claude-main`
+  - `<pm-helper> lead-model reset`
 - `/pm self-update` and `$pm self-update` are manual-only and must run the Codex self-update check flow, then trigger:
   - `/pm plan: Inspect latest Codex changes and align orchestrator behavior with lead-model profile runtime policy.`
 - Self-update check policy:
@@ -75,9 +86,11 @@ This workflow is the source of truth for PM orchestration in OpenCode.
     - `PM_SELF_UPDATE_INCLUDE_PRERELEASE=0|1`
     - `PM_SELF_UPDATE_STRICT_MISMATCH=0|1`
 - Helper script path resolution:
-  - required path in target repos: `./.codex/skills/pm/scripts/pm-command.sh`
+  - source repo and submodule checkouts: `./skills/pm/scripts/pm-command.sh`
+  - installed target repo from Codex: `./.codex/skills/pm/scripts/pm-command.sh`
+  - installed target repo from Claude: `./.claude/skills/pm/scripts/pm-command.sh`
 - Self-update completion gate is explicit and manual:
-  - `./.codex/skills/pm/scripts/pm-command.sh self-update complete --approval approved --prd-approval approved --beads-approval approved --prd-path docs/prd/<approved-prd>.md`
+  - `<pm-helper> self-update complete --approval approved --prd-approval approved --beads-approval approved --prd-path docs/prd/<approved-prd>.md`
   - completion requires PRD coverage evidence for all pending batch versions and empty `Open Questions`
 - Big-feature planning must require explicit mode selection:
   - `conflict-aware`
@@ -125,12 +138,12 @@ This workflow is the source of truth for PM orchestration in OpenCode.
 - Lead-model profiles:
   - `codex-main` (default): Codex main roles, Claude support roles where configured.
   - `full-codex`: Codex handles all orchestration and support roles without Claude.
-  - `claude-main`: Claude main roles, with Codex support roles where configured.
+  - `claude-main`: Claude-native main roles plus Claude-routed support roles, with Codex-routed support roles delegated through `codex-worker` MCP.
 - Planning/discovery/docs/research/QA/review orchestration model selection follows active profile routing matrix.
 - Implementation coding tasks follow active profile routing matrix.
 - External Claude agents are allowed only through `claude-code` MCP contract.
 - Direct Claude CLI/app orchestration is not allowed.
-- If a required Claude-routed role is unavailable under `codex-main` or `claude-main`, block the current phase and return control to PM. Do not auto-fallback to codex-native.
+- If a required Claude-routed role is unavailable under `codex-main`, or a required `codex-worker` role is unavailable under `claude-main`, block the current phase and return control to PM. Do not auto-fallback to codex-native.
 
 ## Git / Shipping Policy
 - No `git commit` or `git push` during PM execution phases (Discovery through Awaiting Final Review).
@@ -140,31 +153,36 @@ This workflow is the source of truth for PM orchestration in OpenCode.
 - Self-update checkpoint commits from `pm-command.sh self-update complete ...` are explicitly outside active PM execution phases.
 
 ## Subagent Orchestration Policy
-- PM must use `Task(...)` subagent calls for parallel support work.
+- PM must launch only supported generic subagent types: `default`, `explorer`, and `worker`.
+- PM must encode functional role in prompt payloads (for example: `[Role: Senior Engineer]`).
+- PM must not depend on named workflow agents or custom launcher types.
+- Claude remains an external MCP runtime, not a public launcher type.
+- If a Codex-side Claude wrapper exists, it is an internal implementation detail behind the same generic outer contract.
 - Mandatory prompt prefix for delegation objectives: `use agent swarm for <objective>`.
-- In OpenCode, "agent swarm" means parallel `Task(...)` fan-out to specialized subagents.
+- In this workflow, "agent swarm" means parallel fan-out to generic subagents with role-labeled prompts.
 - For every external-Claude delegation, PM/Team Lead must validate a context-pack JSON before invocation:
-  - `./.codex/skills/pm/scripts/pm-command.sh claude-contract validate-context --context-file <json> --role <role>`
+  - `<pm-helper> claude-contract validate-context --context-file <json> --role <role>`
 - Required context-pack keys:
   - `feature_objective, prd_context, task_id, acceptance_criteria, implementation_status, changed_files, constraints, evidence, clarifying_instruction`
 - External-Claude responses must use missing-context handshake marker when blocked:
   - `CONTEXT_REQUEST|needed_fields=<csv>|questions=<numbered items>`
 - PM/Team Lead must parse response handshake before accepting completion:
-  - `./.codex/skills/pm/scripts/pm-command.sh claude-contract evaluate-response --response-file <txt> --session-id <id> --role <role>`
+  - `<pm-helper> claude-contract evaluate-response --response-file <txt> --session-id <id> --role <role>`
 - Optional wrapper for multi-step sessions:
-  - `./.codex/skills/pm/scripts/pm-command.sh claude-contract run-loop --context-file <json> --response-file <txt> [--response-file <txt> ...] --session-id <id> --role <role>`
+  - `<pm-helper> claude-contract run-loop --context-file <json> --response-file <txt> [--response-file <txt> ...] --session-id <id> --role <role>`
 - If handshake parser/wrapper returns `status=context_needed` or `status=awaiting_context`, orchestrator must gather requested context and continue in the same Claude session.
 - Required support subagents in discovery:
-  - `pm-research`
-  - `pm-docs`
-  - `pm-qa` (for smoke-test planning)
-- Implementation must run through `pm-team-lead`, which delegates coding to:
-  - `pm-backend`
-  - `pm-frontend`
-  - `pm-security`
+  - Senior Engineer (`explorer`)
+  - Librarian (`default`)
+  - Smoke Test Planner (`default`)
+  - Alternative PM (`default`)
+- Implementation must run through Team Lead (`default`), which delegates coding to:
+  - Backend Engineer (`worker`)
+  - Frontend Engineer (`worker`)
+  - Security Engineer (`worker`)
 - Verification/review subagents:
-  - `pm-verify`
-  - `pm-jazz-review`
+  - Task Verification (`default`)
+  - Jazz Reviewer (`default`, then runtime-routed per profile)
 
 ## Dual-Mode Smoke Coverage
 - For big-feature workflows, smoke planning and QA must cover both planning modes:

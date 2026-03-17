@@ -1,5 +1,5 @@
 # Manual QA Smoke Agent Prompt
-**Model: Claude Code** (via Task tool, subagent_type: default)
+**Launcher: generic `default` subagent using the active runtime profile**
 
 Use this prompt for post-implementation smoke-test execution.
 

@@ -115,6 +115,23 @@ if ! diff -u "$ROOT_DIR/instructions/pm_workflow.md" "$ROOT_DIR/.config/opencode
   fail "workflow instruction files drifted; sync instructions/pm_workflow.md and .config/opencode/instructions/pm_workflow.md"
 fi
 
+echo "[test-pm-command] case: active docs distinguish source and installed helper paths"
+helper_path_contracts="$(
+  cat \
+    "$ROOT_DIR/README.md" \
+    "$ROOT_DIR/SETUP.md" \
+    "$ROOT_DIR/docs/INSTALL_INJECT_WORKFLOW.md" \
+    "$ROOT_DIR/docs/INSTALL_SUBMODULE_WORKFLOW.md" \
+    "$ROOT_DIR/docs/MCP_PREREQUISITES.md" \
+    "$ROOT_DIR/instructions/pm_workflow.md" \
+    "$ROOT_DIR/.config/opencode/instructions/pm_workflow.md" \
+    "$ROOT_DIR/skills/pm/SKILL.md" \
+    "$ROOT_DIR/skills/pm-implement/SKILL.md"
+)"
+assert_contains "$helper_path_contracts" './skills/pm/scripts/pm-command.sh'
+assert_contains "$helper_path_contracts" './.codex/skills/pm/scripts/pm-command.sh'
+assert_contains "$helper_path_contracts" './.claude/skills/pm/scripts/pm-command.sh'
+
 echo "[test-pm-command] case: live PM contracts forbid degraded fallback after a blocked gate"
 live_contracts="$(
   cat \
@@ -283,6 +300,68 @@ assert_contains "$loop_complete_out" 'CLAUDE_LOOP|status=context_requested|role=
 assert_contains "$loop_complete_out" 'CLAUDE_HANDSHAKE|status=complete|role=task_verification|session_id=sess-123'
 assert_contains "$loop_complete_out" 'CLAUDE_LOOP|status=complete|role=task_verification|session_id=sess-123|round=2|responses_seen=2'
 
+CLAUDE_WRAPPER_PROMPT_FILE="$TMPDIR/claude-wrapper-prompt.md"
+CLAUDE_WRAPPER_RESPONSE_UNSUPPORTED="$TMPDIR/claude-wrapper-response-unsupported.txt"
+cat >"$CLAUDE_WRAPPER_RESPONSE_UNSUPPORTED" <<'EOF'
+Agent type 'general-purpose' not found
+EOF
+
+echo "[test-pm-command] case: claude-wrapper prepare validates context and renders internal prompt"
+wrapper_prepare_out="$("$HELPER" claude-wrapper prepare --context-file "$CLAUDE_CONTEXT_FILE" --prompt-file "$CLAUDE_WRAPPER_PROMPT_FILE" --objective "review retry policy and latency evidence" --role jazz_reviewer)"
+assert_contains "$wrapper_prepare_out" 'CLAUDE_CONTEXT_VALID|role=jazz_reviewer'
+assert_contains "$wrapper_prepare_out" 'CLAUDE_WRAPPER_READY|status=ready|role=jazz_reviewer|session_id=claude-wrapper-'
+[ -f "$CLAUDE_WRAPPER_PROMPT_FILE" ] || fail "claude-wrapper prepare did not create prompt file"
+wrapper_prompt_contents="$(cat "$CLAUDE_WRAPPER_PROMPT_FILE")"
+assert_contains "$wrapper_prompt_contents" 'use agent swarm for review retry policy and latency evidence'
+assert_contains "$wrapper_prompt_contents" 'You are an internal Claude MCP adapter for the PM orchestrator.'
+assert_contains "$wrapper_prompt_contents" '[Role: jazz_reviewer]'
+assert_contains "$wrapper_prompt_contents" 'Wrapper runtime: claude-code-mcp'
+
+echo "[test-pm-command] case: claude-wrapper evaluate normalizes completion"
+wrapper_complete_out="$("$HELPER" claude-wrapper evaluate --context-file "$CLAUDE_CONTEXT_FILE" --response-file "$CLAUDE_RESPONSE_COMPLETE" --session-id wrap-123 --role jazz_reviewer)"
+assert_contains "$wrapper_complete_out" 'CLAUDE_HANDSHAKE|status=complete|role=jazz_reviewer|session_id=wrap-123'
+assert_contains "$wrapper_complete_out" 'CLAUDE_WRAPPER_RESULT|status=complete|role=jazz_reviewer|session_id=wrap-123|runtime=claude-code-mcp'
+assert_contains "$wrapper_complete_out" 'next_action=return_to_parent'
+
+echo "[test-pm-command] case: claude-wrapper evaluate normalizes missing-context handshakes"
+if wrapper_context_needed_out="$("$HELPER" claude-wrapper evaluate --context-file "$CLAUDE_CONTEXT_FILE" --response-file "$CLAUDE_RESPONSE_NEEDS_CONTEXT" --session-id wrap-123 --role jazz_reviewer 2>&1)"; then
+  fail "claude-wrapper evaluate unexpectedly completed when context was still needed"
+fi
+assert_contains "$wrapper_context_needed_out" 'CLAUDE_HANDSHAKE|status=context_needed|role=jazz_reviewer|session_id=wrap-123'
+assert_contains "$wrapper_context_needed_out" 'CLAUDE_WRAPPER_RESULT|status=context_needed|role=jazz_reviewer|session_id=wrap-123|runtime=claude-code-mcp'
+assert_contains "$wrapper_context_needed_out" 'needed_fields=constraints,evidence'
+assert_contains "$wrapper_context_needed_out" 'next_action=continue_session'
+
+echo "[test-pm-command] case: claude-wrapper evaluate reports unsupported launcher failures"
+if wrapper_runtime_error_out="$("$HELPER" claude-wrapper evaluate --context-file "$CLAUDE_CONTEXT_FILE" --response-file "$CLAUDE_WRAPPER_RESPONSE_UNSUPPORTED" --session-id wrap-123 --role jazz_reviewer 2>&1)"; then
+  fail "claude-wrapper evaluate unexpectedly completed on unsupported launcher output"
+fi
+assert_contains "$wrapper_runtime_error_out" 'CLAUDE_WRAPPER_RESULT|status=runtime_error|error=unsupported_launcher|role=jazz_reviewer|session_id=wrap-123|runtime=claude-code-mcp'
+assert_contains "$wrapper_runtime_error_out" "detail=Agent type 'general-purpose' not found"
+assert_contains "$wrapper_runtime_error_out" 'next_action=return_to_parent'
+
+echo "[test-pm-command] case: claude-wrapper run reports ready before Claude invocation"
+wrapper_run_ready_out="$("$HELPER" claude-wrapper run --context-file "$CLAUDE_CONTEXT_FILE" --prompt-file "$CLAUDE_WRAPPER_PROMPT_FILE" --objective "review retry policy and latency evidence" --session-id wrap-run-1 --role jazz_reviewer)"
+assert_contains "$wrapper_run_ready_out" 'CLAUDE_WRAPPER_READY|status=ready|role=jazz_reviewer|session_id=wrap-run-1|runtime=claude-code-mcp'
+
+echo "[test-pm-command] case: claude-wrapper run completes after a direct Claude response"
+wrapper_run_complete_out="$("$HELPER" claude-wrapper run --context-file "$CLAUDE_CONTEXT_FILE" --prompt-file "$CLAUDE_WRAPPER_PROMPT_FILE" --objective "review retry policy and latency evidence" --response-file "$CLAUDE_RESPONSE_COMPLETE" --session-id wrap-run-2 --role jazz_reviewer)"
+assert_contains "$wrapper_run_complete_out" 'CLAUDE_WRAPPER_READY|status=ready|role=jazz_reviewer|session_id=wrap-run-2|runtime=claude-code-mcp'
+assert_contains "$wrapper_run_complete_out" 'CLAUDE_WRAPPER_RESULT|status=complete|role=jazz_reviewer|session_id=wrap-run-2|runtime=claude-code-mcp'
+
+echo "[test-pm-command] case: claude-wrapper run preserves same-session continuation state"
+wrapper_run_context_out="$("$HELPER" claude-wrapper run --context-file "$CLAUDE_CONTEXT_FILE" --prompt-file "$CLAUDE_WRAPPER_PROMPT_FILE" --objective "review retry policy and latency evidence" --response-file "$CLAUDE_RESPONSE_NEEDS_CONTEXT" --response-file "$CLAUDE_RESPONSE_COMPLETE" --session-id wrap-run-3 --role jazz_reviewer)"
+assert_contains "$wrapper_run_context_out" 'CLAUDE_WRAPPER_RESULT|status=context_needed|role=jazz_reviewer|session_id=wrap-run-3|runtime=claude-code-mcp'
+assert_contains "$wrapper_run_context_out" 'CLAUDE_WRAPPER_RESULT|status=context_requested|role=jazz_reviewer|session_id=wrap-run-3|runtime=claude-code-mcp|round=1|next_action=continue_session'
+assert_contains "$wrapper_run_context_out" 'CLAUDE_WRAPPER_RESULT|status=complete|role=jazz_reviewer|session_id=wrap-run-3|runtime=claude-code-mcp'
+
+echo "[test-pm-command] case: claude-wrapper run exits on unsupported launcher output"
+if wrapper_run_unsupported_out="$("$HELPER" claude-wrapper run --context-file "$CLAUDE_CONTEXT_FILE" --prompt-file "$CLAUDE_WRAPPER_PROMPT_FILE" --objective "review retry policy and latency evidence" --response-file "$CLAUDE_WRAPPER_RESPONSE_UNSUPPORTED" --session-id wrap-run-4 --role jazz_reviewer 2>&1)"; then
+  fail "claude-wrapper run unexpectedly completed on unsupported launcher output"
+fi
+assert_contains "$wrapper_run_unsupported_out" 'CLAUDE_WRAPPER_READY|status=ready|role=jazz_reviewer|session_id=wrap-run-4|runtime=claude-code-mcp'
+assert_contains "$wrapper_run_unsupported_out" 'CLAUDE_WRAPPER_RESULT|status=runtime_error|error=unsupported_launcher|role=jazz_reviewer|session_id=wrap-run-4|runtime=claude-code-mcp'
+
 LEAD_MODEL_STATE_FILE="$TMPDIR/.codex/pm-lead-model-state.json"
 
 echo "[test-pm-command] case: lead-model state bootstraps to codex-main"
@@ -306,18 +385,18 @@ jq -e '.selected_profile == "claude-main"' "$LEAD_MODEL_STATE_FILE" >/dev/null |
 
 echo "[test-pm-command] case: plan gate on default route emits persisted claude-main routing"
 plan_gate_default="$(
-  PM_LEAD_MODEL_FORCE_CLAUDE_MCP_AVAILABLE=1 \
+  PM_LEAD_MODEL_FORCE_CODEX_MCP_AVAILABLE=1 \
   "$HELPER" plan gate --route default --state-file "$LEAD_MODEL_STATE_FILE"
 )"
 assert_contains "$plan_gate_default" 'LEAD_MODEL_GATE|route=default'
 assert_contains "$plan_gate_default" 'options=Full Codex Orchestration;Codex as Main Agent;Claude as Main Orchestrator'
 assert_contains "$plan_gate_default" 'selected_profile=claude-main'
 assert_contains "$plan_gate_default" 'codex_model=gpt-5.4|codex_reasoning_effort=xhigh'
-assert_contains "$plan_gate_default" 'ROUTING_PROFILE|route=default|profile=claude-main|main_runtime=claude-code-mcp|main_model=<unpinned>|main_reasoning_effort=<unpinned>|fallback_active=0'
-assert_contains "$plan_gate_default" 'ROUTING_ROLE|role=pm_beads_plan_handoff|class=main|runtime=claude-code-mcp|model=<unpinned>|reasoning_effort=<unpinned>|agent_type=default'
-assert_contains "$plan_gate_default" 'ROUTING_ROLE|role=pm_implement_handoff|class=main|runtime=claude-code-mcp|model=<unpinned>|reasoning_effort=<unpinned>|agent_type=default'
-assert_contains "$plan_gate_default" 'ROUTING_ROLE|role=task_verification|class=sub|runtime=claude-code-mcp|model=<unpinned>|reasoning_effort=<unpinned>|agent_type=default'
-assert_contains "$plan_gate_default" 'PLAN_ROUTE_READY|route=default|selected_profile=claude-main|selected_label=Claude as Main Orchestrator|discovery_can_start=1'
+assert_contains "$plan_gate_default" 'ROUTING_PROFILE|route=default|profile=claude-main|selection_source=persisted_state|main_runtime=claude-native|main_model=<unpinned>|main_reasoning_effort=<unpinned>|fallback_active=0'
+assert_contains "$plan_gate_default" 'ROUTING_ROLE|role=pm_beads_plan_handoff|class=main|runtime=claude-native|model=<unpinned>|reasoning_effort=<unpinned>|agent_type=default'
+assert_contains "$plan_gate_default" 'ROUTING_ROLE|role=senior_engineer|class=sub|runtime=codex-worker-mcp|model=<unpinned>|reasoning_effort=<unpinned>|agent_type=explorer'
+assert_contains "$plan_gate_default" 'ROUTING_ROLE|role=task_verification|class=sub|runtime=claude-native|model=<unpinned>|reasoning_effort=<unpinned>|agent_type=default'
+assert_contains "$plan_gate_default" 'PLAN_ROUTE_READY|route=default|selected_profile=claude-main|selected_label=Claude as Main Orchestrator|selection_source=persisted_state|discovery_can_start=1'
 
 echo "[test-pm-command] case: full-codex route is ready without Claude availability"
 plan_gate_full_codex="$(
@@ -326,10 +405,10 @@ plan_gate_full_codex="$(
 )"
 assert_contains "$plan_gate_full_codex" 'LEAD_MODEL_GATE|route=big-feature'
 assert_contains "$plan_gate_full_codex" 'selected_profile=full-codex'
-assert_contains "$plan_gate_full_codex" 'ROUTING_PROFILE|route=big-feature|profile=full-codex|main_runtime=codex-native|main_model=gpt-5.4|main_reasoning_effort=xhigh|fallback_active=0'
+assert_contains "$plan_gate_full_codex" 'ROUTING_PROFILE|route=big-feature|profile=full-codex|selection_source=explicit_override|main_runtime=codex-native|main_model=gpt-5.4|main_reasoning_effort=xhigh|fallback_active=0'
 assert_contains "$plan_gate_full_codex" 'ROUTING_ROLE|role=librarian|class=sub|runtime=codex-native|model=gpt-5.4|reasoning_effort=xhigh|agent_type=default'
 assert_contains "$plan_gate_full_codex" 'ROUTING_ROLE|role=task_verification|class=sub|runtime=codex-native|model=gpt-5.4|reasoning_effort=xhigh|agent_type=default'
-assert_contains "$plan_gate_full_codex" 'PLAN_ROUTE_READY|route=big-feature|selected_profile=full-codex|selected_label=Full Codex Orchestration|discovery_can_start=1'
+assert_contains "$plan_gate_full_codex" 'PLAN_ROUTE_READY|route=big-feature|selected_profile=full-codex|selected_label=Full Codex Orchestration|selection_source=explicit_override|discovery_can_start=1'
 jq -e '.selected_profile == "full-codex"' "$LEAD_MODEL_STATE_FILE" >/dev/null || fail "plan gate override did not persist full-codex profile"
 
 echo "[test-pm-command] case: codex-main route stays pinned and Claude-routed when Claude is available"
@@ -338,11 +417,48 @@ plan_gate_codex_main="$(
   "$HELPER" plan gate --route default --lead-model codex-main --state-file "$LEAD_MODEL_STATE_FILE"
 )"
 assert_contains "$plan_gate_codex_main" 'selected_profile=codex-main'
-assert_contains "$plan_gate_codex_main" 'ROUTING_PROFILE|route=default|profile=codex-main|main_runtime=codex-native|main_model=gpt-5.4|main_reasoning_effort=xhigh|fallback_active=0'
+assert_contains "$plan_gate_codex_main" 'ROUTING_PROFILE|route=default|profile=codex-main|selection_source=explicit_override|main_runtime=codex-native|main_model=gpt-5.4|main_reasoning_effort=xhigh|fallback_active=0'
 assert_contains "$plan_gate_codex_main" 'ROUTING_ROLE|role=project_manager|class=main|runtime=codex-native|model=gpt-5.4|reasoning_effort=xhigh|agent_type=default'
 assert_contains "$plan_gate_codex_main" 'ROUTING_ROLE|role=librarian|class=sub|runtime=claude-code-mcp|model=<unpinned>|reasoning_effort=<unpinned>|agent_type=default'
 assert_contains "$plan_gate_codex_main" 'ROUTING_ROLE|role=task_verification|class=sub|runtime=codex-native|model=gpt-5.4|reasoning_effort=xhigh|agent_type=default'
-assert_contains "$plan_gate_codex_main" 'PLAN_ROUTE_READY|route=default|selected_profile=codex-main|selected_label=Codex as Main Agent|discovery_can_start=1'
+assert_contains "$plan_gate_codex_main" 'PLAN_ROUTE_READY|route=default|selected_profile=codex-main|selected_label=Codex as Main Agent|selection_source=explicit_override|discovery_can_start=1'
+
+echo "[test-pm-command] case: Conductor Codex session auto-selects codex-main"
+conductor_codex_out="$(
+  CODEX_THREAD_ID='codex-session' \
+  CODEX_INTERNAL_ORIGINATOR_OVERRIDE='Codex Desktop' \
+  PM_LEAD_MODEL_FORCE_CLAUDE_MCP_AVAILABLE=1 \
+  PM_PLAN_GATE_WORKSPACE_PATH_OVERRIDE='/tmp/conductor/workspaces/product-orchestrator/main' \
+  "$HELPER" plan gate --route default --state-file "$LEAD_MODEL_STATE_FILE"
+)"
+assert_contains "$conductor_codex_out" 'LEAD_MODEL_GATE|route=default'
+assert_contains "$conductor_codex_out" 'selected_profile=codex-main'
+assert_contains "$conductor_codex_out" 'selection_source=conductor_auto'
+assert_contains "$conductor_codex_out" 'PLAN_ROUTE_READY|route=default|selected_profile=codex-main|selected_label=Codex as Main Agent|selection_source=conductor_auto|discovery_can_start=1'
+
+echo "[test-pm-command] case: Conductor Claude session auto-selects claude-main"
+conductor_claude_out="$(
+  env -u CODEX_THREAD_ID -u CODEX_INTERNAL_ORIGINATOR_OVERRIDE \
+    PM_LEAD_MODEL_FORCE_CODEX_MCP_AVAILABLE=1 \
+    PM_PLAN_GATE_WORKSPACE_PATH_OVERRIDE='/tmp/conductor/workspaces/product-orchestrator/main' \
+    "$HELPER" plan gate --route default --state-file "$LEAD_MODEL_STATE_FILE"
+)"
+assert_contains "$conductor_claude_out" 'LEAD_MODEL_GATE|route=default'
+assert_contains "$conductor_claude_out" 'selected_profile=claude-main'
+assert_contains "$conductor_claude_out" 'selection_source=conductor_auto'
+assert_contains "$conductor_claude_out" 'PLAN_ROUTE_READY|route=default|selected_profile=claude-main|selected_label=Claude as Main Orchestrator|selection_source=conductor_auto|discovery_can_start=1'
+
+echo "[test-pm-command] case: explicit override beats Conductor auto-selection"
+conductor_override_out="$(
+  CODEX_THREAD_ID='codex-session' \
+  CODEX_INTERNAL_ORIGINATOR_OVERRIDE='Codex Desktop' \
+  PM_PLAN_GATE_WORKSPACE_PATH_OVERRIDE='/tmp/conductor/workspaces/product-orchestrator/main' \
+  PM_LEAD_MODEL_FORCE_CLAUDE_MCP_UNAVAILABLE=1 \
+  "$HELPER" plan gate --route default --lead-model full-codex --state-file "$LEAD_MODEL_STATE_FILE"
+)"
+assert_contains "$conductor_override_out" 'selected_profile=full-codex'
+assert_contains "$conductor_override_out" 'selection_source=explicit_override'
+assert_contains "$conductor_override_out" 'PLAN_ROUTE_READY|route=default|selected_profile=full-codex|selected_label=Full Codex Orchestration|selection_source=explicit_override|discovery_can_start=1'
 
 echo "[test-pm-command] case: lead-model reset is idempotent"
 lead_reset_one="$("$HELPER" lead-model reset --state-file "$LEAD_MODEL_STATE_FILE")"
@@ -370,7 +486,7 @@ if PM_LEAD_MODEL_CLAUDE_MCP_LIST_OVERRIDE='claude-code enabled' \
 fi
 blocked_codex_main_out="$(cat "$blocked_codex_main_file")"
 assert_contains "$blocked_codex_main_out" 'LEAD_MODEL_GATE|route=default'
-assert_contains "$blocked_codex_main_out" 'PLAN_ROUTE_BLOCKED|route=default|selected_profile=codex-main|selected_label=Codex as Main Agent|reason=claude_code_mcp_command_not_executable'
+assert_contains "$blocked_codex_main_out" 'PLAN_ROUTE_BLOCKED|route=default|selected_profile=codex-main|selected_label=Codex as Main Agent|selection_source=explicit_override|reason=claude_code_mcp_command_not_executable'
 assert_contains "$blocked_codex_main_out" 'fallback_offer=1|fallback_profile=full-codex|fallback_label=Full Codex Orchestration|next_action=ask_user_for_full_codex_fallback|discovery_can_start=0'
 assert_not_contains "$blocked_codex_main_out" 'PLAN_ROUTE_READY|'
 
@@ -384,7 +500,7 @@ config_path_pass_out="$(
   PM_LEAD_MODEL_CLAUDE_MCP_LIST_OVERRIDE='claude-code enabled' \
   "$HELPER" plan gate --route default --lead-model codex-main --state-file "$LEAD_MODEL_STATE_FILE"
 )"
-assert_contains "$config_path_pass_out" 'PLAN_ROUTE_READY|route=default|selected_profile=codex-main|selected_label=Codex as Main Agent'
+assert_contains "$config_path_pass_out" 'PLAN_ROUTE_READY|route=default|selected_profile=codex-main|selected_label=Codex as Main Agent|selection_source=explicit_override'
 assert_not_contains "$config_path_pass_out" 'PLAN_ROUTE_BLOCKED|'
 
 echo "[test-pm-command] case: shell_environment_policy.set PATH also makes codex-main gate pass"
@@ -397,19 +513,30 @@ shell_env_path_pass_out="$(
   PM_LEAD_MODEL_CLAUDE_MCP_LIST_OVERRIDE='claude-code enabled' \
   "$HELPER" plan gate --route default --lead-model codex-main --state-file "$LEAD_MODEL_STATE_FILE"
 )"
-assert_contains "$shell_env_path_pass_out" 'PLAN_ROUTE_READY|route=default|selected_profile=codex-main|selected_label=Codex as Main Agent'
+assert_contains "$shell_env_path_pass_out" 'PLAN_ROUTE_READY|route=default|selected_profile=codex-main|selected_label=Codex as Main Agent|selection_source=explicit_override'
 assert_not_contains "$shell_env_path_pass_out" 'PLAN_ROUTE_BLOCKED|'
 
-echo "[test-pm-command] case: claude-main blocks without fallback when Claude MCP is unavailable"
+echo "[test-pm-command] case: claude-main blocks without fallback when codex-worker MCP is unavailable"
 blocked_claude_main_file="$TMPDIR/plan-gate-blocked-claude-main.out"
-if PM_LEAD_MODEL_FORCE_CLAUDE_MCP_UNAVAILABLE=1 \
+if PM_LEAD_MODEL_FORCE_CODEX_MCP_UNAVAILABLE=1 \
   "$HELPER" plan gate --route default --lead-model claude-main --state-file "$LEAD_MODEL_STATE_FILE" >"$blocked_claude_main_file" 2>&1; then
-  fail "claude-main unexpectedly proceeded when Claude MCP was unavailable"
+  fail "claude-main unexpectedly proceeded when codex-worker MCP was unavailable"
 fi
 blocked_claude_main_out="$(cat "$blocked_claude_main_file")"
-assert_contains "$blocked_claude_main_out" 'PLAN_ROUTE_BLOCKED|route=default|selected_profile=claude-main|selected_label=Claude as Main Orchestrator|reason=claude_code_mcp_unavailable'
-assert_contains "$blocked_claude_main_out" 'fallback_offer=0|fallback_profile=|fallback_label=|next_action=fix_claude_mcp_or_choose_supported_mode|discovery_can_start=0'
+assert_contains "$blocked_claude_main_out" 'PLAN_ROUTE_BLOCKED|route=default|selected_profile=claude-main|selected_label=Claude as Main Orchestrator|selection_source=explicit_override|reason=codex_worker_mcp_unavailable'
+assert_contains "$blocked_claude_main_out" 'fallback_offer=0|fallback_profile=|fallback_label=|next_action=fix_codex_worker_mcp_or_choose_supported_mode|discovery_can_start=0'
 assert_not_contains "$blocked_claude_main_out" 'PLAN_ROUTE_READY|'
+
+echo "[test-pm-command] case: claude-main blocks when codex command is not executable"
+blocked_claude_command_file="$TMPDIR/plan-gate-blocked-claude-command.out"
+if PM_LEAD_MODEL_CODEX_MCP_LIST_OVERRIDE='codex-worker enabled' \
+  PM_LEAD_MODEL_CODEX_COMMAND_OVERRIDE='definitely-missing-codex-command' \
+  "$HELPER" plan gate --route default --lead-model claude-main --state-file "$LEAD_MODEL_STATE_FILE" >"$blocked_claude_command_file" 2>&1; then
+  fail "claude-main unexpectedly proceeded when codex command was not executable"
+fi
+blocked_claude_command_out="$(cat "$blocked_claude_command_file")"
+assert_contains "$blocked_claude_command_out" 'PLAN_ROUTE_BLOCKED|route=default|selected_profile=claude-main|selected_label=Claude as Main Orchestrator|selection_source=explicit_override|reason=codex_worker_command_not_executable'
+assert_contains "$blocked_claude_command_out" 'next_action=fix_codex_worker_mcp_or_choose_supported_mode|discovery_can_start=0'
 
 echo "[test-pm-command] case: lead-model reset repairs corrupt state file"
 printf 'not-json\n' >"$LEAD_MODEL_STATE_FILE"
