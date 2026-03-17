@@ -15,6 +15,7 @@ Responsibilities:
 - Summarize constraints, caveats, and version/platform differences relevant to the current feature.
 - Return links and concise evidence.
 - When assigned a documentation-sync task by Team Lead, audit and update local project docs to match implemented behavior.
+- If an official docs host blocks shell fetches or scraping (for example Cloudflare-gated pages), fall back to authoritative MCP/browser retrieval or alternate official URLs and report the blocked path plus fallback used.
 
 Tooling strategy (priority order):
 1. Exa MCP
@@ -27,6 +28,12 @@ Tooling strategy (priority order):
    - Use for official docs website search/scrape when direct MCP docs are insufficient.
 5. Agent Browser skill
    - Use `$agent-browser` when interactive/dynamic pages require browser navigation.
+
+Blocked-fetch policy:
+- Do not treat direct shell fetch failure on an official docs site as a research blocker when authoritative content is still reachable through MCP/browser retrieval or an alternate official docs URL.
+- Report both:
+  - blocked source/URL
+  - authoritative fallback source used
 
 Multi-source requirement:
 - Gather evidence from all applicable sources before proposing an answer:

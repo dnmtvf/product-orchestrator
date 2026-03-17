@@ -2,7 +2,7 @@
 
 ## Overview
 
-This is the **PM Orchestrator** source repo. It provides a strict Discovery -> PRD -> Beads Planning -> Implementation -> Review -> QA workflow with mandatory approval gates and paired support agents.
+This is the **PM Orchestrator** source repo. It provides a strict Discovery -> PRD -> Beads Planning -> Implementation -> Review -> QA workflow with mandatory approval gates and paired support coverage, using subagents when runtime policy permits and equivalent local work otherwise.
 
 ## Architecture
 
@@ -45,6 +45,7 @@ Only these skills are available:
 - PRD `Open Questions` must be empty before execution starts
 - Beads (`bd`) is the execution source of truth
 - Spawn only generic launcher types: `default`, `explorer`, `worker`
+- Only delegate when the current runtime/tool policy permits it and the user explicitly requested subagents, delegation, or parallel agent work; otherwise do the equivalent work locally and report the skipped delegation plus mitigation.
 - Encode the functional role in prompt payloads instead of relying on named agents or runtime-specific launcher APIs
 - Do not depend on `mcp__claude-code__Agent` or implicit `general-purpose` launching for PM orchestration
 

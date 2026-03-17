@@ -25,6 +25,9 @@ description: Strict PM Discovery Mode. Trigger on $pm-discovery for questions-on
 
 ## Subagent Launcher Compatibility (mandatory)
 - Spawn only supported generic agent types: `default`, `explorer`, `worker`.
+- Launch discovery subagents only when the current runtime/tool policy permits delegation and the user explicitly requested delegation, subagents, or parallel agent work.
+- If delegation is not allowed in the current session, complete the equivalent discovery intake locally and report skipped delegations as warnings with mitigation and status.
+- Any later `spawn`, subagent, or handoff instruction in this file is conditional on this delegation gate; otherwise continue the same step locally/in-line and report the skipped delegation as a warning with mitigation and status.
 - Encode role in prompt payload for every spawned subagent (for example: `[Role: Senior Engineer]`).
 - Do not rely on custom named subagent launchers.
 - Recommended launcher mapping for discovery:
@@ -61,18 +64,22 @@ description: Strict PM Discovery Mode. Trigger on $pm-discovery for questions-on
   - `<pm-helper> claude-contract run-loop --context-file <json> --response-file <txt> [--response-file <txt> ...] --session-id <id> --role <role>`
 - If parser/wrapper returns `status=context_needed` or `status=awaiting_context`, Discovery must gather requested info and continue in the same Claude session.
 
-## Paired Support Agents (recommended)
-Before asking user follow-ups, proactively consult:
+## Paired Support Coverage (recommended)
+Before asking user follow-ups, proactively gather equivalent coverage from:
 1. **Senior Engineer** (`explorer`) for codebase-derived clarifications.
 2. **Librarian** (`default`) for external doc/API clarifications via MCP/browser (`exa`, `context7`, `deepwiki`, `firecrawl`, and `$agent-browser` when needed).
 3. **Smoke Test Planner** (`default`) for discovery-phase smoke-test planning (happy/unhappy/regression) and post-implementation QA plan.
 4. **Alternative PM** (`default`) for critical alternative-solution analysis on every discovery step.
+
+- Preferred path: use subagents for these roles when the user explicitly requested delegation and current policy permits it.
+- Fallback path: if delegation is blocked, do the same codebase analysis, official-doc research, smoke planning, and alternatives analysis locally and report the skipped delegations as warnings with mitigation and status.
 
 Only ask the user questions that remain unresolved after those checks.
 
 ## Smoke Test Planner (mandatory)
 - Load prompt from `references/smoke-test-planner.md`.
 - Launcher type: spawn as generic `default` with role-labeled prompt context (`[Role: Smoke Test Planner Agent]`).
+- If delegation is blocked by current policy, generate the same smoke-test artifacts locally and report the skipped delegation as a warning with mitigation and status.
 - Runner: use active profile routing from `model-routing.yaml`:
   - `full-codex`: run codex-native as configured.
   - `codex-main`: invoke via `claude-code` MCP using the Claude MCP Contract.
@@ -95,6 +102,7 @@ Only ask the user questions that remain unresolved after those checks.
 ## Alternative PM (mandatory every discovery step)
 - Load prompt from `references/alternative-pm.md`.
 - Launcher type: spawn as generic `default` with role-labeled prompt context (`[Role: Alternative PM Agent]`).
+- If delegation is blocked by current policy, generate the same alternatives analysis locally and report the skipped delegation as a warning with mitigation and status.
 - Runner: use active profile routing from `model-routing.yaml`:
   - `full-codex`: run codex-native as configured.
   - `codex-main`: invoke via `claude-code` MCP using the Claude MCP Contract.
@@ -175,7 +183,7 @@ Output exactly this structure:
 - Immediately invoke: `$pm-create-prd Use the Discovery Summary above`.
 - Do not ask the user to manually type the next command.
 - Pass the full Discovery Summary (including smoke tests and alternatives matrix) and proposed slug.
-- Preferred orchestration path: create a generic `default` sub-agent with role-labeled context (`[Role: PM Create PRD Handoff]`) for the `$pm-create-prd` step and wait for completion.
+- Preferred orchestration path: if delegation is permitted, create a generic `default` sub-agent with role-labeled context (`[Role: PM Create PRD Handoff]`) for the `$pm-create-prd` step and wait for completion; otherwise continue directly into PRD creation flow in the same interaction and report the skipped delegation as a warning with mitigation and status.
 - If direct skill invocation is unavailable, continue directly into PRD creation flow in the same interaction and mark handoff as blocked with the concrete reason.
 
 ## Response Contract (every run)

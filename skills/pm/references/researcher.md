@@ -23,6 +23,7 @@ Invocation model:
 
 Working rules:
 - Prioritize official and primary sources first.
+- If an official docs host is shell-gated or scraping-blocked, use authoritative MCP/browser retrieval or an alternate official URL and report the blocked source plus fallback used.
 - Combine multiple sources and compare tradeoffs before giving recommendations.
 - Explicitly separate:
   - Confirmed findings

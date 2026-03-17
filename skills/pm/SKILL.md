@@ -1,6 +1,6 @@
 ---
 name: pm
-description: Strict PM orchestration workflow for any repo. Trigger when user invokes /pm; orchestrates discovery, PRD, approvals, beads planning, team-lead execution orchestration, implementation, automated reviews, manual QA smoke tests, and iteration while pairing specialized support agents.
+description: Strict PM orchestration workflow for any repo. Trigger when user invokes /pm; orchestrates discovery, PRD, approvals, beads planning, team-lead execution orchestration, implementation, automated reviews, manual QA smoke tests, and iteration while gathering specialized support coverage through subagents when policy permits or equivalent local work otherwise.
 ---
 
 # PM Skill (Strict Orchestrator)
@@ -162,6 +162,9 @@ description: Strict PM orchestration workflow for any repo. Trigger when user in
 
 ## Subagent Launcher Compatibility (mandatory across all phases)
 - PM must launch only supported generic agent types: `default`, `explorer`, `worker`.
+- PM may launch subagents only when the current runtime/tool policy permits delegation and the user explicitly requested delegation, subagents, or parallel agent work.
+- If delegation is blocked by current policy, PM must complete the equivalent codebase analysis, external research, review, or QA work locally and report the skipped delegation as a warning with mitigation and status.
+- Any later `spawn_agent`, `spawn`, or subagent-handoff instruction in this file is conditional on this delegation gate; otherwise continue the same step locally/in-line and report the skipped delegation as a warning with mitigation and status.
 - PM must encode functional role in prompt payload (for example: `[Role: Senior Engineer]`).
 - PM must not depend on custom named launcher types being available.
 - Recommended launcher mapping:
@@ -205,8 +208,11 @@ description: Strict PM orchestration workflow for any repo. Trigger when user in
   - `<pm-helper> claude-contract run-loop --context-file <json> --response-file <txt> [--response-file <txt> ...] --session-id <id> --role <role>`
 - If parser/wrapper returns `status=context_needed` or `status=awaiting_context`, PM must collect requested info from orchestrator/user and continue in the same Claude session.
 
-## Paired Support Agents (mandatory)
-For every phase, run two support agents in parallel before asking user follow-ups, unless information is already sufficient:
+## Paired Support Coverage (mandatory)
+For every phase, gather Senior Engineer and Librarian coverage before asking user follow-ups, unless information is already sufficient:
+
+- Preferred path: run two support agents in parallel when the user explicitly requested delegation and current policy permits `spawn_agent`.
+- Fallback path: if delegation is not allowed in the current session, do the equivalent local codebase analysis and official-doc research in the main agent and report the skipped delegations as a warning with mitigation and status.
 
 1. **Senior Engineer Agent**
    - Load prompt from `references/senior-engineer.md`.
@@ -218,6 +224,7 @@ For every phase, run two support agents in parallel before asking user follow-up
    - Purpose: proactively fetch external knowledge (official docs, standards, APIs, release notes) using MCP tools and browser when needed.
    - Required tool usage: `exa` MCP, `context7` MCP, `deepwiki` MCP, `firecrawl` MCP, and `$agent-browser` skill when pages need interactive browsing.
    - Required behavior: synthesize all applicable sources before proposing answers; for specific libraries, resolve local project version from package manager files first.
+   - If an official docs host is shell-gated (for example by Cloudflare), use authoritative MCP/browser retrieval or alternate official URLs instead of treating direct shell fetch failure as a blocker.
    - Source priority: official/primary sources first.
 
 PM should merge both outputs and only ask the user for information that cannot be inferred from codebase or authoritative external sources.
@@ -287,25 +294,25 @@ After user approves implementation handoff at the Beads approval gate, create:
 
 ## Paired-Agent Execution Loop
 At each phase transition and whenever ambiguity appears:
-1. Spawn Senior Engineer (`explorer`) and Librarian (`default`) agents in parallel (`spawn_agent`).
-2. Wait for both (`wait`) and collect findings.
-3. If either response is incomplete, send targeted follow-up (`send_input`) and wait again.
-4. Ensure Librarian completed required multi-source review and version resolution (when library-specific).
-5. Update PM phase output using their findings.
+1. If the user explicitly requested delegation and current policy permits it, spawn Senior Engineer (`explorer`) and Librarian (`default`) agents in parallel (`spawn_agent`).
+2. If delegating, wait for both (`wait`) and collect findings.
+3. If delegating and either response is incomplete, send targeted follow-up (`send_input`) and wait again.
+4. If delegation is not allowed, perform the equivalent Senior Engineer and Librarian work locally and record the skipped delegations as a warning with mitigation and status.
+5. Ensure the final phase output includes the same codebase, multi-source review, and version-resolution coverage.
 6. Ask user only unresolved product decisions.
 
 Discovery extension:
-1. Spawn Smoke Test Planner (`default`) in parallel with Senior Engineer and Librarian, then route it using the active profile from `model-routing.yaml`.
-2. Spawn Researcher (`default`) for complex/no-straight-answer discovery questions.
-3. For deep investigations, use Researcher advanced mode with `use agent swarm for ...`.
-4. Spawn Alternative PM (`default`) on every discovery step using the active profile routing + `use agent swarm for ...`.
+1. If delegation is permitted, spawn Smoke Test Planner (`default`) in parallel with Senior Engineer and Librarian, then route it using the active profile from `model-routing.yaml`; otherwise produce the same smoke-planning artifacts locally and report the skipped delegation as a warning with mitigation and status.
+2. If delegation is permitted, spawn Researcher (`default`) for complex/no-straight-answer discovery questions; otherwise do the same research locally and report the skipped delegation as a warning with mitigation and status.
+3. For deep investigations, use Researcher advanced mode with `use agent swarm for ...` when delegation is permitted; otherwise complete the same investigation locally with the same evidence standard.
+4. If delegation is permitted, spawn Alternative PM (`default`) on every discovery step using the active profile routing + `use agent swarm for ...`; otherwise produce the same alternatives analysis locally and report the skipped delegation as a warning with mitigation and status.
 5. Merge smoke-test proposals, research findings, and alternatives analysis into Discovery Summary and PRD test plan.
 
 ## Phase Rules
 
 ### 1) Discovery
 - Enter Discovery automatically unless user explicitly says: `I already answered Discovery`.
-- Before asking user clarifications, consult Senior Engineer, Librarian, Smoke Test Planner, Researcher (for complex questions), and Alternative PM (every discovery step) to eliminate resolvable ambiguities.
+- Before asking user clarifications, gather Senior Engineer, Librarian, Smoke Test Planner, Researcher (for complex questions), and Alternative PM (every discovery step) coverage to eliminate resolvable ambiguities. Use subagents when policy permits; otherwise do the equivalent work locally and report the skipped delegations as warnings with mitigation and status.
 - Ask numbered clarification questions only.
 - Include `Why it matters:` for each question.
 - Do not provide solutions/code/PRD/tasks in this phase.
@@ -324,7 +331,7 @@ Discovery extension:
 - Wait for exact `approved`.
 - If user requests edits, update PRD and ask for approval again.
 - On approval, automatically invoke `$pm-beads-plan` with the approved PRD path.
-- Preferred orchestration path: invoke via generic `default` `spawn_agent` with role-labeled context (`[Role: PM Beads Plan Handoff]`) and wait for completion.
+- Preferred orchestration path: if delegation is permitted, invoke via generic `default` `spawn_agent` with role-labeled context (`[Role: PM Beads Plan Handoff]`) and wait for completion; otherwise continue into Beads planning in the same interaction and report the skipped delegation as a warning with mitigation and status.
 
 ### 4) Beads Planning
 - Validate task decomposition with Senior Engineer and dependency/standards constraints with Librarian.
@@ -345,8 +352,9 @@ Discovery extension:
 - If edits are requested, update beads plan and ask for approval again.
 - On approval, automatically create Team Lead agent and start team orchestration.
 - Preferred orchestration path:
-  - spawn Team Lead (`default`) agent first with role-labeled context (`[Role: Team Lead Agent]`)
-  - then invoke `$pm-implement` (Team Lead-supervised execution) via generic `default` `spawn_agent` with role-labeled context (`[Role: PM Implement Handoff]`) and wait for completion.
+  - if delegation is permitted, spawn Team Lead (`default`) agent first with role-labeled context (`[Role: Team Lead Agent]`)
+  - if delegation is permitted, then invoke `$pm-implement` (Team Lead-supervised execution) via generic `default` `spawn_agent` with role-labeled context (`[Role: PM Implement Handoff]`) and wait for completion
+  - otherwise continue into implementation orchestration in the same interaction and report the skipped delegations as warnings with mitigation and status
 
 ### 6) Team Lead Orchestration
 - Team Lead does not write implementation code.
@@ -399,7 +407,7 @@ Immediately after implementation completion, run all three reviewers:
    - Output: findings grouped by layer with severity, file path, critique, and required fix.
 
 All reviewers must post actionable comments before continuing.
-Use parallel sub-agents for this step whenever available.
+Use parallel sub-agents for this step only when the user explicitly requested delegation and current policy permits it; otherwise perform the equivalent reviews locally and report the skipped delegations as warnings with mitigation and status.
 - Reviewer launcher compatibility:
   - spawn AGENTS Compliance Reviewer as generic `default` subagent with role-labeled prompt
   - spawn Jazz as generic `default` subagent with role-labeled prompt, then invoke via `claude-code` MCP with prefix `use agent swarm for ...`

@@ -154,6 +154,8 @@ This workflow is the source of truth for PM orchestration in this repo. Installe
 
 ## Subagent Orchestration Policy
 - PM must launch only supported generic subagent types: `default`, `explorer`, and `worker`.
+- PM/Team Lead may delegate only when the current runtime/tool policy permits it and the user explicitly requested delegation, subagents, or parallel agent work.
+- If current policy blocks delegation for the active session, PM/Team Lead must perform the equivalent repo analysis, external research, or QA work locally and report the skipped delegation as a warning with mitigation and status.
 - PM must encode functional role in prompt payloads (for example: `[Role: Senior Engineer]`).
 - PM must not depend on named workflow agents or custom launcher types.
 - Claude remains an external MCP runtime, not a public launcher type.
@@ -171,11 +173,11 @@ This workflow is the source of truth for PM orchestration in this repo. Installe
 - Optional wrapper for multi-step sessions:
   - `<pm-helper> claude-contract run-loop --context-file <json> --response-file <txt> [--response-file <txt> ...] --session-id <id> --role <role>`
 - If handshake parser/wrapper returns `status=context_needed` or `status=awaiting_context`, orchestrator must gather requested context and continue in the same Claude session.
-- Required support subagents in discovery:
-  - Senior Engineer (`explorer`)
-  - Librarian (`default`)
-  - Smoke Test Planner (`default`)
-  - Alternative PM (`default`)
+- Required discovery support coverage:
+  - Senior Engineer (`explorer` when delegation is permitted; otherwise local codebase analysis)
+  - Librarian (`default` when delegation is permitted; otherwise local official-doc research)
+  - Smoke Test Planner (`default` when delegation is permitted; otherwise local smoke planning)
+  - Alternative PM (`default` when delegation is permitted; otherwise local alternatives analysis)
 - Implementation must run through Team Lead (`default`), which delegates coding to:
   - Backend Engineer (`worker`)
   - Frontend Engineer (`worker`)
