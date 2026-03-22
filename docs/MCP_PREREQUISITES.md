@@ -57,5 +57,9 @@ Not hard-required by PM contract, but commonly useful in real runs:
 - `clickup` (task operations)
 - `chrome-devtools` or `playwright` (browser validation outside `agent-browser` usage)
 
+Legacy cleanup note:
+- `droid-worker` is obsolete and is not part of current PM runtimes.
+- If it still exists in user-scope Claude config, remove it with `claude mcp remove droid-worker -s user`.
+
 ## For workspace images
 MCP config is runtime-level; ensure the workspace image/session has the same MCP entries before running `$pm`.

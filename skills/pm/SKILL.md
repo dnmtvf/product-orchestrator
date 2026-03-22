@@ -53,8 +53,10 @@ description: Strict PM orchestration workflow for any repo. Trigger when user in
   - Ask execution mode with exactly two options:
     - `Dynamic Cross-Runtime`
     - `Main Runtime Only`
+  - For interactive `/pm plan` and `/pm plan big feature` runs, ask this question on every new planning invocation before Discovery starts.
+  - Use persisted execution-mode state only as the default suggested selection for the interactive prompt; do not treat persisted state alone as satisfying the interactive gate.
   - Persist selected mode across sessions until explicitly changed.
-  - Selection precedence is explicit `--mode` override, then persisted execution-mode state.
+  - Selection precedence is explicit interactive selection or `--mode` override, then persisted execution-mode state for default suggestion or direct helper usage.
   - Outer runtime is inferred fresh on every invocation from the active Codex or Claude session.
   - Re-echo active mode and detected outer runtime at workflow start on every invocation.
   - Main roles must follow selected execution mode plus detected outer runtime:

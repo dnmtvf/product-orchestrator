@@ -167,6 +167,8 @@ live_contracts="$(
 )"
 assert_contains "$live_contracts" 'The helper gate output is authoritative. If it returns `PLAN_ROUTE_BLOCKED` or `discovery_can_start=0`, do not invoke Discovery or any downstream phase.'
 assert_contains "$live_contracts" 'Discovery may start only if the preceding `plan gate` returned `PLAN_ROUTE_READY` and `discovery_can_start=1`.'
+assert_contains "$live_contracts" 'Interactive `/pm plan` and `/pm plan big feature` runs must ask this question on every new planning invocation before Discovery starts.'
+assert_contains "$live_contracts" 'Interactive PM orchestration must use persisted execution-mode state only as the default suggested choice, then pass the user’s explicit selection to the helper gate.'
 assert_contains "$live_contracts" 'Do not auto-fallback to `codex-native` inside Discovery. Treat this as a critical phase block and return control to PM.'
 assert_contains "$live_contracts" 'Do not auto-fallback to the main runtime inside `dynamic-cross-runtime`. Surface a critical phase block and return control to PM.'
 assert_contains "$live_contracts" 'Do not auto-fallback to `codex-native` inside implementation or review phases when a required Claude-routed role is unavailable.'
@@ -198,12 +200,19 @@ cat >"$FAKE_CLAUDE_BIN/claude" <<'EOF'
 if [ "${1:-}" = "mcp" ] && [ "${2:-}" = "list" ]; then
   case "${FAKE_CLAUDE_MCP_MODE:-ok}" in
     ok)
-      printf 'claude-code enabled\n'
+      if [ "${FAKE_CLAUDE_MCP_ECHO_TIMEOUT:-0}" = "1" ]; then
+        printf 'claude-code enabled timeout=%s\n' "${MCP_TIMEOUT:-<unset>}"
+      else
+        printf 'claude-code enabled\n'
+      fi
       exit 0
       ;;
     partial-hang)
       printf 'Checking MCP server health...\n'
-      sleep "${FAKE_CLAUDE_MCP_SLEEP_SECONDS:-7}"
+      sleep "${FAKE_CLAUDE_MCP_SLEEP_SECONDS:-20}"
+      if [ "${FAKE_CLAUDE_MCP_ECHO_TIMEOUT:-0}" = "1" ]; then
+        printf 'timeout=%s\n' "${MCP_TIMEOUT:-<unset>}"
+      fi
       exit 0
       ;;
     nonzero)
@@ -266,6 +275,8 @@ assert_contains "$help_out" 'Filter non-pipeline changes and emit integration-pl
 assert_contains "$help_out" 'Execution-mode options are:'
 assert_contains "$help_out" 'Dynamic Cross-Runtime'
 assert_contains "$help_out" 'Main Runtime Only'
+assert_contains "$help_out" 'Interactive `/pm` plan runs should ask for execution mode on every new planning invocation and pass an explicit `--mode` to the helper gate'
+assert_contains "$help_out" 'Selected execution mode persists in .codex; direct helper usage may reuse it by default when no `--mode` is supplied'
 assert_contains "$help_out" 'Outer runtime is inferred fresh from the running Codex or Claude session on every plan gate'
 assert_contains "$help_out" 'If the plan gate reports `PLAN_ROUTE_BLOCKED` or `discovery_can_start=0`, do not enter Discovery or any downstream phase'
 assert_contains "$help_out" 'If the outer runtime cannot be positively identified, fail closed, emit `RUNTIME_DETECTION_ERROR`, and persist the run outcome in telemetry'
@@ -458,10 +469,52 @@ assert_contains "$self_check_happy_out" 'PLAN_ROUTE_READY|route=default|selected
 assert_contains "$self_check_happy_out" 'SELF_CHECK_ARTIFACT_STATUS|'
 assert_contains "$self_check_happy_out" 'SELF_CHECK_RESULT|status=clean|'
 assert_contains "$self_check_happy_out" 'SELF_CHECK_HEALER_READY|status=ready|'
+assert_not_contains "$self_check_happy_out" 'code=legacy_droid_worker_detected'
 [ -f "$SELF_CHECK_HAPPY_DIR/summary.json" ] || fail "self-check happy path did not write summary.json"
 [ -f "$SELF_CHECK_HAPPY_DIR/healer-context.json" ] || fail "self-check happy path did not write healer-context.json"
 [ -f "$SELF_CHECK_HAPPY_DIR/healer-prompt.md" ] || fail "self-check happy path did not write healer-prompt.md"
-jq -e '.status == "clean" and .fixture_case == "happy-path" and .execution_mode == "main-runtime-only" and .claude_health.registration == "passed" and .claude_health.executability == "passed" and .claude_health.session_usability == "passed" and .child_plan_gate.status == "ready" and .artifact_checks.codex_mcp_snapshot.status == "passed" and .artifact_checks.claude_mcp_snapshot.status == "passed" and (.artifact_checks.codex_mcp_snapshot.command_path | test("fake-codex-bin/codex$")) and .artifact_checks.claude_mcp_snapshot.command_source == "env:PM_LEAD_MODEL_CLAUDE_COMMAND_OVERRIDE"' "$SELF_CHECK_HAPPY_DIR/summary.json" >/dev/null || fail "self-check happy path summary missing expected clean health or artifact fields"
+jq -e '.status == "clean" and .fixture_case == "happy-path" and .execution_mode == "main-runtime-only" and .claude_health.registration == "passed" and .claude_health.executability == "passed" and .claude_health.session_usability == "passed" and .child_plan_gate.status == "ready" and .artifact_checks.codex_mcp_snapshot.status == "passed" and .artifact_checks.claude_mcp_snapshot.status == "passed" and (.artifact_checks.codex_mcp_snapshot.command_path | test("fake-codex-bin/codex$")) and .artifact_checks.codex_mcp_snapshot.timeout_seconds == 5 and .artifact_checks.claude_mcp_snapshot.command_source == "env:PM_LEAD_MODEL_CLAUDE_COMMAND_OVERRIDE" and .artifact_checks.claude_mcp_snapshot.timeout_seconds == 12 and .artifact_checks.claude_mcp_snapshot.command_env_overrides == "MCP_TIMEOUT=3000" and ([.events[] | select(.code == "legacy_droid_worker_detected")] | length) == 0' "$SELF_CHECK_HAPPY_DIR/summary.json" >/dev/null || fail "self-check happy path summary missing expected clean health or artifact fields"
+
+SELF_CHECK_CLAUDE_BOUNDED_DIR="$TMPDIR/self-check-claude-bounded"
+echo "[test-pm-command] case: self-check keeps clean status when Claude snapshot is slow but completes within bounded timeout"
+self_check_claude_bounded_out="$(
+  PM_PLAN_GATE_RUNTIME_OVERRIDE=codex \
+  PM_LEAD_MODEL_CLAUDE_MCP_LIST_OVERRIDE='claude-code enabled' \
+  PM_LEAD_MODEL_CODEX_COMMAND_OVERRIDE="$FAKE_CODEX_BIN/codex" \
+  PM_LEAD_MODEL_CLAUDE_COMMAND_OVERRIDE="$FAKE_CLAUDE_BIN/claude" \
+  FAKE_CLAUDE_MCP_MODE=partial-hang \
+  FAKE_CLAUDE_MCP_SLEEP_SECONDS=7 \
+  FAKE_CLAUDE_MCP_ECHO_TIMEOUT=1 \
+  "$HELPER" self-check run --fixture-case happy-path --artifacts-dir "$SELF_CHECK_CLAUDE_BOUNDED_DIR" --mode main-runtime-only
+)"
+assert_contains "$self_check_claude_bounded_out" 'SELF_CHECK_RESULT|status=clean|'
+jq -e '.status == "clean" and .artifact_checks.claude_mcp_snapshot.status == "passed" and .artifact_checks.claude_mcp_snapshot.timeout_seconds == 12 and .artifact_checks.claude_mcp_snapshot.command_env_overrides == "MCP_TIMEOUT=3000" and (.artifact_checks.claude_mcp_snapshot.partial_combined_output | test("timeout=3000"))' "$SELF_CHECK_CLAUDE_BOUNDED_DIR/summary.json" >/dev/null || fail "self-check bounded Claude snapshot summary missing expected timeout policy evidence"
+
+LEGACY_DROID_CONFIG="$HOME/.claude.json"
+cat >"$LEGACY_DROID_CONFIG" <<'EOF'
+{
+  "mcpServers": {
+    "droid-worker": {
+      "type": "stdio",
+      "command": "/tmp/legacy-droid",
+      "args": ["--mcp"],
+      "env": {}
+    }
+  }
+}
+EOF
+SELF_CHECK_LEGACY_DROID_DIR="$TMPDIR/self-check-legacy-droid"
+echo "[test-pm-command] case: self-check surfaces legacy droid-worker as cleanup guidance without downgrading clean status"
+self_check_legacy_droid_out="$(
+  PM_PLAN_GATE_RUNTIME_OVERRIDE=codex \
+  PM_LEAD_MODEL_CLAUDE_MCP_LIST_OVERRIDE='claude-code enabled' \
+  PM_LEAD_MODEL_CODEX_COMMAND_OVERRIDE="$FAKE_CODEX_BIN/codex" \
+  PM_LEAD_MODEL_CLAUDE_COMMAND_OVERRIDE="$FAKE_CLAUDE_BIN/claude" \
+  "$HELPER" self-check run --fixture-case happy-path --artifacts-dir "$SELF_CHECK_LEGACY_DROID_DIR" --mode main-runtime-only
+)"
+assert_contains "$self_check_legacy_droid_out" 'code=legacy_droid_worker_detected'
+jq -e '.status == "clean" and ([.events[] | select(.code == "legacy_droid_worker_detected")] | length) == 1' "$SELF_CHECK_LEGACY_DROID_DIR/summary.json" >/dev/null || fail "self-check legacy droid-worker summary missing expected cleanup event"
+rm -f "$LEGACY_DROID_CONFIG"
 
 SELF_CHECK_UNHEALTHY_DIR="$TMPDIR/self-check-unhealthy"
 echo "[test-pm-command] case: self-check fails whole run when Claude health checks fail"
@@ -496,7 +549,7 @@ assert_contains "$self_check_artifact_hang_out" 'issue_codes=snapshot_command_hu
 assert_contains "$self_check_artifact_hang_out" 'SELF_CHECK_RESULT|status=issues_detected|'
 assert_contains "$self_check_artifact_hang_out" 'SELF_CHECK_REPAIR_BUNDLE|path='
 assert_contains "$self_check_artifact_hang_out" 'SELF_CHECK_HEALER_READY|status=ready|'
-jq -e '.status == "issues_detected" and .claude_health.session_usability == "passed" and .artifact_checks.claude_mcp_snapshot.primary_code == "snapshot_command_hung" and (.artifact_checks.claude_mcp_snapshot.issue_codes | index("snapshot_partial_output")) != null and .artifact_checks.claude_mcp_snapshot.partial_combined_output == "Checking MCP server health..."' "$SELF_CHECK_ARTIFACT_HANG_DIR/summary.json" >/dev/null || fail "self-check artifact hang summary missing expected hang classification"
+jq -e '.status == "issues_detected" and .claude_health.session_usability == "passed" and .artifact_checks.claude_mcp_snapshot.primary_code == "snapshot_command_hung" and .artifact_checks.claude_mcp_snapshot.timeout_seconds == 12 and .artifact_checks.claude_mcp_snapshot.command_env_overrides == "MCP_TIMEOUT=3000" and (.artifact_checks.claude_mcp_snapshot.issue_codes | index("snapshot_partial_output")) != null and .artifact_checks.claude_mcp_snapshot.partial_combined_output == "Checking MCP server health..."' "$SELF_CHECK_ARTIFACT_HANG_DIR/summary.json" >/dev/null || fail "self-check artifact hang summary missing expected hang classification"
 
 SELF_CHECK_ARTIFACT_NONZERO_DIR="$TMPDIR/self-check-artifact-nonzero"
 echo "[test-pm-command] case: self-check downgrades to issues_detected when Claude snapshot exits nonzero"

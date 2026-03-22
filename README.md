@@ -117,9 +117,10 @@ Use the PM helper path that matches where you are running:
 
 1. Open a session in the target repo.
 2. Start the workflow with `/pm` and your request.
-3. Let the helper infer the outer runtime from the active Codex or Claude session, then select execution mode before Discovery starts:
+3. On every new interactive `/pm plan` or `/pm plan big feature` run, let the helper infer the outer runtime from the active Codex or Claude session, then ask you to select execution mode before Discovery starts:
    - `Dynamic Cross-Runtime`
    - `Main Runtime Only`
+   - Persisted execution-mode state should be used only as the default suggested choice for the interactive prompt.
 4. Respond to discovery clarification questions.
 5. Approve PRD by replying exactly `approved`.
 6. Review Beads plan and approve by replying exactly `approved`.
@@ -153,6 +154,10 @@ Execution-mode commands:
 /pm execution-mode set --mode main-runtime-only
 /pm execution-mode reset
 ```
+
+Direct helper note:
+- Interactive `/pm` planning should always ask for execution mode on each new planning run.
+- Direct helper usage (`./skills/pm/scripts/pm-command.sh plan gate ...`) may still reuse persisted execution-mode state when no explicit `--mode` override is supplied.
 
 Big-feature mode example:
 
@@ -188,6 +193,7 @@ Manual self-check mode:
 - Healthy runtime plus healthy artifact capture ends `clean`.
 - Unhealthy Claude registration, executability, or session usability ends `failed`.
 - Broken artifact capture with otherwise usable runtime ends `issues_detected`, writes per-snapshot attempt JSON plus stdout/stderr artifacts, and still emits `SELF_CHECK_HEALER_READY` so the outer healer can package repairs through the normal PM flow.
+- Legacy `droid-worker` is obsolete. If self-check surfaces `legacy_droid_worker_detected`, remove it from user-scope Claude config with `claude mcp remove droid-worker -s user`; current PM runtimes do not use it.
 
 ## Fixed phase order
 

@@ -42,8 +42,10 @@ This workflow is the source of truth for PM orchestration in this repo. Installe
 - Before Discovery for both plan routes, run a mandatory execution-mode selection gate with exactly two options:
   - `Dynamic Cross-Runtime`
   - `Main Runtime Only`
-- Persist selected execution mode across sessions and reuse by default until changed.
-- Selection precedence is explicit `--mode` override, then persisted state.
+- Interactive `/pm plan` and `/pm plan big feature` runs must ask this question on every new planning invocation before Discovery starts.
+- Interactive PM orchestration must use persisted execution-mode state only as the default suggested choice, then pass the user’s explicit selection to the helper gate.
+- Persist selected execution mode across sessions.
+- Selection precedence is explicit interactive selection or `--mode` override, then persisted state for direct helper usage.
 - Outer runtime must be inferred fresh on every plan gate run from the active Codex or Claude session.
 - Selected execution mode plus the inferred outer runtime must drive runtime/model for:
   - `project_manager`

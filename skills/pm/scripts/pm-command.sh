@@ -60,6 +60,10 @@ SELF_CHECK_FIXTURE_SUITE_VERSION="pm-self-check-v1"
 SELF_CHECK_DEFAULT_FIXTURE_CASE="happy-path"
 SELF_CHECK_DEFAULT_EXECUTION_MODE="$EXECUTION_MODE_MAIN_ONLY"
 SELF_CHECK_PROBE_SUCCESS_RESPONSE="Synthetic self-check Claude probe complete."
+SELF_CHECK_CODEX_SNAPSHOT_TIMEOUT_SECONDS_DEFAULT=5
+SELF_CHECK_CLAUDE_SNAPSHOT_TIMEOUT_SECONDS_DEFAULT=12
+SELF_CHECK_CLAUDE_MCP_TIMEOUT_MS_DEFAULT=3000
+LEGACY_CLAUDE_MCP_SERVER_DROID="droid-worker"
 TELEMETRY_TABLE_NAME="pm_step_events"
 TELEMETRY_RUNS_TABLE_NAME="pm_runtime_detection_runs"
 TELEMETRY_DEFAULT_USAGE_SOURCE="provider_response"
@@ -118,6 +122,9 @@ Environment toggles:
   PM_SELF_UPDATE_STRICT_MISMATCH=1|0      Fail check when corroborative sources disagree with changelog (default: 0)
   PM_SELF_UPDATE_RELEVANCE_INCLUDE_REGEX   Override include regex for pipeline-relevant change filtering
   PM_SELF_UPDATE_RELEVANCE_EXCLUDE_REGEX   Override exclude regex for non-pipeline change filtering
+  PM_SELF_CHECK_CODEX_SNAPSHOT_TIMEOUT_SECONDS   Override codex snapshot timeout window (default: 5)
+  PM_SELF_CHECK_CLAUDE_SNAPSHOT_TIMEOUT_SECONDS  Override Claude snapshot timeout window (default: 12)
+  PM_SELF_CHECK_CLAUDE_MCP_TIMEOUT_MS            Override Claude MCP startup timeout used during self-check snapshots (default: 3000)
   PM_TELEMETRY_DSN                         PostgreSQL DSN used for telemetry persistence/query
   PM_TELEMETRY_PSQL_BIN                    Optional absolute path to psql binary
 
@@ -1222,6 +1229,8 @@ self_check_write_snapshot_attempt() {
   local pid="${23:-}"
   local process_state="${24:-}"
   local telemetry_complete="${25:-1}"
+  local timeout_seconds="${26:-}"
+  local command_env_overrides="${27:-}"
   local stdout_excerpt stderr_excerpt combined_excerpt issue_codes_json
 
   stdout_excerpt="$(self_check_text_excerpt "$stdout_path")"
@@ -1230,6 +1239,9 @@ self_check_write_snapshot_attempt() {
   issue_codes_json="$(printf '%s' "$issue_codes_csv" | tr ',' '\n' | json_array_from_newlines 2>/dev/null || printf '[]')"
   if [ -z "$path_override_source" ]; then
     path_override_source="<none>"
+  fi
+  if [ -z "$command_env_overrides" ]; then
+    command_env_overrides="<none>"
   fi
   if [ -z "$process_state" ] || [ "$process_state" = "not_started" ]; then
     process_state="exited"
@@ -1258,6 +1270,8 @@ self_check_write_snapshot_attempt() {
     --arg exit_signal "$exit_signal" \
     --arg pid "$pid" \
     --arg process_state "$process_state" \
+    --arg timeout_seconds "$timeout_seconds" \
+    --arg command_env_overrides "$command_env_overrides" \
     --arg stdout_excerpt "$stdout_excerpt" \
     --arg stderr_excerpt "$stderr_excerpt" \
     --arg combined_excerpt "$combined_excerpt" \
@@ -1289,6 +1303,8 @@ self_check_write_snapshot_attempt() {
       timed_out: $timed_out,
       pid: (if $pid == "" then null else $pid end),
       process_state: $process_state,
+      timeout_seconds: ($timeout_seconds | tonumber? // null),
+      command_env_overrides: $command_env_overrides,
       partial_stdout: $stdout_excerpt,
       partial_stderr: $stderr_excerpt,
       partial_combined_output: $combined_excerpt,
@@ -1309,7 +1325,8 @@ self_check_capture_snapshot_command() {
   local stdout_path="${10}"
   local stderr_path="${11}"
   local attempt_file="${12}"
-  shift 12
+  local command_env_overrides="${13:-}"
+  shift 13
   local started_at completed_at start_ms end_ms elapsed_ms
   local pid="" wait_rc=0 timed_out=0 telemetry_complete=1
   local exit_code="" exit_signal="" process_state="not_started"
@@ -1406,7 +1423,8 @@ self_check_capture_snapshot_command() {
     "$attempt_file" "$step" "$runtime_kind" "$execution_mode" "$run_id" "$status" "$primary_code" "$issue_codes_csv" \
     "$detail" "$remediation" "$command_path" "$command_source" "$path_override_source" \
     "$artifact_path" "$stdout_path" "$stderr_path" "$started_at" "$completed_at" "$elapsed_ms" \
-    "$exit_code" "$exit_signal" "$timed_out" "$pid" "$process_state" "$telemetry_complete"
+    "$exit_code" "$exit_signal" "$timed_out" "$pid" "$process_state" "$telemetry_complete" \
+    "$timeout_seconds" "$command_env_overrides"
 }
 
 self_check_write_snapshot_unavailable() {
@@ -1432,7 +1450,8 @@ self_check_write_snapshot_unavailable() {
     "$attempt_file" "$step" "$runtime_kind" "$execution_mode" "$run_id" "failed" "snapshot_runtime_unavailable" "snapshot_runtime_unavailable" \
     "$detail" "$remediation" "" "$command_source" "$path_override_source" \
     "$artifact_path" "$stdout_path" "$stderr_path" "$started_at" "$started_at" "0" \
-    "" "" "0" "" "unavailable" "1"
+    "" "" "0" "" "unavailable" "1" \
+    "" ""
 }
 
 self_check_write_snapshot_skipped() {
@@ -1456,7 +1475,8 @@ self_check_write_snapshot_skipped() {
     "$attempt_file" "$step" "$runtime_kind" "$execution_mode" "$run_id" "skipped" "snapshot_capture_skipped" "snapshot_capture_skipped" \
     "$detail" "$remediation" "" "policy:PM_SELF_CHECK_SKIP_ARTIFACT_STEPS" "<none>" \
     "$artifact_path" "$stdout_path" "$stderr_path" "$started_at" "$started_at" "0" \
-    "" "" "0" "" "skipped" "1"
+    "" "" "0" "" "skipped" "1" \
+    "" ""
 }
 
 self_check_record_snapshot_attempt() {
@@ -1493,6 +1513,8 @@ self_check_record_snapshot_attempt() {
     command_path,
     command_source,
     path_override_source,
+    timeout_seconds,
+    command_env_overrides,
     elapsed_ms,
     exit_code,
     exit_signal,
@@ -1515,6 +1537,53 @@ self_check_record_snapshot_attempt() {
 
   severity="warning"
   self_check_record_event "$console_log_file" "$events_file" "$findings_file" "$run_id" "artifacts" "$step" "$severity" "$status" "${primary_code:-snapshot_capture_failed}" "$detail" "$remediation" "$artifact_path" "$metadata_json"
+  return 1
+}
+
+self_check_snapshot_timeout_seconds() {
+  local runtime_kind="$1"
+  local configured default_value
+
+  case "$runtime_kind" in
+    "$RUNTIME_PROVIDER_CODEX")
+      default_value="$SELF_CHECK_CODEX_SNAPSHOT_TIMEOUT_SECONDS_DEFAULT"
+      configured="${PM_SELF_CHECK_CODEX_SNAPSHOT_TIMEOUT_SECONDS:-$default_value}"
+      ;;
+    "$RUNTIME_PROVIDER_CLAUDE")
+      default_value="$SELF_CHECK_CLAUDE_SNAPSHOT_TIMEOUT_SECONDS_DEFAULT"
+      configured="${PM_SELF_CHECK_CLAUDE_SNAPSHOT_TIMEOUT_SECONDS:-$default_value}"
+      ;;
+    *)
+      default_value="$SELF_CHECK_CODEX_SNAPSHOT_TIMEOUT_SECONDS_DEFAULT"
+      configured="$default_value"
+      ;;
+  esac
+
+  if [[ "$configured" =~ ^[0-9]+$ ]] && [ "$configured" -gt 0 ]; then
+    printf '%s' "$configured"
+    return 0
+  fi
+
+  printf '%s' "$default_value"
+}
+
+self_check_claude_mcp_timeout_ms() {
+  local configured="${PM_SELF_CHECK_CLAUDE_MCP_TIMEOUT_MS:-$SELF_CHECK_CLAUDE_MCP_TIMEOUT_MS_DEFAULT}"
+  if [[ "$configured" =~ ^[0-9]+$ ]] && [ "$configured" -ge 1000 ]; then
+    printf '%s' "$configured"
+    return 0
+  fi
+  printf '%s' "$SELF_CHECK_CLAUDE_MCP_TIMEOUT_MS_DEFAULT"
+}
+
+self_check_legacy_droid_worker_config_path() {
+  local config_file="${HOME:-}/.claude.json"
+  [ -n "${HOME:-}" ] || return 1
+  [ -f "$config_file" ] || return 1
+  if jq -e --arg name "$LEGACY_CLAUDE_MCP_SERVER_DROID" '.mcpServers?[$name] != null' "$config_file" >/dev/null 2>&1; then
+    printf '%s' "$config_file"
+    return 0
+  fi
   return 1
 }
 
@@ -1680,6 +1749,8 @@ run_self_check_run() {
   local probe_output probe_eval_out probe_eval_rc=0
   local codex_snapshot_command="" codex_snapshot_command_source="" codex_snapshot_path_override_source=""
   local claude_snapshot_command="" claude_snapshot_command_source="" claude_snapshot_path_override_source=""
+  local codex_snapshot_timeout_seconds="" claude_snapshot_timeout_seconds="" claude_mcp_timeout_ms=""
+  local claude_command_env_overrides="" legacy_droid_worker_config=""
   local artifact_status="passed" artifact_metadata_json=""
 
   while [ $# -gt 0 ]; do
@@ -1759,6 +1830,11 @@ run_self_check_run() {
   self_check_emit_line "$console_log_file" "SELF_CHECK_RUN|run_id=$run_id|fixture_suite=$SELF_CHECK_FIXTURE_SUITE_VERSION|fixture_case=$fixture_case|execution_mode=$execution_mode|expected_status=$expected_status|artifact_dir=$(display_path "$artifacts_dir")"
   self_check_emit_line "$console_log_file" "SELF_CHECK_ARTIFACT|kind=console_log|path=$(display_path "$console_log_file")"
 
+  codex_snapshot_timeout_seconds="$(self_check_snapshot_timeout_seconds "$RUNTIME_PROVIDER_CODEX")"
+  claude_snapshot_timeout_seconds="$(self_check_snapshot_timeout_seconds "$RUNTIME_PROVIDER_CLAUDE")"
+  claude_mcp_timeout_ms="$(self_check_claude_mcp_timeout_ms)"
+  claude_command_env_overrides="MCP_TIMEOUT=$claude_mcp_timeout_ms"
+
   if self_check_should_skip_artifact_step "codex_mcp_snapshot"; then
     self_check_write_snapshot_skipped \
       "codex_mcp_snapshot" "$RUNTIME_PROVIDER_CODEX" "$execution_mode" "$run_id" \
@@ -1779,9 +1855,9 @@ run_self_check_run() {
         "$codex_snapshot_file" "$codex_snapshot_stdout_file" "$codex_snapshot_stderr_file" "$codex_snapshot_attempt_file"
     else
       self_check_capture_snapshot_command \
-        5 "codex_mcp_snapshot" "$RUNTIME_PROVIDER_CODEX" "$execution_mode" "$run_id" \
+        "$codex_snapshot_timeout_seconds" "codex_mcp_snapshot" "$RUNTIME_PROVIDER_CODEX" "$execution_mode" "$run_id" \
         "$codex_snapshot_command" "${codex_snapshot_command_source:-default(command=codex)}" "${codex_snapshot_path_override_source:-<none>}" \
-        "$codex_snapshot_file" "$codex_snapshot_stdout_file" "$codex_snapshot_stderr_file" "$codex_snapshot_attempt_file" \
+        "$codex_snapshot_file" "$codex_snapshot_stdout_file" "$codex_snapshot_stderr_file" "$codex_snapshot_attempt_file" "" \
         "$codex_snapshot_command" mcp list
     fi
   fi
@@ -1809,14 +1885,25 @@ run_self_check_run() {
       claude_snapshot_command_source="$CLAUDE_MCP_LAST_COMMAND_SOURCE"
       claude_snapshot_path_override_source="$CLAUDE_MCP_LAST_PATH_OVERRIDE_SOURCE"
       self_check_capture_snapshot_command \
-        5 "claude_mcp_snapshot" "$RUNTIME_PROVIDER_CLAUDE" "$execution_mode" "$run_id" \
+        "$claude_snapshot_timeout_seconds" "claude_mcp_snapshot" "$RUNTIME_PROVIDER_CLAUDE" "$execution_mode" "$run_id" \
         "$claude_snapshot_command" "${claude_snapshot_command_source:-default(command=claude)}" "${claude_snapshot_path_override_source:-<none>}" \
-        "$claude_snapshot_file" "$claude_snapshot_stdout_file" "$claude_snapshot_stderr_file" "$claude_snapshot_attempt_file" \
-        "$claude_snapshot_command" mcp list
+        "$claude_snapshot_file" "$claude_snapshot_stdout_file" "$claude_snapshot_stderr_file" "$claude_snapshot_attempt_file" "$claude_command_env_overrides" \
+        env "MCP_TIMEOUT=$claude_mcp_timeout_ms" "$claude_snapshot_command" mcp list
     fi
   fi
   if ! self_check_record_snapshot_attempt "$console_log_file" "$events_file" "$findings_file" "$run_id" "$claude_snapshot_attempt_file"; then
     artifact_status="issues_detected"
+  fi
+
+  legacy_droid_worker_config="$(self_check_legacy_droid_worker_config_path || true)"
+  if [ -n "$legacy_droid_worker_config" ]; then
+    self_check_record_event \
+      "$console_log_file" "$events_file" "$findings_file" "$run_id" \
+      "artifacts" "claude_mcp_snapshot" "info" "detected" "legacy_droid_worker_detected" \
+      "Legacy Claude MCP server droid-worker is still configured in user scope. Current PM runtimes do not use it." \
+      "Remove it with: claude mcp remove droid-worker -s user" \
+      "$(display_path "$claude_snapshot_file")" \
+      "$(jq -nc --arg server_name "$LEGACY_CLAUDE_MCP_SERVER_DROID" --arg config_path "$(display_path "$legacy_droid_worker_config")" '{server_name: $server_name, config_path: $config_path}')"
   fi
 
   if ! claude_mcp_server_healthy; then
@@ -3515,7 +3602,8 @@ Approval gates:
   - Dynamic Cross-Runtime
   - Main Runtime Only
 - Outer runtime is inferred fresh from the running Codex or Claude session on every plan gate
-- Selected execution mode persists in .codex and is reused by default
+- Interactive `/pm` plan runs should ask for execution mode on every new planning invocation and pass an explicit `--mode` to the helper gate
+- Selected execution mode persists in .codex; direct helper usage may reuse it by default when no `--mode` is supplied
 - `Dynamic Cross-Runtime` uses the opposite-provider MCP path for routed support roles and blocks when that path is unavailable
 - `Main Runtime Only` keeps all roles on the detected outer runtime and does not require the opposite-provider MCP path
 - If the plan gate reports `PLAN_ROUTE_BLOCKED` or `discovery_can_start=0`, do not enter Discovery or any downstream phase
