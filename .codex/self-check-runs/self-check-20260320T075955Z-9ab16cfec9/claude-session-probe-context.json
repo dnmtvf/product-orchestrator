@@ -1,0 +1,20 @@
+{
+  "feature_objective": "Validate Claude session usability for PM self-check run self-check-20260320T075955Z-9ab16cfec9",
+  "prd_context": "docs/prd/2026-03-17--pm-self-check-healer-mode.md#self-check",
+  "task_id": "self-check-20260320T075955Z-9ab16cfec9",
+  "acceptance_criteria": [
+    "Claude wrapper evaluation returns a usable result for the synthetic probe"
+  ],
+  "implementation_status": "Self-check preflight",
+  "changed_files": [
+    "skills/pm/scripts/pm-command.sh"
+  ],
+  "constraints": [
+    "Keep PM public launcher contract generic",
+    "Do not bypass approval gates"
+  ],
+  "evidence": {
+    "synthetic_task": "Create a snake game"
+  },
+  "clarifying_instruction": "If you have missing or ambiguous context, ask specific clarifying questions before final recommendations."
+}

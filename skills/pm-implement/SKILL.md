@@ -28,7 +28,7 @@ If any precondition fails:
 
 ## Claude-Dependent Phase Blocking (mandatory)
 - Implementation and review phases must not reinterpret an earlier blocked orchestration gate as degraded mode.
-- If a required Claude-routed role under `codex-main`, or a required `codex-worker` role under `claude-main`, becomes unavailable during implementation, verification, review, or manual QA, stop the affected phase and return control to PM/Team Lead.
+- If a required Claude-routed role under `dynamic-cross-runtime` with Codex outer runtime, or a required `codex-worker` role under `dynamic-cross-runtime` with Claude outer runtime, becomes unavailable during implementation, verification, review, or manual QA, stop the affected phase and return control to PM/Team Lead.
 - Do not auto-fallback to `codex-native` inside implementation or review phases when a required Claude-routed role is unavailable.
 
 ## PM Helper Path Resolution
@@ -57,6 +57,7 @@ If any precondition fails:
 
 ## Subagent Launcher Compatibility (mandatory across implementation phases)
 - Spawn only supported generic agent types: `default`, `explorer`, `worker`.
+- Required implementation, verification, review, and QA subagents are default behavior whenever the current runtime/tool policy permits delegation.
 - Encode role in prompt payload for every spawned subagent (for example: `[Role: Backend Engineer]`).
 - Do not rely on custom named subagent launchers.
 - Recommended launcher mapping:
@@ -184,10 +185,10 @@ After implementation tasks are complete, automatically run all three reviewers i
    - Load prompt from `references/jazz.md`.
    - Persona: grumpy, nitpicky old fart.
    - Behavior: doubt assumptions, challenge weak logic, call out edge cases and missing rigor.
-   - Runner: use active profile routing from `model-routing.yaml`:
-     - `full-codex`: run codex-native as configured.
-     - `codex-main`: spawn as generic `default` with role-labeled prompt, then invoke via `claude-code` MCP.
-     - `claude-main`: invoke via `codex-worker` MCP in the Claude runtime.
+   - Runner: use active execution-mode routing from `model-routing.yaml`:
+     - `main-runtime-only`: run on the detected outer runtime.
+     - `dynamic-cross-runtime` with Codex outer runtime: spawn as generic `default` with role-labeled prompt, then invoke via `claude-code` MCP.
+     - `dynamic-cross-runtime` with Claude outer runtime: invoke via `codex-worker` MCP in the Claude runtime.
    - Return concrete defects and demanded fixes.
 
 3. **Codex Reviewer**

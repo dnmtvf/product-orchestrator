@@ -64,6 +64,20 @@ $extra_config
 EOF
 }
 
+write_claude_settings() {
+  local settings_path="$1"
+  local model="$2"
+  local effort_level="$3"
+
+  mkdir -p "$(dirname "$settings_path")"
+  cat >"$settings_path" <<EOF
+{
+  "model": "$model",
+  "effortLevel": "$effort_level"
+}
+EOF
+}
+
 write_prd() {
   local prd_path="$1"
   shift
@@ -98,17 +112,17 @@ require_tool diff
 
 echo "[test-pm-command] case: routing policy blocks Claude-dependent phases instead of degrading them"
 routing_contract="$(cat "$ROOT_DIR/skills/pm/agents/model-routing.yaml")"
-assert_contains "$routing_contract" 'default_profile: codex-main'
-assert_contains "$routing_contract" 'full-codex: Full Codex Orchestration'
-assert_contains "$routing_contract" 'codex-main: Codex as Main Agent'
-assert_contains "$routing_contract" 'claude-main: Claude as Main Orchestrator'
-assert_contains "$routing_contract" 'model: gpt-5.4'
-assert_contains "$routing_contract" 'reasoning_effort: xhigh'
+assert_contains "$routing_contract" 'default_mode: dynamic-cross-runtime'
+assert_contains "$routing_contract" 'dynamic-cross-runtime: Dynamic Cross-Runtime'
+assert_contains "$routing_contract" 'main-runtime-only: Main Runtime Only'
+assert_contains "$routing_contract" 'fail_closed: true'
+assert_contains "$routing_contract" 'dynamic-cross-runtime under codex blocks until claude-code is healthy and executable'
+assert_contains "$routing_contract" 'dynamic-cross-runtime under claude blocks until codex-worker is healthy and codex is executable'
 assert_contains "$routing_contract" 'phase_entry_requirements:'
 assert_contains "$routing_contract" 'runtime_failure_policy:'
-assert_contains "$routing_contract" 'do not auto-fallback blocked Claude-dependent phases to codex-native'
-assert_not_contains "$routing_contract" 'fallback_when:'
-assert_not_contains "$routing_contract" 'fallback_runtime: codex-native'
+assert_contains "$routing_contract" 'do not auto-fallback blocked routed-runtime phases to the main runtime'
+assert_not_contains "$routing_contract" 'default_profile:'
+assert_not_contains "$routing_contract" 'lead_model_options:'
 
 echo "[test-pm-command] case: workflow instruction copies stay synchronized"
 if ! diff -u "$ROOT_DIR/instructions/pm_workflow.md" "$ROOT_DIR/.config/opencode/instructions/pm_workflow.md" >/dev/null; then
@@ -139,6 +153,8 @@ live_contracts="$(
     "$ROOT_DIR/docs/MCP_PREREQUISITES.md" \
     "$ROOT_DIR/instructions/pm_workflow.md" \
     "$ROOT_DIR/skills/pm/SKILL.md" \
+    "$ROOT_DIR/skills/pm-create-prd/SKILL.md" \
+    "$ROOT_DIR/skills/pm-beads-plan/SKILL.md" \
     "$ROOT_DIR/skills/pm-discovery/SKILL.md" \
     "$ROOT_DIR/skills/pm-implement/SKILL.md" \
     "$ROOT_DIR/skills/pm/references/smoke-test-planner.md" \
@@ -152,8 +168,16 @@ live_contracts="$(
 assert_contains "$live_contracts" 'The helper gate output is authoritative. If it returns `PLAN_ROUTE_BLOCKED` or `discovery_can_start=0`, do not invoke Discovery or any downstream phase.'
 assert_contains "$live_contracts" 'Discovery may start only if the preceding `plan gate` returned `PLAN_ROUTE_READY` and `discovery_can_start=1`.'
 assert_contains "$live_contracts" 'Do not auto-fallback to `codex-native` inside Discovery. Treat this as a critical phase block and return control to PM.'
-assert_contains "$live_contracts" 'Do not auto-fallback to `codex-native` inside `codex-main` or `claude-main`. Surface a critical phase block and return control to PM.'
+assert_contains "$live_contracts" 'Do not auto-fallback to the main runtime inside `dynamic-cross-runtime`. Surface a critical phase block and return control to PM.'
 assert_contains "$live_contracts" 'Do not auto-fallback to `codex-native` inside implementation or review phases when a required Claude-routed role is unavailable.'
+assert_contains "$live_contracts" 'must launch the required orchestrator subagents by default whenever the current runtime/tool policy permits delegation'
+assert_contains "$live_contracts" 'Launch discovery subagents by default whenever the current runtime/tool policy permits delegation.'
+assert_contains "$live_contracts" 'Required implementation, verification, review, and QA subagents are default behavior whenever the current runtime/tool policy permits delegation.'
+assert_contains "$live_contracts" '/pm self-check'
+assert_contains "$live_contracts" 'fail the whole self-check run when Claude registration, executability, or session health is unhealthy'
+assert_contains "$live_contracts" 'if helper emits `SELF_CHECK_HEALER_READY`, spawn a generic `default` outer healer'
+assert_contains "$live_contracts" 'healer may only package repair work through the normal PM flow and must not bypass approvals'
+assert_not_contains "$live_contracts" 'user explicitly requested delegation'
 assert_not_contains "$live_contracts" 'fall back to codex-native instead of repeating install instructions'
 assert_not_contains "$live_contracts" 'workflow continues with explicit remediation warnings'
 
@@ -165,14 +189,57 @@ trap cleanup EXIT
 export HOME="$TMPDIR/home"
 mkdir -p "$HOME"
 write_codex_config "$HOME/.codex/config.toml" "gpt-global" "medium"
+write_claude_settings "$HOME/.claude/settings.json" "opus" "high"
 
 FAKE_CLAUDE_BIN="$TMPDIR/fake-claude-bin"
 mkdir -p "$FAKE_CLAUDE_BIN"
 cat >"$FAKE_CLAUDE_BIN/claude" <<'EOF'
 #!/usr/bin/env bash
+if [ "${1:-}" = "mcp" ] && [ "${2:-}" = "list" ]; then
+  case "${FAKE_CLAUDE_MCP_MODE:-ok}" in
+    ok)
+      printf 'claude-code enabled\n'
+      exit 0
+      ;;
+    partial-hang)
+      printf 'Checking MCP server health...\n'
+      sleep "${FAKE_CLAUDE_MCP_SLEEP_SECONDS:-7}"
+      exit 0
+      ;;
+    nonzero)
+      printf 'claude snapshot failed\n' >&2
+      exit "${FAKE_CLAUDE_MCP_EXIT_CODE:-42}"
+      ;;
+  esac
+fi
 exit 0
 EOF
 chmod +x "$FAKE_CLAUDE_BIN/claude"
+
+FAKE_CODEX_BIN="$TMPDIR/fake-codex-bin"
+mkdir -p "$FAKE_CODEX_BIN"
+cat >"$FAKE_CODEX_BIN/codex" <<'EOF'
+#!/usr/bin/env bash
+if [ "${1:-}" = "mcp" ] && [ "${2:-}" = "list" ]; then
+  case "${FAKE_CODEX_MCP_MODE:-ok}" in
+    ok)
+      printf 'codex-worker enabled\n'
+      exit 0
+      ;;
+    partial-hang)
+      printf 'Checking Codex MCP server health...\n'
+      sleep "${FAKE_CODEX_MCP_SLEEP_SECONDS:-7}"
+      exit 0
+      ;;
+    nonzero)
+      printf 'codex snapshot failed\n' >&2
+      exit "${FAKE_CODEX_MCP_EXIT_CODE:-17}"
+      ;;
+  esac
+fi
+exit 0
+EOF
+chmod +x "$FAKE_CODEX_BIN/codex"
 
 cd "$TMPDIR"
 git init -q
@@ -186,26 +253,40 @@ echo "[test-pm-command] case: help output"
 help_out="$("$HELPER" help)"
 assert_contains "$help_out" '$pm help'
 assert_contains "$help_out" '$pm plan: <feature request>'
-assert_contains "$help_out" '$pm lead-model show|set|reset'
+assert_contains "$help_out" '$pm execution-mode show|set|reset'
+assert_contains "$help_out" '$pm self-check'
 assert_contains "$help_out" '$pm telemetry init-db|log-step|query-task|query-run'
 assert_contains "$help_out" '$pm self-update'
 assert_contains "$help_out" 'Self-update policy:'
+assert_contains "$help_out" 'Self-check policy:'
+assert_contains "$help_out" 'Deterministic fixture suite with verbose artifact capture under `.codex/self-check-runs`'
+assert_contains "$help_out" 'Fail whole run when Claude registration, command executability, or session usability is unhealthy'
+assert_contains "$help_out" 'Outer healer may package repairs through normal PM flow only after self-check emits healer-ready artifacts'
 assert_contains "$help_out" 'Filter non-pipeline changes and emit integration-plan suggestions'
-assert_contains "$help_out" 'Lead-model options are:'
-assert_contains "$help_out" 'Full Codex Orchestration'
-assert_contains "$help_out" 'Codex as Main Agent'
-assert_contains "$help_out" 'Claude as Main Orchestrator'
-assert_contains "$help_out" 'Codex-native orchestrator roles are pinned to `gpt-5.4` with `xhigh` reasoning effort'
+assert_contains "$help_out" 'Execution-mode options are:'
+assert_contains "$help_out" 'Dynamic Cross-Runtime'
+assert_contains "$help_out" 'Main Runtime Only'
+assert_contains "$help_out" 'Outer runtime is inferred fresh from the running Codex or Claude session on every plan gate'
 assert_contains "$help_out" 'If the plan gate reports `PLAN_ROUTE_BLOCKED` or `discovery_can_start=0`, do not enter Discovery or any downstream phase'
-assert_contains "$help_out" 'If a required Claude-routed role later fails at runtime (for example `no supported agent type`), block the current phase and return control to PM with reason-specific remediation'
+assert_contains "$help_out" 'If the outer runtime cannot be positively identified, fail closed, emit `RUNTIME_DETECTION_ERROR`, and persist the run outcome in telemetry'
+assert_contains "$help_out" 'If a required routed MCP path later fails at runtime (for example `no supported agent type`), block the current phase and return control to PM with reason-specific remediation'
 assert_contains "$help_out" 'Issue reporting policy:'
 assert_contains "$help_out" 'End each phase with a Phase Error Summary'
 assert_contains "$help_out" '$pm claude-contract validate-context|evaluate-response'
 assert_contains "$help_out" 'Claude delegation contract:'
 assert_contains "$help_out" 'claude-contract run-loop'
-assert_contains "$help_out" 'Claude availability requires both a healthy `codex mcp list` entry and an executable configured command in the actual PM runtime'
+assert_contains "$help_out" 'Codex secondary-runtime usage inside Claude is permitted only through codex-worker MCP'
 assert_not_contains "$help_out" 'workflow falls back to codex-native'
 assert_not_contains "$help_out" 'Claude-mapped roles fallback to codex-native'
+
+echo "[test-pm-command] case: self-check fixtures catalog"
+self_check_fixtures_out="$("$HELPER" self-check fixtures)"
+assert_contains "$self_check_fixtures_out" 'SELF_CHECK_FIXTURES|suite_version=pm-self-check-v1|count=5'
+assert_contains "$self_check_fixtures_out" 'SELF_CHECK_FIXTURE|id=happy-path|description=Healthy deterministic orchestration harness run.'
+assert_contains "$self_check_fixtures_out" 'SELF_CHECK_FIXTURE|id=spawn-failure|description=Injected subagent spawn failure for healer aggregation.'
+assert_contains "$self_check_fixtures_out" 'SELF_CHECK_FIXTURE|id=response-timeout|description=Injected child response timeout/no-response path.'
+assert_contains "$self_check_fixtures_out" 'SELF_CHECK_FIXTURE|id=context-needed|description=Injected missing-context response-contract path.'
+assert_contains "$self_check_fixtures_out" 'SELF_CHECK_FIXTURE|id=unsupported-launcher|description=Injected unsupported-launcher Claude wrapper failure.'
 
 CLAUDE_CONTEXT_FILE="$TMPDIR/claude-context-valid.json"
 cat >"$CLAUDE_CONTEXT_FILE" <<'EOF'
@@ -362,15 +443,130 @@ fi
 assert_contains "$wrapper_run_unsupported_out" 'CLAUDE_WRAPPER_READY|status=ready|role=jazz_reviewer|session_id=wrap-run-4|runtime=claude-code-mcp'
 assert_contains "$wrapper_run_unsupported_out" 'CLAUDE_WRAPPER_RESULT|status=runtime_error|error=unsupported_launcher|role=jazz_reviewer|session_id=wrap-run-4|runtime=claude-code-mcp'
 
-LEAD_MODEL_STATE_FILE="$TMPDIR/.codex/pm-lead-model-state.json"
+SELF_CHECK_HAPPY_DIR="$TMPDIR/self-check-happy"
+echo "[test-pm-command] case: self-check happy path produces clean summary and healer-ready bundle"
+self_check_happy_out="$(
+  PM_PLAN_GATE_RUNTIME_OVERRIDE=codex \
+  PM_LEAD_MODEL_CLAUDE_MCP_LIST_OVERRIDE='claude-code enabled' \
+  PM_LEAD_MODEL_CODEX_COMMAND_OVERRIDE="$FAKE_CODEX_BIN/codex" \
+  PM_LEAD_MODEL_CLAUDE_COMMAND_OVERRIDE="$FAKE_CLAUDE_BIN/claude" \
+  "$HELPER" self-check run --fixture-case happy-path --artifacts-dir "$SELF_CHECK_HAPPY_DIR" --mode main-runtime-only
+)"
+assert_contains "$self_check_happy_out" 'SELF_CHECK_RUN|'
+assert_contains "$self_check_happy_out" 'execution_mode=main-runtime-only'
+assert_contains "$self_check_happy_out" 'PLAN_ROUTE_READY|route=default|selected_mode=main-runtime-only'
+assert_contains "$self_check_happy_out" 'SELF_CHECK_ARTIFACT_STATUS|'
+assert_contains "$self_check_happy_out" 'SELF_CHECK_RESULT|status=clean|'
+assert_contains "$self_check_happy_out" 'SELF_CHECK_HEALER_READY|status=ready|'
+[ -f "$SELF_CHECK_HAPPY_DIR/summary.json" ] || fail "self-check happy path did not write summary.json"
+[ -f "$SELF_CHECK_HAPPY_DIR/healer-context.json" ] || fail "self-check happy path did not write healer-context.json"
+[ -f "$SELF_CHECK_HAPPY_DIR/healer-prompt.md" ] || fail "self-check happy path did not write healer-prompt.md"
+jq -e '.status == "clean" and .fixture_case == "happy-path" and .execution_mode == "main-runtime-only" and .claude_health.registration == "passed" and .claude_health.executability == "passed" and .claude_health.session_usability == "passed" and .child_plan_gate.status == "ready" and .artifact_checks.codex_mcp_snapshot.status == "passed" and .artifact_checks.claude_mcp_snapshot.status == "passed" and (.artifact_checks.codex_mcp_snapshot.command_path | test("fake-codex-bin/codex$")) and .artifact_checks.claude_mcp_snapshot.command_source == "env:PM_LEAD_MODEL_CLAUDE_COMMAND_OVERRIDE"' "$SELF_CHECK_HAPPY_DIR/summary.json" >/dev/null || fail "self-check happy path summary missing expected clean health or artifact fields"
 
-echo "[test-pm-command] case: lead-model state bootstraps to codex-main"
-lead_show="$("$HELPER" lead-model show --state-file "$LEAD_MODEL_STATE_FILE")"
-assert_contains "$lead_show" 'LEAD_MODEL_STATE|action=show|profile=codex-main|label=Codex as Main Agent|codex_model=gpt-5.4|codex_reasoning_effort=xhigh'
-jq -e '.selected_profile == "codex-main"' "$LEAD_MODEL_STATE_FILE" >/dev/null || fail "lead-model default profile should be codex-main"
+SELF_CHECK_UNHEALTHY_DIR="$TMPDIR/self-check-unhealthy"
+echo "[test-pm-command] case: self-check fails whole run when Claude health checks fail"
+if self_check_unhealthy_out="$(
+  PM_PLAN_GATE_RUNTIME_OVERRIDE=codex \
+  PM_LEAD_MODEL_CODEX_COMMAND_OVERRIDE="$FAKE_CODEX_BIN/codex" \
+  PM_LEAD_MODEL_FORCE_CLAUDE_MCP_UNAVAILABLE=1 \
+  "$HELPER" self-check run --fixture-case happy-path --artifacts-dir "$SELF_CHECK_UNHEALTHY_DIR" --mode main-runtime-only 2>&1
+)"; then
+  fail "self-check unexpectedly succeeded when Claude health was unavailable"
+fi
+assert_contains "$self_check_unhealthy_out" 'SELF_CHECK_EVENT|'
+assert_contains "$self_check_unhealthy_out" 'code=claude_code_mcp_unavailable'
+assert_contains "$self_check_unhealthy_out" 'SELF_CHECK_RESULT|status=failed|'
+assert_not_contains "$self_check_unhealthy_out" 'SELF_CHECK_HEALER_READY|'
+[ -f "$SELF_CHECK_UNHEALTHY_DIR/summary.json" ] || fail "self-check unhealthy path did not write summary.json"
+jq -e '.status == "failed" and .claude_health.executability == "failed" and .claude_health.session_usability == "failed" and .child_plan_gate.status == "not_started" and .artifact_checks.claude_mcp_snapshot.primary_code == "snapshot_runtime_unavailable"' "$SELF_CHECK_UNHEALTHY_DIR/summary.json" >/dev/null || fail "self-check unhealthy summary missing expected failed health or artifact runtime-unavailable fields"
 
-echo "[test-pm-command] case: legacy lead-model state migrates to canonical claude-main profile"
-cat >"$LEAD_MODEL_STATE_FILE" <<'EOF'
+SELF_CHECK_ARTIFACT_HANG_DIR="$TMPDIR/self-check-artifact-hang"
+echo "[test-pm-command] case: self-check downgrades to issues_detected when Claude snapshot hangs after partial output"
+self_check_artifact_hang_out="$(
+  PM_PLAN_GATE_RUNTIME_OVERRIDE=codex \
+  PM_LEAD_MODEL_CLAUDE_MCP_LIST_OVERRIDE='claude-code enabled' \
+  PM_LEAD_MODEL_CODEX_COMMAND_OVERRIDE="$FAKE_CODEX_BIN/codex" \
+  PM_LEAD_MODEL_CLAUDE_COMMAND_OVERRIDE="$FAKE_CLAUDE_BIN/claude" \
+  FAKE_CLAUDE_MCP_MODE=partial-hang \
+  "$HELPER" self-check run --fixture-case happy-path --artifacts-dir "$SELF_CHECK_ARTIFACT_HANG_DIR" --mode main-runtime-only
+)"
+assert_contains "$self_check_artifact_hang_out" 'SELF_CHECK_ARTIFACT_STATUS|'
+assert_contains "$self_check_artifact_hang_out" 'primary_code=snapshot_command_hung'
+assert_contains "$self_check_artifact_hang_out" 'issue_codes=snapshot_command_hung,snapshot_partial_output'
+assert_contains "$self_check_artifact_hang_out" 'SELF_CHECK_RESULT|status=issues_detected|'
+assert_contains "$self_check_artifact_hang_out" 'SELF_CHECK_REPAIR_BUNDLE|path='
+assert_contains "$self_check_artifact_hang_out" 'SELF_CHECK_HEALER_READY|status=ready|'
+jq -e '.status == "issues_detected" and .claude_health.session_usability == "passed" and .artifact_checks.claude_mcp_snapshot.primary_code == "snapshot_command_hung" and (.artifact_checks.claude_mcp_snapshot.issue_codes | index("snapshot_partial_output")) != null and .artifact_checks.claude_mcp_snapshot.partial_combined_output == "Checking MCP server health..."' "$SELF_CHECK_ARTIFACT_HANG_DIR/summary.json" >/dev/null || fail "self-check artifact hang summary missing expected hang classification"
+
+SELF_CHECK_ARTIFACT_NONZERO_DIR="$TMPDIR/self-check-artifact-nonzero"
+echo "[test-pm-command] case: self-check downgrades to issues_detected when Claude snapshot exits nonzero"
+self_check_artifact_nonzero_out="$(
+  PM_PLAN_GATE_RUNTIME_OVERRIDE=codex \
+  PM_LEAD_MODEL_CLAUDE_MCP_LIST_OVERRIDE='claude-code enabled' \
+  PM_LEAD_MODEL_CODEX_COMMAND_OVERRIDE="$FAKE_CODEX_BIN/codex" \
+  PM_LEAD_MODEL_CLAUDE_COMMAND_OVERRIDE="$FAKE_CLAUDE_BIN/claude" \
+  FAKE_CLAUDE_MCP_MODE=nonzero \
+  "$HELPER" self-check run --fixture-case happy-path --artifacts-dir "$SELF_CHECK_ARTIFACT_NONZERO_DIR" --mode main-runtime-only
+)"
+assert_contains "$self_check_artifact_nonzero_out" 'primary_code=snapshot_nonzero_exit'
+assert_contains "$self_check_artifact_nonzero_out" 'SELF_CHECK_RESULT|status=issues_detected|'
+jq -e '.status == "issues_detected" and .artifact_checks.claude_mcp_snapshot.primary_code == "snapshot_nonzero_exit" and .artifact_checks.claude_mcp_snapshot.exit_code == 42 and .artifact_checks.claude_mcp_snapshot.partial_stderr == "claude snapshot failed"' "$SELF_CHECK_ARTIFACT_NONZERO_DIR/summary.json" >/dev/null || fail "self-check artifact nonzero summary missing expected nonzero-exit classification"
+
+SELF_CHECK_ARTIFACT_SKIP_DIR="$TMPDIR/self-check-artifact-skip"
+echo "[test-pm-command] case: self-check surfaces skipped artifact capture as issues_detected"
+self_check_artifact_skip_out="$(
+  PM_PLAN_GATE_RUNTIME_OVERRIDE=codex \
+  PM_LEAD_MODEL_CLAUDE_MCP_LIST_OVERRIDE='claude-code enabled' \
+  PM_LEAD_MODEL_CODEX_COMMAND_OVERRIDE="$FAKE_CODEX_BIN/codex" \
+  PM_LEAD_MODEL_CLAUDE_COMMAND_OVERRIDE="$FAKE_CLAUDE_BIN/claude" \
+  PM_SELF_CHECK_SKIP_ARTIFACT_STEPS='claude_mcp_snapshot' \
+  "$HELPER" self-check run --fixture-case happy-path --artifacts-dir "$SELF_CHECK_ARTIFACT_SKIP_DIR" --mode main-runtime-only
+)"
+assert_contains "$self_check_artifact_skip_out" 'primary_code=snapshot_capture_skipped'
+assert_contains "$self_check_artifact_skip_out" 'SELF_CHECK_RESULT|status=issues_detected|'
+jq -e '.status == "issues_detected" and .artifact_checks.claude_mcp_snapshot.primary_code == "snapshot_capture_skipped" and .artifact_checks.claude_mcp_snapshot.status == "skipped"' "$SELF_CHECK_ARTIFACT_SKIP_DIR/summary.json" >/dev/null || fail "self-check artifact skip summary missing expected skipped classification"
+
+SELF_CHECK_ARTIFACT_TELEMETRY_DIR="$TMPDIR/self-check-artifact-telemetry"
+echo "[test-pm-command] case: self-check surfaces incomplete artifact telemetry as issues_detected"
+self_check_artifact_telemetry_out="$(
+  PM_PLAN_GATE_RUNTIME_OVERRIDE=codex \
+  PM_LEAD_MODEL_CLAUDE_MCP_LIST_OVERRIDE='claude-code enabled' \
+  PM_LEAD_MODEL_CODEX_COMMAND_OVERRIDE="$FAKE_CODEX_BIN/codex" \
+  PM_LEAD_MODEL_CLAUDE_COMMAND_OVERRIDE="$FAKE_CLAUDE_BIN/claude" \
+  PM_SELF_CHECK_FORCE_TELEMETRY_INCOMPLETE_STEPS='claude_mcp_snapshot' \
+  "$HELPER" self-check run --fixture-case happy-path --artifacts-dir "$SELF_CHECK_ARTIFACT_TELEMETRY_DIR" --mode main-runtime-only
+)"
+assert_contains "$self_check_artifact_telemetry_out" 'primary_code=snapshot_telemetry_incomplete'
+assert_contains "$self_check_artifact_telemetry_out" 'SELF_CHECK_RESULT|status=issues_detected|'
+jq -e '.status == "issues_detected" and .artifact_checks.claude_mcp_snapshot.primary_code == "snapshot_telemetry_incomplete" and .artifact_checks.claude_mcp_snapshot.telemetry_complete == false and .artifact_checks.claude_mcp_snapshot.path_override_source == "<none>"' "$SELF_CHECK_ARTIFACT_TELEMETRY_DIR/summary.json" >/dev/null || fail "self-check artifact telemetry summary missing expected telemetry-incomplete classification"
+
+SELF_CHECK_UNSUPPORTED_DIR="$TMPDIR/self-check-unsupported"
+echo "[test-pm-command] case: self-check unsupported-launcher fixture produces repair bundle"
+self_check_unsupported_out="$(
+  PM_PLAN_GATE_RUNTIME_OVERRIDE=codex \
+  PM_LEAD_MODEL_CLAUDE_MCP_LIST_OVERRIDE='claude-code enabled' \
+  PM_LEAD_MODEL_CODEX_COMMAND_OVERRIDE="$FAKE_CODEX_BIN/codex" \
+  PM_LEAD_MODEL_CLAUDE_COMMAND_OVERRIDE="$FAKE_CLAUDE_BIN/claude" \
+  "$HELPER" self-check run --fixture-case unsupported-launcher --artifacts-dir "$SELF_CHECK_UNSUPPORTED_DIR" --mode main-runtime-only
+)"
+assert_contains "$self_check_unsupported_out" 'SELF_CHECK_EVENT|'
+assert_contains "$self_check_unsupported_out" 'code=unsupported_launcher'
+assert_contains "$self_check_unsupported_out" 'SELF_CHECK_RESULT|status=issues_detected|'
+assert_contains "$self_check_unsupported_out" 'SELF_CHECK_REPAIR_BUNDLE|path='
+assert_contains "$self_check_unsupported_out" 'SELF_CHECK_HEALER_READY|status=ready|'
+[ -f "$SELF_CHECK_UNSUPPORTED_DIR/summary.json" ] || fail "self-check unsupported fixture did not write summary.json"
+jq -e '.status == "issues_detected" and .execution_mode == "main-runtime-only" and ([.findings[] | select(.code == "unsupported_launcher")] | length) == 1' "$SELF_CHECK_UNSUPPORTED_DIR/summary.json" >/dev/null || fail "self-check unsupported summary missing unsupported_launcher finding"
+
+rm -f "$TMPDIR/.codex/pm-lead-model-state.json"
+EXECUTION_MODE_STATE_FILE="$TMPDIR/.codex/pm-lead-model-state.json"
+
+echo "[test-pm-command] case: execution-mode state bootstraps to dynamic-cross-runtime"
+mode_show="$("$HELPER" execution-mode show --state-file "$EXECUTION_MODE_STATE_FILE")"
+assert_contains "$mode_show" 'EXECUTION_MODE_STATE|action=show|mode=dynamic-cross-runtime|label=Dynamic Cross-Runtime'
+jq -e '.selected_mode == "dynamic-cross-runtime"' "$EXECUTION_MODE_STATE_FILE" >/dev/null || fail "execution-mode default should be dynamic-cross-runtime"
+
+echo "[test-pm-command] case: legacy lead-model state migrates to dynamic-cross-runtime execution mode"
+cat >"$EXECUTION_MODE_STATE_FILE" <<'EOF'
 {
   "schema_version": 1,
   "selected_profile": "claude-first",
@@ -379,170 +575,174 @@ cat >"$LEAD_MODEL_STATE_FILE" <<'EOF'
   "last_selected_by": "legacy_test"
 }
 EOF
-lead_show_legacy="$("$HELPER" lead-model show --state-file "$LEAD_MODEL_STATE_FILE")"
-assert_contains "$lead_show_legacy" 'LEAD_MODEL_STATE|action=show|profile=claude-main|label=Claude as Main Orchestrator|codex_model=gpt-5.4|codex_reasoning_effort=xhigh'
-jq -e '.selected_profile == "claude-main"' "$LEAD_MODEL_STATE_FILE" >/dev/null || fail "legacy lead-model state did not migrate to claude-main"
+mode_show_legacy="$("$HELPER" execution-mode show --state-file "$EXECUTION_MODE_STATE_FILE")"
+assert_contains "$mode_show_legacy" 'EXECUTION_MODE_STATE|action=show|mode=dynamic-cross-runtime|label=Dynamic Cross-Runtime'
+jq -e '.selected_mode == "dynamic-cross-runtime"' "$EXECUTION_MODE_STATE_FILE" >/dev/null || fail "legacy lead-model state did not migrate to dynamic-cross-runtime"
 
-echo "[test-pm-command] case: plan gate on default route emits persisted claude-main routing"
+echo "[test-pm-command] case: plan gate on default route emits persisted dynamic cross-runtime routing for Claude outer runtime"
 plan_gate_default="$(
+  PM_PLAN_GATE_RUNTIME_OVERRIDE=claude \
   PM_LEAD_MODEL_FORCE_CODEX_MCP_AVAILABLE=1 \
-  "$HELPER" plan gate --route default --state-file "$LEAD_MODEL_STATE_FILE"
+  "$HELPER" plan gate --route default --state-file "$EXECUTION_MODE_STATE_FILE"
 )"
-assert_contains "$plan_gate_default" 'LEAD_MODEL_GATE|route=default'
-assert_contains "$plan_gate_default" 'options=Full Codex Orchestration;Codex as Main Agent;Claude as Main Orchestrator'
-assert_contains "$plan_gate_default" 'selected_profile=claude-main'
-assert_contains "$plan_gate_default" 'codex_model=gpt-5.4|codex_reasoning_effort=xhigh'
-assert_contains "$plan_gate_default" 'ROUTING_PROFILE|route=default|profile=claude-main|selection_source=persisted_state|main_runtime=claude-native|main_model=<unpinned>|main_reasoning_effort=<unpinned>|fallback_active=0'
-assert_contains "$plan_gate_default" 'ROUTING_ROLE|role=pm_beads_plan_handoff|class=main|runtime=claude-native|model=<unpinned>|reasoning_effort=<unpinned>|agent_type=default'
-assert_contains "$plan_gate_default" 'ROUTING_ROLE|role=senior_engineer|class=sub|runtime=codex-worker-mcp|model=<unpinned>|reasoning_effort=<unpinned>|agent_type=explorer'
-assert_contains "$plan_gate_default" 'ROUTING_ROLE|role=task_verification|class=sub|runtime=claude-native|model=<unpinned>|reasoning_effort=<unpinned>|agent_type=default'
-assert_contains "$plan_gate_default" 'PLAN_ROUTE_READY|route=default|selected_profile=claude-main|selected_label=Claude as Main Orchestrator|selection_source=persisted_state|discovery_can_start=1'
+assert_contains "$plan_gate_default" 'RUNTIME_DETECTION|'
+assert_contains "$plan_gate_default" 'outer_runtime=claude|source=explicit_override'
+assert_contains "$plan_gate_default" 'EXECUTION_MODE_GATE|route=default'
+assert_contains "$plan_gate_default" 'options=Dynamic Cross-Runtime;Main Runtime Only'
+assert_contains "$plan_gate_default" 'persisted_mode=dynamic-cross-runtime|selected_mode=dynamic-cross-runtime|selected_label=Dynamic Cross-Runtime|selection_source=persisted_state|outer_runtime=claude|outer_runtime_source=explicit_override'
+assert_contains "$plan_gate_default" 'codex_model=gpt-global|codex_reasoning_effort=medium|claude_model=opus|claude_reasoning_effort=high'
+assert_contains "$plan_gate_default" 'ROUTING_PROFILE|route=default|mode=dynamic-cross-runtime|selection_source=persisted_state|outer_runtime=claude|outer_runtime_source=explicit_override|main_runtime=claude-native|main_model=opus|main_reasoning_effort=high|fallback_active=0'
+assert_contains "$plan_gate_default" 'ROUTING_ROLE|role=pm_beads_plan_handoff|class=main|runtime=claude-native|model=opus|reasoning_effort=high|agent_type=default'
+assert_contains "$plan_gate_default" 'ROUTING_ROLE|role=senior_engineer|class=sub|runtime=codex-worker-mcp|model=gpt-global|reasoning_effort=medium|agent_type=explorer'
+assert_contains "$plan_gate_default" 'ROUTING_ROLE|role=task_verification|class=sub|runtime=claude-native|model=opus|reasoning_effort=high|agent_type=default'
+assert_contains "$plan_gate_default" 'PLAN_ROUTE_READY|route=default|selected_mode=dynamic-cross-runtime|selected_label=Dynamic Cross-Runtime|selection_source=persisted_state|outer_runtime=claude|outer_runtime_source=explicit_override|discovery_can_start=1'
 
-echo "[test-pm-command] case: full-codex route is ready without Claude availability"
-plan_gate_full_codex="$(
+echo "[test-pm-command] case: main-runtime-only route is ready without opposite-provider MCP"
+plan_gate_main_only="$(
+  PM_PLAN_GATE_RUNTIME_OVERRIDE=codex \
   PM_LEAD_MODEL_FORCE_CLAUDE_MCP_UNAVAILABLE=1 \
-  "$HELPER" plan gate --route big-feature --lead-model full-codex --state-file "$LEAD_MODEL_STATE_FILE"
+  "$HELPER" plan gate --route big-feature --mode main-runtime-only --state-file "$EXECUTION_MODE_STATE_FILE"
 )"
-assert_contains "$plan_gate_full_codex" 'LEAD_MODEL_GATE|route=big-feature'
-assert_contains "$plan_gate_full_codex" 'selected_profile=full-codex'
-assert_contains "$plan_gate_full_codex" 'ROUTING_PROFILE|route=big-feature|profile=full-codex|selection_source=explicit_override|main_runtime=codex-native|main_model=gpt-5.4|main_reasoning_effort=xhigh|fallback_active=0'
-assert_contains "$plan_gate_full_codex" 'ROUTING_ROLE|role=librarian|class=sub|runtime=codex-native|model=gpt-5.4|reasoning_effort=xhigh|agent_type=default'
-assert_contains "$plan_gate_full_codex" 'ROUTING_ROLE|role=task_verification|class=sub|runtime=codex-native|model=gpt-5.4|reasoning_effort=xhigh|agent_type=default'
-assert_contains "$plan_gate_full_codex" 'PLAN_ROUTE_READY|route=big-feature|selected_profile=full-codex|selected_label=Full Codex Orchestration|selection_source=explicit_override|discovery_can_start=1'
-jq -e '.selected_profile == "full-codex"' "$LEAD_MODEL_STATE_FILE" >/dev/null || fail "plan gate override did not persist full-codex profile"
+assert_contains "$plan_gate_main_only" 'selected_mode=main-runtime-only'
+assert_contains "$plan_gate_main_only" 'ROUTING_PROFILE|route=big-feature|mode=main-runtime-only|selection_source=explicit_override|outer_runtime=codex|outer_runtime_source=explicit_override|main_runtime=codex-native|main_model=gpt-global|main_reasoning_effort=medium|fallback_active=0'
+assert_contains "$plan_gate_main_only" 'ROUTING_ROLE|role=librarian|class=sub|runtime=codex-native|model=gpt-global|reasoning_effort=medium|agent_type=default'
+assert_contains "$plan_gate_main_only" 'ROUTING_ROLE|role=task_verification|class=sub|runtime=codex-native|model=gpt-global|reasoning_effort=medium|agent_type=default'
+assert_contains "$plan_gate_main_only" 'PLAN_ROUTE_READY|route=big-feature|selected_mode=main-runtime-only|selected_label=Main Runtime Only|selection_source=explicit_override|outer_runtime=codex|outer_runtime_source=explicit_override|discovery_can_start=1'
+jq -e '.selected_mode == "main-runtime-only"' "$EXECUTION_MODE_STATE_FILE" >/dev/null || fail "plan gate override did not persist main-runtime-only mode"
 
-echo "[test-pm-command] case: codex-main route stays pinned and Claude-routed when Claude is available"
-plan_gate_codex_main="$(
+echo "[test-pm-command] case: dynamic cross-runtime on Codex stays Codex-main for core roles and Claude-routed for support roles"
+plan_gate_dynamic_codex="$(
+  PM_PLAN_GATE_RUNTIME_OVERRIDE=codex \
   PM_LEAD_MODEL_FORCE_CLAUDE_MCP_AVAILABLE=1 \
-  "$HELPER" plan gate --route default --lead-model codex-main --state-file "$LEAD_MODEL_STATE_FILE"
+  "$HELPER" plan gate --route default --mode dynamic-cross-runtime --state-file "$EXECUTION_MODE_STATE_FILE"
 )"
-assert_contains "$plan_gate_codex_main" 'selected_profile=codex-main'
-assert_contains "$plan_gate_codex_main" 'ROUTING_PROFILE|route=default|profile=codex-main|selection_source=explicit_override|main_runtime=codex-native|main_model=gpt-5.4|main_reasoning_effort=xhigh|fallback_active=0'
-assert_contains "$plan_gate_codex_main" 'ROUTING_ROLE|role=project_manager|class=main|runtime=codex-native|model=gpt-5.4|reasoning_effort=xhigh|agent_type=default'
-assert_contains "$plan_gate_codex_main" 'ROUTING_ROLE|role=librarian|class=sub|runtime=claude-code-mcp|model=<unpinned>|reasoning_effort=<unpinned>|agent_type=default'
-assert_contains "$plan_gate_codex_main" 'ROUTING_ROLE|role=task_verification|class=sub|runtime=codex-native|model=gpt-5.4|reasoning_effort=xhigh|agent_type=default'
-assert_contains "$plan_gate_codex_main" 'PLAN_ROUTE_READY|route=default|selected_profile=codex-main|selected_label=Codex as Main Agent|selection_source=explicit_override|discovery_can_start=1'
+assert_contains "$plan_gate_dynamic_codex" 'selected_mode=dynamic-cross-runtime'
+assert_contains "$plan_gate_dynamic_codex" 'ROUTING_PROFILE|route=default|mode=dynamic-cross-runtime|selection_source=explicit_override|outer_runtime=codex|outer_runtime_source=explicit_override|main_runtime=codex-native|main_model=gpt-global|main_reasoning_effort=medium|fallback_active=0'
+assert_contains "$plan_gate_dynamic_codex" 'ROUTING_ROLE|role=project_manager|class=main|runtime=codex-native|model=gpt-global|reasoning_effort=medium|agent_type=default'
+assert_contains "$plan_gate_dynamic_codex" 'ROUTING_ROLE|role=librarian|class=sub|runtime=claude-code-mcp|model=opus|reasoning_effort=high|agent_type=default'
+assert_contains "$plan_gate_dynamic_codex" 'ROUTING_ROLE|role=task_verification|class=sub|runtime=codex-native|model=gpt-global|reasoning_effort=medium|agent_type=default'
+assert_contains "$plan_gate_dynamic_codex" 'PLAN_ROUTE_READY|route=default|selected_mode=dynamic-cross-runtime|selected_label=Dynamic Cross-Runtime|selection_source=explicit_override|outer_runtime=codex|outer_runtime_source=explicit_override|discovery_can_start=1'
 
-echo "[test-pm-command] case: Conductor Codex session auto-selects codex-main"
-conductor_codex_out="$(
+echo "[test-pm-command] case: runtime detection resolves Codex session from positive environment markers"
+detected_codex_out="$(
   CODEX_THREAD_ID='codex-session' \
   CODEX_INTERNAL_ORIGINATOR_OVERRIDE='Codex Desktop' \
   PM_LEAD_MODEL_FORCE_CLAUDE_MCP_AVAILABLE=1 \
-  PM_PLAN_GATE_WORKSPACE_PATH_OVERRIDE='/tmp/conductor/workspaces/product-orchestrator/main' \
-  "$HELPER" plan gate --route default --state-file "$LEAD_MODEL_STATE_FILE"
+  "$HELPER" plan gate --route default --state-file "$EXECUTION_MODE_STATE_FILE"
 )"
-assert_contains "$conductor_codex_out" 'LEAD_MODEL_GATE|route=default'
-assert_contains "$conductor_codex_out" 'selected_profile=codex-main'
-assert_contains "$conductor_codex_out" 'selection_source=conductor_auto'
-assert_contains "$conductor_codex_out" 'PLAN_ROUTE_READY|route=default|selected_profile=codex-main|selected_label=Codex as Main Agent|selection_source=conductor_auto|discovery_can_start=1'
+assert_contains "$detected_codex_out" 'RUNTIME_DETECTION|'
+assert_contains "$detected_codex_out" 'outer_runtime=codex|source=codex_env'
+assert_contains "$detected_codex_out" 'PLAN_ROUTE_READY|route=default|selected_mode=dynamic-cross-runtime|selected_label=Dynamic Cross-Runtime|selection_source=persisted_state|outer_runtime=codex|outer_runtime_source=codex_env|discovery_can_start=1'
 
-echo "[test-pm-command] case: Conductor Claude session auto-selects claude-main"
-conductor_claude_out="$(
-  env -u CODEX_THREAD_ID -u CODEX_INTERNAL_ORIGINATOR_OVERRIDE \
-    PM_LEAD_MODEL_FORCE_CODEX_MCP_AVAILABLE=1 \
-    PM_PLAN_GATE_WORKSPACE_PATH_OVERRIDE='/tmp/conductor/workspaces/product-orchestrator/main' \
-    "$HELPER" plan gate --route default --state-file "$LEAD_MODEL_STATE_FILE"
+echo "[test-pm-command] case: explicit mode override beats persisted state"
+explicit_override_out="$(
+  PM_PLAN_GATE_RUNTIME_OVERRIDE=claude \
+  PM_LEAD_MODEL_FORCE_CODEX_MCP_AVAILABLE=1 \
+  "$HELPER" plan gate --route default --mode dynamic-cross-runtime --state-file "$EXECUTION_MODE_STATE_FILE"
 )"
-assert_contains "$conductor_claude_out" 'LEAD_MODEL_GATE|route=default'
-assert_contains "$conductor_claude_out" 'selected_profile=claude-main'
-assert_contains "$conductor_claude_out" 'selection_source=conductor_auto'
-assert_contains "$conductor_claude_out" 'PLAN_ROUTE_READY|route=default|selected_profile=claude-main|selected_label=Claude as Main Orchestrator|selection_source=conductor_auto|discovery_can_start=1'
+assert_contains "$explicit_override_out" 'selected_mode=dynamic-cross-runtime'
+assert_contains "$explicit_override_out" 'selection_source=explicit_override'
+assert_contains "$explicit_override_out" 'PLAN_ROUTE_READY|route=default|selected_mode=dynamic-cross-runtime|selected_label=Dynamic Cross-Runtime|selection_source=explicit_override|outer_runtime=claude|outer_runtime_source=explicit_override|discovery_can_start=1'
 
-echo "[test-pm-command] case: explicit override beats Conductor auto-selection"
-conductor_override_out="$(
-  CODEX_THREAD_ID='codex-session' \
-  CODEX_INTERNAL_ORIGINATOR_OVERRIDE='Codex Desktop' \
-  PM_PLAN_GATE_WORKSPACE_PATH_OVERRIDE='/tmp/conductor/workspaces/product-orchestrator/main' \
-  PM_LEAD_MODEL_FORCE_CLAUDE_MCP_UNAVAILABLE=1 \
-  "$HELPER" plan gate --route default --lead-model full-codex --state-file "$LEAD_MODEL_STATE_FILE"
-)"
-assert_contains "$conductor_override_out" 'selected_profile=full-codex'
-assert_contains "$conductor_override_out" 'selection_source=explicit_override'
-assert_contains "$conductor_override_out" 'PLAN_ROUTE_READY|route=default|selected_profile=full-codex|selected_label=Full Codex Orchestration|selection_source=explicit_override|discovery_can_start=1'
+echo "[test-pm-command] case: execution-mode reset is idempotent"
+mode_reset_one="$("$HELPER" execution-mode reset --state-file "$EXECUTION_MODE_STATE_FILE")"
+mode_reset_two="$("$HELPER" execution-mode reset --state-file "$EXECUTION_MODE_STATE_FILE")"
+assert_contains "$mode_reset_one" 'EXECUTION_MODE_STATE|action=reset|mode=dynamic-cross-runtime|label=Dynamic Cross-Runtime'
+assert_contains "$mode_reset_two" 'EXECUTION_MODE_STATE|action=reset|mode=dynamic-cross-runtime|label=Dynamic Cross-Runtime'
 
-echo "[test-pm-command] case: lead-model reset is idempotent"
-lead_reset_one="$("$HELPER" lead-model reset --state-file "$LEAD_MODEL_STATE_FILE")"
-lead_reset_two="$("$HELPER" lead-model reset --state-file "$LEAD_MODEL_STATE_FILE")"
-assert_contains "$lead_reset_one" 'LEAD_MODEL_STATE|action=reset|profile=codex-main|label=Codex as Main Agent|codex_model=gpt-5.4|codex_reasoning_effort=xhigh'
-assert_contains "$lead_reset_two" 'LEAD_MODEL_STATE|action=reset|profile=codex-main|label=Codex as Main Agent|codex_model=gpt-5.4|codex_reasoning_effort=xhigh'
-
-echo "[test-pm-command] case: invalid lead-model and route inputs fail"
-if "$HELPER" lead-model set --state-file "$LEAD_MODEL_STATE_FILE" --profile invalid >/dev/null 2>&1; then
-  fail "lead-model set unexpectedly accepted invalid profile"
+echo "[test-pm-command] case: invalid execution mode and route inputs fail"
+if "$HELPER" execution-mode set --state-file "$EXECUTION_MODE_STATE_FILE" --mode invalid >/dev/null 2>&1; then
+  fail "execution-mode set unexpectedly accepted invalid mode"
 fi
-if "$HELPER" plan gate --route default --lead-model invalid --state-file "$LEAD_MODEL_STATE_FILE" >/dev/null 2>&1; then
-  fail "plan gate unexpectedly accepted invalid lead-model override"
+if "$HELPER" plan gate --route default --mode invalid --state-file "$EXECUTION_MODE_STATE_FILE" >/dev/null 2>&1; then
+  fail "plan gate unexpectedly accepted invalid mode override"
 fi
-if "$HELPER" plan gate --route invalid --state-file "$LEAD_MODEL_STATE_FILE" >/dev/null 2>&1; then
+if "$HELPER" plan gate --route invalid --state-file "$EXECUTION_MODE_STATE_FILE" >/dev/null 2>&1; then
   fail "plan gate unexpectedly accepted invalid route"
 fi
 
-echo "[test-pm-command] case: codex-main blocks and offers full-codex fallback when Claude command is not executable"
-blocked_codex_main_file="$TMPDIR/plan-gate-blocked-codex-main.out"
-if PM_LEAD_MODEL_CLAUDE_MCP_LIST_OVERRIDE='claude-code enabled' \
-  PM_LEAD_MODEL_CLAUDE_COMMAND_OVERRIDE='definitely-missing-claude-command' \
-  "$HELPER" plan gate --route default --lead-model codex-main --state-file "$LEAD_MODEL_STATE_FILE" >"$blocked_codex_main_file" 2>&1; then
-  fail "codex-main unexpectedly proceeded when Claude command was not executable"
+echo "[test-pm-command] case: runtime detection fail-closes with structured error report"
+blocked_detection_file="$TMPDIR/plan-gate-blocked-runtime-detection.out"
+if PM_PLAN_GATE_RUNTIME_OVERRIDE=none \
+  "$HELPER" plan gate --route default --state-file "$EXECUTION_MODE_STATE_FILE" >"$blocked_detection_file" 2>&1; then
+  fail "plan gate unexpectedly proceeded when runtime detection was explicitly disabled"
 fi
-blocked_codex_main_out="$(cat "$blocked_codex_main_file")"
-assert_contains "$blocked_codex_main_out" 'LEAD_MODEL_GATE|route=default'
-assert_contains "$blocked_codex_main_out" 'PLAN_ROUTE_BLOCKED|route=default|selected_profile=codex-main|selected_label=Codex as Main Agent|selection_source=explicit_override|reason=claude_code_mcp_command_not_executable'
-assert_contains "$blocked_codex_main_out" 'fallback_offer=1|fallback_profile=full-codex|fallback_label=Full Codex Orchestration|next_action=ask_user_for_full_codex_fallback|discovery_can_start=0'
-assert_not_contains "$blocked_codex_main_out" 'PLAN_ROUTE_READY|'
+blocked_detection_out="$(cat "$blocked_detection_file")"
+assert_contains "$blocked_detection_out" 'RUNTIME_DETECTION_ERROR|'
+assert_contains "$blocked_detection_out" 'reason=runtime_detection_failed'
+assert_contains "$blocked_detection_out" 'source=explicit_disable'
+assert_contains "$blocked_detection_out" 'PLAN_ROUTE_BLOCKED|route=default|selected_mode=dynamic-cross-runtime|selected_label=Dynamic Cross-Runtime|selection_source=persisted_state|outer_runtime=|reason=runtime_detection_failed'
 
-echo "[test-pm-command] case: mcp_servers.claude-code.env PATH makes codex-main gate pass"
+echo "[test-pm-command] case: dynamic cross-runtime blocks when Claude command is not executable"
+blocked_codex_dynamic_file="$TMPDIR/plan-gate-blocked-codex-dynamic.out"
+if PM_PLAN_GATE_RUNTIME_OVERRIDE=codex \
+  PM_LEAD_MODEL_CLAUDE_MCP_LIST_OVERRIDE='claude-code enabled' \
+  PM_LEAD_MODEL_CLAUDE_COMMAND_OVERRIDE='definitely-missing-claude-command' \
+  "$HELPER" plan gate --route default --mode dynamic-cross-runtime --state-file "$EXECUTION_MODE_STATE_FILE" >"$blocked_codex_dynamic_file" 2>&1; then
+  fail "dynamic-cross-runtime unexpectedly proceeded when Claude command was not executable"
+fi
+blocked_codex_dynamic_out="$(cat "$blocked_codex_dynamic_file")"
+assert_contains "$blocked_codex_dynamic_out" 'PLAN_ROUTE_BLOCKED|route=default|selected_mode=dynamic-cross-runtime|selected_label=Dynamic Cross-Runtime|selection_source=explicit_override|outer_runtime=codex|reason=claude_code_mcp_command_not_executable'
+assert_contains "$blocked_codex_dynamic_out" 'next_action=fix_claude_mcp_or_switch_to_main_runtime_only|discovery_can_start=0'
+assert_not_contains "$blocked_codex_dynamic_out" 'PLAN_ROUTE_READY|'
+
+echo "[test-pm-command] case: mcp_servers.claude-code.env PATH makes dynamic cross-runtime pass on Codex"
 write_codex_config "$HOME/.codex/config.toml" "gpt-global" "medium" "
 
 [mcp_servers.claude-code.env]
 PATH = \"$FAKE_CLAUDE_BIN\"
 "
 config_path_pass_out="$(
+  PM_PLAN_GATE_RUNTIME_OVERRIDE=codex \
   PM_LEAD_MODEL_CLAUDE_MCP_LIST_OVERRIDE='claude-code enabled' \
-  "$HELPER" plan gate --route default --lead-model codex-main --state-file "$LEAD_MODEL_STATE_FILE"
+  "$HELPER" plan gate --route default --mode dynamic-cross-runtime --state-file "$EXECUTION_MODE_STATE_FILE"
 )"
-assert_contains "$config_path_pass_out" 'PLAN_ROUTE_READY|route=default|selected_profile=codex-main|selected_label=Codex as Main Agent|selection_source=explicit_override'
+assert_contains "$config_path_pass_out" 'PLAN_ROUTE_READY|route=default|selected_mode=dynamic-cross-runtime|selected_label=Dynamic Cross-Runtime|selection_source=explicit_override'
 assert_not_contains "$config_path_pass_out" 'PLAN_ROUTE_BLOCKED|'
 
-echo "[test-pm-command] case: shell_environment_policy.set PATH also makes codex-main gate pass"
+echo "[test-pm-command] case: shell_environment_policy.set PATH also makes dynamic cross-runtime pass on Codex"
 write_codex_config "$HOME/.codex/config.toml" "gpt-global" "medium" "
 
 [shell_environment_policy.set]
 PATH = \"$FAKE_CLAUDE_BIN\"
 "
 shell_env_path_pass_out="$(
+  PM_PLAN_GATE_RUNTIME_OVERRIDE=codex \
   PM_LEAD_MODEL_CLAUDE_MCP_LIST_OVERRIDE='claude-code enabled' \
-  "$HELPER" plan gate --route default --lead-model codex-main --state-file "$LEAD_MODEL_STATE_FILE"
+  "$HELPER" plan gate --route default --mode dynamic-cross-runtime --state-file "$EXECUTION_MODE_STATE_FILE"
 )"
-assert_contains "$shell_env_path_pass_out" 'PLAN_ROUTE_READY|route=default|selected_profile=codex-main|selected_label=Codex as Main Agent|selection_source=explicit_override'
+assert_contains "$shell_env_path_pass_out" 'PLAN_ROUTE_READY|route=default|selected_mode=dynamic-cross-runtime|selected_label=Dynamic Cross-Runtime|selection_source=explicit_override'
 assert_not_contains "$shell_env_path_pass_out" 'PLAN_ROUTE_BLOCKED|'
 
-echo "[test-pm-command] case: claude-main blocks without fallback when codex-worker MCP is unavailable"
-blocked_claude_main_file="$TMPDIR/plan-gate-blocked-claude-main.out"
-if PM_LEAD_MODEL_FORCE_CODEX_MCP_UNAVAILABLE=1 \
-  "$HELPER" plan gate --route default --lead-model claude-main --state-file "$LEAD_MODEL_STATE_FILE" >"$blocked_claude_main_file" 2>&1; then
-  fail "claude-main unexpectedly proceeded when codex-worker MCP was unavailable"
+echo "[test-pm-command] case: dynamic cross-runtime in Claude blocks when codex-worker MCP is unavailable"
+blocked_claude_dynamic_file="$TMPDIR/plan-gate-blocked-claude-dynamic.out"
+if PM_PLAN_GATE_RUNTIME_OVERRIDE=claude \
+  PM_LEAD_MODEL_FORCE_CODEX_MCP_UNAVAILABLE=1 \
+  "$HELPER" plan gate --route default --mode dynamic-cross-runtime --state-file "$EXECUTION_MODE_STATE_FILE" >"$blocked_claude_dynamic_file" 2>&1; then
+  fail "dynamic-cross-runtime in Claude unexpectedly proceeded when codex-worker MCP was unavailable"
 fi
-blocked_claude_main_out="$(cat "$blocked_claude_main_file")"
-assert_contains "$blocked_claude_main_out" 'PLAN_ROUTE_BLOCKED|route=default|selected_profile=claude-main|selected_label=Claude as Main Orchestrator|selection_source=explicit_override|reason=codex_worker_mcp_unavailable'
-assert_contains "$blocked_claude_main_out" 'fallback_offer=0|fallback_profile=|fallback_label=|next_action=fix_codex_worker_mcp_or_choose_supported_mode|discovery_can_start=0'
-assert_not_contains "$blocked_claude_main_out" 'PLAN_ROUTE_READY|'
+blocked_claude_dynamic_out="$(cat "$blocked_claude_dynamic_file")"
+assert_contains "$blocked_claude_dynamic_out" 'PLAN_ROUTE_BLOCKED|route=default|selected_mode=dynamic-cross-runtime|selected_label=Dynamic Cross-Runtime|selection_source=explicit_override|outer_runtime=claude|reason=codex_worker_mcp_unavailable'
+assert_contains "$blocked_claude_dynamic_out" 'next_action=fix_codex_worker_mcp_or_switch_to_main_runtime_only|discovery_can_start=0'
+assert_not_contains "$blocked_claude_dynamic_out" 'PLAN_ROUTE_READY|'
 
-echo "[test-pm-command] case: claude-main blocks when codex command is not executable"
+echo "[test-pm-command] case: dynamic cross-runtime in Claude blocks when codex command is not executable"
 blocked_claude_command_file="$TMPDIR/plan-gate-blocked-claude-command.out"
-if PM_LEAD_MODEL_CODEX_MCP_LIST_OVERRIDE='codex-worker enabled' \
+if PM_PLAN_GATE_RUNTIME_OVERRIDE=claude \
+  PM_LEAD_MODEL_CODEX_MCP_LIST_OVERRIDE='codex-worker enabled' \
   PM_LEAD_MODEL_CODEX_COMMAND_OVERRIDE='definitely-missing-codex-command' \
-  "$HELPER" plan gate --route default --lead-model claude-main --state-file "$LEAD_MODEL_STATE_FILE" >"$blocked_claude_command_file" 2>&1; then
-  fail "claude-main unexpectedly proceeded when codex command was not executable"
+  "$HELPER" plan gate --route default --mode dynamic-cross-runtime --state-file "$EXECUTION_MODE_STATE_FILE" >"$blocked_claude_command_file" 2>&1; then
+  fail "dynamic-cross-runtime in Claude unexpectedly proceeded when codex command was not executable"
 fi
 blocked_claude_command_out="$(cat "$blocked_claude_command_file")"
-assert_contains "$blocked_claude_command_out" 'PLAN_ROUTE_BLOCKED|route=default|selected_profile=claude-main|selected_label=Claude as Main Orchestrator|selection_source=explicit_override|reason=codex_worker_command_not_executable'
-assert_contains "$blocked_claude_command_out" 'next_action=fix_codex_worker_mcp_or_choose_supported_mode|discovery_can_start=0'
+assert_contains "$blocked_claude_command_out" 'PLAN_ROUTE_BLOCKED|route=default|selected_mode=dynamic-cross-runtime|selected_label=Dynamic Cross-Runtime|selection_source=explicit_override|outer_runtime=claude|reason=codex_worker_command_not_executable'
+assert_contains "$blocked_claude_command_out" 'next_action=fix_codex_worker_mcp_or_switch_to_main_runtime_only|discovery_can_start=0'
 
-echo "[test-pm-command] case: lead-model reset repairs corrupt state file"
-printf 'not-json\n' >"$LEAD_MODEL_STATE_FILE"
-repair_out="$("$HELPER" lead-model reset --state-file "$LEAD_MODEL_STATE_FILE")"
-assert_contains "$repair_out" 'LEAD_MODEL_STATE|action=reset|profile=codex-main|label=Codex as Main Agent|codex_model=gpt-5.4|codex_reasoning_effort=xhigh'
-jq -e '.selected_profile == "codex-main"' "$LEAD_MODEL_STATE_FILE" >/dev/null || fail "lead-model reset did not repair corrupt state"
+echo "[test-pm-command] case: execution-mode reset repairs corrupt state file"
+printf 'not-json\n' >"$EXECUTION_MODE_STATE_FILE"
+repair_out="$("$HELPER" execution-mode reset --state-file "$EXECUTION_MODE_STATE_FILE")"
+assert_contains "$repair_out" 'EXECUTION_MODE_STATE|action=reset|mode=dynamic-cross-runtime|label=Dynamic Cross-Runtime'
+jq -e '.selected_mode == "dynamic-cross-runtime"' "$EXECUTION_MODE_STATE_FILE" >/dev/null || fail "execution-mode reset did not repair corrupt state"
 
 STATE_FILE="$TMPDIR/.codex/pm-self-update-state.json"
 PRD_PATH="$TMPDIR/docs/prd/self-update.md"

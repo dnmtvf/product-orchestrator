@@ -24,7 +24,7 @@ Referencing a path from `AGENTS.md` is not enough to make `/skill` invocable. Th
 - MCP requirements: `docs/MCP_PREREQUISITES.md`
 
 ## Codex Worker Setup
-The PM workflow uses `codex-worker` only for Codex-routed roles that run inside Claude sessions (`claude-main`) and for any explicit Claude-side Codex checks.
+The PM workflow uses `codex-worker` only for Codex-routed roles that run inside Claude sessions under `dynamic-cross-runtime`, and for any explicit Claude-side Codex checks.
 
 1. Install Codex CLI: `npm install -g @openai/codex` or `brew install --cask codex`
 2. Authenticate: `codex login`

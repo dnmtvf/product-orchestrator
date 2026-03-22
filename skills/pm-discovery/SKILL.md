@@ -15,8 +15,8 @@ description: Strict PM Discovery Mode. Trigger on $pm-discovery for questions-on
 
 ## Phase Entry Gate (mandatory)
 - Discovery may start only if the preceding `plan gate` returned `PLAN_ROUTE_READY` and `discovery_can_start=1`.
-- If the active orchestration mode is `codex-main` and the gate blocks on Claude availability, do not proceed in degraded mode. Return control to PM and ask whether to switch to `Full Codex Orchestration`.
-- If the active orchestration mode is `claude-main` and the gate blocks on `codex-worker` availability, stop and ask PM/user to fix the secondary Codex runtime or choose a supported mode.
+- If the active execution mode is `dynamic-cross-runtime` with Codex outer runtime and the gate blocks on Claude availability, do not proceed in degraded mode. Return control to PM and ask whether to switch to `Main Runtime Only`.
+- If the active execution mode is `dynamic-cross-runtime` with Claude outer runtime and the gate blocks on `codex-worker` availability, stop and ask PM/user to fix the secondary Codex runtime or choose `Main Runtime Only`.
 
 ## PM Helper Path Resolution
 - source repo or submodule checkout: `./skills/pm/scripts/pm-command.sh`
@@ -25,7 +25,7 @@ description: Strict PM Discovery Mode. Trigger on $pm-discovery for questions-on
 
 ## Subagent Launcher Compatibility (mandatory)
 - Spawn only supported generic agent types: `default`, `explorer`, `worker`.
-- Launch discovery subagents only when the current runtime/tool policy permits delegation and the user explicitly requested delegation, subagents, or parallel agent work.
+- Launch discovery subagents by default whenever the current runtime/tool policy permits delegation.
 - If delegation is not allowed in the current session, complete the equivalent discovery intake locally and report skipped delegations as warnings with mitigation and status.
 - Any later `spawn`, subagent, or handoff instruction in this file is conditional on this delegation gate; otherwise continue the same step locally/in-line and report the skipped delegation as a warning with mitigation and status.
 - Encode role in prompt payload for every spawned subagent (for example: `[Role: Senior Engineer]`).
@@ -71,7 +71,7 @@ Before asking user follow-ups, proactively gather equivalent coverage from:
 3. **Smoke Test Planner** (`default`) for discovery-phase smoke-test planning (happy/unhappy/regression) and post-implementation QA plan.
 4. **Alternative PM** (`default`) for critical alternative-solution analysis on every discovery step.
 
-- Preferred path: use subagents for these roles when the user explicitly requested delegation and current policy permits it.
+- Preferred path: use subagents for these roles whenever current policy permits it.
 - Fallback path: if delegation is blocked, do the same codebase analysis, official-doc research, smoke planning, and alternatives analysis locally and report the skipped delegations as warnings with mitigation and status.
 
 Only ask the user questions that remain unresolved after those checks.
@@ -80,10 +80,10 @@ Only ask the user questions that remain unresolved after those checks.
 - Load prompt from `references/smoke-test-planner.md`.
 - Launcher type: spawn as generic `default` with role-labeled prompt context (`[Role: Smoke Test Planner Agent]`).
 - If delegation is blocked by current policy, generate the same smoke-test artifacts locally and report the skipped delegation as a warning with mitigation and status.
-- Runner: use active profile routing from `model-routing.yaml`:
-  - `full-codex`: run codex-native as configured.
-  - `codex-main`: invoke via `claude-code` MCP using the Claude MCP Contract.
-  - `claude-main`: invoke via `codex-worker` MCP in the Claude runtime.
+- Runner: use active execution-mode routing from `model-routing.yaml`:
+  - `main-runtime-only`: run on the detected outer runtime.
+  - `dynamic-cross-runtime` with Codex outer runtime: invoke via `claude-code` MCP using the Claude MCP Contract.
+  - `dynamic-cross-runtime` with Claude outer runtime: invoke via `codex-worker` MCP in the Claude runtime.
 - Prompt must start with:
   - `use agent swarm for smoke test planning: <feature objective + constraints>`
 - Do not treat `claude-code` as a subagent launcher type.
@@ -103,10 +103,10 @@ Only ask the user questions that remain unresolved after those checks.
 - Load prompt from `references/alternative-pm.md`.
 - Launcher type: spawn as generic `default` with role-labeled prompt context (`[Role: Alternative PM Agent]`).
 - If delegation is blocked by current policy, generate the same alternatives analysis locally and report the skipped delegation as a warning with mitigation and status.
-- Runner: use active profile routing from `model-routing.yaml`:
-  - `full-codex`: run codex-native as configured.
-  - `codex-main`: invoke via `claude-code` MCP using the Claude MCP Contract.
-  - `claude-main`: invoke via `codex-worker` MCP in the Claude runtime.
+- Runner: use active execution-mode routing from `model-routing.yaml`:
+  - `main-runtime-only`: run on the detected outer runtime.
+  - `dynamic-cross-runtime` with Codex outer runtime: invoke via `claude-code` MCP using the Claude MCP Contract.
+  - `dynamic-cross-runtime` with Claude outer runtime: invoke via `codex-worker` MCP in the Claude runtime.
 - Do not treat `claude-code` as a subagent launcher type.
 - Prompt must start with:
   - `use agent swarm for <problem statement and constraints>`

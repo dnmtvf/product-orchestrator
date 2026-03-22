@@ -29,6 +29,8 @@ Before locking the task graph, proactively consult:
 2. **Librarian** (`default`) for external constraints (API quotas, platform requirements, compliance notes).
 3. **Smoke Test Planner output** from discovery/PRD for QA task coverage.
 
+When the current runtime/tool policy permits delegation, these support agents should be launched by default; if delegation is blocked, do the equivalent sequencing/constraints review locally and report the skipped delegation as a warning with mitigation and status.
+
 ## Preconditions (hard gate)
 Before planning, verify all of the following:
 1. PRD path is provided and file exists.
@@ -92,7 +94,7 @@ After task graph is generated:
 When user responds `approved` at this gate:
 - Automatically invoke `$pm-implement` with PRD path and epic ID.
 - Do not ask the user to manually run the next command.
-- Preferred orchestration path: invoke via generic `default` subagent with role-labeled context (`[Role: PM Implement Handoff]`) and wait for completion.
+- Preferred orchestration path: invoke via generic `default` subagent with role-labeled context (`[Role: PM Implement Handoff]`) and wait for completion whenever delegation is permitted; otherwise continue directly and report the skipped delegation as a warning with mitigation and status.
 
 ## Minimal Repo Bootstrap (only if needed)
 - Ensure `docs/beads.md` exists.

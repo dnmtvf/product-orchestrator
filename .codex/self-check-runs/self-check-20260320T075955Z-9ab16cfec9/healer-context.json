@@ -1,0 +1,24 @@
+{
+  "run_id": "self-check-20260320T075955Z-9ab16cfec9",
+  "fixture_suite_version": "pm-self-check-v1",
+  "fixture_case": "happy-path",
+  "synthetic_task": "Create a snake game",
+  "repair_policy": "approval_gated",
+  "summary_file": ".codex/self-check-runs/self-check-20260320T075955Z-9ab16cfec9/summary.json",
+  "artifact_dir": ".codex/self-check-runs/self-check-20260320T075955Z-9ab16cfec9",
+  "recommended_plan_trigger": "/pm plan: Repair PM self-check findings from run self-check-20260320T075955Z-9ab16cfec9 using artifact bundle self-check-20260320T075955Z-9ab16cfec9.",
+  "findings": [
+    {
+      "run_id": "self-check-20260320T075955Z-9ab16cfec9",
+      "phase": "artifacts",
+      "step": "claude_mcp_snapshot",
+      "severity": "warning",
+      "status": "failed",
+      "code": "snapshot_capture_failed",
+      "detail": "Unable to capture claude mcp list within timeout.",
+      "remediation": "",
+      "artifact_path": ".codex/self-check-runs/self-check-20260320T075955Z-9ab16cfec9/claude-mcp-list.txt",
+      "created_at": "2026-03-20T08:00:03Z"
+    }
+  ]
+}

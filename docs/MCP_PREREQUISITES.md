@@ -1,6 +1,6 @@
 # MCP Prerequisites For PM Workflow
 
-This PM workflow requires specific MCP servers. Missing optional doc/research servers can reduce evidence quality, but Claude-dependent orchestration modes must not continue in degraded mode when Claude is unavailable.
+This PM workflow requires specific MCP servers. Missing optional doc/research servers can reduce evidence quality, but routed cross-runtime phases must not continue in degraded mode when the required opposite-provider runtime is unavailable.
 
 ## Required MCP servers (required for full behavior)
 From the PM skill contract, these are required for full behavior:
@@ -11,18 +11,18 @@ From the PM skill contract, these are required for full behavior:
 - `firecrawl`
 
 Claude availability policy:
-- `Full Codex Orchestration` remains usable without Claude MCP.
-- `Codex as Main Agent` blocks before Discovery when Claude is unavailable and offers explicit fallback to `Full Codex Orchestration`.
-- `Claude as Main Orchestrator` keeps Claude-native roles as the outer runtime and blocks before Discovery until `codex-worker` is available or the user chooses a supported mode.
+- `Main Runtime Only` remains usable without Claude MCP when the outer runtime is Codex.
+- `Dynamic Cross-Runtime` with Codex outer runtime blocks before Discovery when Claude is unavailable and offers remediation to fix `claude-code` or switch to `Main Runtime Only`.
+- `Dynamic Cross-Runtime` with Claude outer runtime keeps Claude-native roles as the outer runtime and blocks before Discovery until `codex-worker` is available or the user chooses `Main Runtime Only`.
 - `codex mcp list` only proves `claude-code` is configured/enabled. It does not prove the current Codex runtime exposes a usable Claude launcher.
 - If the launcher reports `Agent type 'general-purpose' not found`, `no supported agent type`, or equivalent, treat Claude runtime as unavailable for that session.
 - If a required Claude-routed phase step later loses launcher availability, stop that phase and return control to PM. Do not continue with codex-native fallback.
 
-Codex secondary-runtime policy for `claude-main`:
+Codex secondary-runtime policy for Claude outer-runtime sessions:
 - Register `codex-worker` in the Claude runtime with `claude mcp add codex-worker -- codex mcp-server`.
 - `claude mcp list` must show `codex-worker` enabled for the active Claude runtime.
 - The Claude runtime must also be able to execute `codex` (for example via runtime `PATH` or an absolute command path).
-- If `codex-worker` is enabled but `codex` is not executable, treat `claude-main` as unavailable and block before Discovery instead of continuing.
+- If `codex-worker` is enabled but `codex` is not executable, treat `dynamic-cross-runtime` in Claude as unavailable and block before Discovery instead of continuing.
 
 ## Install commands (Codex CLI)
 

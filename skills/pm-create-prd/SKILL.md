@@ -25,7 +25,7 @@ Before finalizing PRD content, proactively consult:
 2. **Librarian** (`default`) for external documentation and platform constraints.
 3. **Smoke Test Planner** output from discovery for testability and QA execution readiness.
 
-Use their findings to reduce avoidable user clarification loops.
+Use their findings to reduce avoidable user clarification loops. When the current runtime/tool policy permits delegation, these support agents should be launched by default; if delegation is blocked, do the equivalent work locally and report the skipped delegation as a warning with mitigation and status.
 
 ## Inputs (required)
 - Discovery Summary (structured and complete)
@@ -62,7 +62,7 @@ When PRD is approved:
 - Automatically invoke:
   - `$pm-beads-plan Use PRD docs/prd/<slug>.md and treat PRD approval as confirmed`
 - Do not ask user to manually type the next command.
-- Preferred orchestration path: invoke via generic `default` subagent with role-labeled context (`[Role: PM Beads Plan Handoff]`) and wait for completion.
+- Preferred orchestration path: invoke via generic `default` subagent with role-labeled context (`[Role: PM Beads Plan Handoff]`) and wait for completion whenever delegation is permitted; otherwise continue directly and report the skipped delegation as a warning with mitigation and status.
 
 ## Bootstrap (if missing)
 Ensure:

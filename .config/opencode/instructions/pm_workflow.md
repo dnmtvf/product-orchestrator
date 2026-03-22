@@ -38,44 +38,53 @@ This workflow is the source of truth for PM orchestration in this repo. Installe
   - installed target repo from Codex: `./.codex/skills/pm/scripts/pm-command.sh`
   - installed target repo from Claude: `./.claude/skills/pm/scripts/pm-command.sh`
 - Both plan routes must execute the helper gate before Discovery:
-  - `<pm-helper> plan gate --route default|big-feature [--lead-model full-codex|codex-main|claude-main]`
-- Before Discovery for both plan routes, run a mandatory lead-model selection gate with exactly three options:
-  - `Full Codex Orchestration`
-  - `Codex as Main Agent`
-  - `Claude as Main Orchestrator`
-- Codex-native orchestrator roles are pinned to `gpt-5.4` with `xhigh` reasoning effort.
-- Persist selected lead-model profile across sessions and reuse by default until changed.
-- Selection precedence is explicit `--lead-model` override, then Conductor runtime auto-detection, then persisted state.
-- In Conductor workspaces, Codex sessions auto-select `codex-main` and Claude sessions auto-select `claude-main`.
-- Selected lead model must drive runtime/model for:
+  - `<pm-helper> plan gate --route default|big-feature [--mode dynamic-cross-runtime|main-runtime-only]`
+- Before Discovery for both plan routes, run a mandatory execution-mode selection gate with exactly two options:
+  - `Dynamic Cross-Runtime`
+  - `Main Runtime Only`
+- Persist selected execution mode across sessions and reuse by default until changed.
+- Selection precedence is explicit `--mode` override, then persisted state.
+- Outer runtime must be inferred fresh on every plan gate run from the active Codex or Claude session.
+- Selected execution mode plus the inferred outer runtime must drive runtime/model for:
   - `project_manager`
   - `team_lead`
   - `pm_beads_plan_handoff`
   - `pm_implement_handoff`
-- `Full Codex Orchestration` must remain usable without Claude MCP.
-- `Codex as Main Agent` must check Claude MCP availability immediately after selection and, if unavailable, block with an explicit fallback offer to `Full Codex Orchestration`.
-- `Claude as Main Orchestrator` must keep Claude-native main roles as the outer runtime and check `codex-worker` availability immediately after selection for Codex-routed roles.
+- `Main Runtime Only` must remain usable without opposite-provider MCP.
+- `Dynamic Cross-Runtime` with Codex outer runtime must check Claude MCP availability immediately after selection and, if unavailable, block with remediation to fix `claude-code` or switch to `Main Runtime Only`.
+- `Dynamic Cross-Runtime` with Claude outer runtime must keep Claude-native main roles as the outer runtime and check `codex-worker` availability immediately after selection for Codex-routed roles.
 - The plan gate result is authoritative. If it emits `PLAN_ROUTE_BLOCKED` or `discovery_can_start=0`, do not start Discovery or any downstream phase.
-- For blocked `Codex as Main Agent`, the only allowed continuation is to ask whether to switch to `Full Codex Orchestration`.
+- If outer runtime detection fails or becomes ambiguous, block before Discovery, print a structured error report, and persist the run outcome in telemetry.
 - Do not describe a blocked route as degraded mode.
 - Claude availability requires both:
   - healthy `claude-code` registration in `codex mcp list`
   - an executable configured command in the actual PM runtime
-- `codex-worker` availability for `claude-main` requires both:
+- `codex-worker` availability for `dynamic-cross-runtime` in Claude requires both:
   - healthy `codex-worker` registration in `claude mcp list`
   - an executable `codex` command in the actual Claude runtime
 - PM must treat `[shell_environment_policy.set].PATH`, `[mcp_servers.claude-code.env].PATH`, or an absolute command path as valid ways to satisfy the executable-command requirement.
 - PM must treat the Claude runtime `PATH` (including wrapper scripts or absolute command paths) as valid ways to satisfy the `codex-worker` `codex` executability requirement.
 - `mcp__claude-code__Agent` / implicit `general-purpose` agent launching is not a valid PM orchestration path.
 - Use `codex mcp add claude-code -- claude mcp serve` only when the server is actually missing; if the launcher reports `no supported agent type` or the command is not executable in the PM runtime, treat Claude runtime as unavailable for that session.
-- Use `claude mcp add codex-worker -- codex mcp-server` only when `codex-worker` is actually missing; if `codex-worker` is enabled but `codex` is not executable in the Claude runtime, treat `claude-main` as unavailable for that session.
+- Use `claude mcp add codex-worker -- codex mcp-server` only when `codex-worker` is actually missing; if `codex-worker` is enabled but `codex` is not executable in the Claude runtime, treat `dynamic-cross-runtime` in Claude as unavailable for that session.
 - `/pm help` and `$pm help` print command invocations, required phase order, and approval-gate reminders.
-- `/pm lead-model show|set|reset` and `$pm lead-model show|set|reset` must route to:
-  - `<pm-helper> lead-model show`
-  - `<pm-helper> lead-model set --profile full-codex|codex-main|claude-main`
-  - `<pm-helper> lead-model reset`
+- `/pm execution-mode show|set|reset` and `$pm execution-mode show|set|reset` must route to:
+  - `<pm-helper> execution-mode show`
+  - `<pm-helper> execution-mode set --mode dynamic-cross-runtime|main-runtime-only`
+  - `<pm-helper> execution-mode reset`
+- `/pm self-check` and `$pm self-check` must run the PM self-diagnostic route:
+  - `<pm-helper> self-check run [--mode dynamic-cross-runtime|main-runtime-only]`
+  - self-check uses deterministic built-in fixtures plus a synthetic PM task
+  - self-check must print verbose warnings/errors to console and persist an artifact bundle under `.codex/self-check-runs/<run-id>/`
+  - fail the whole self-check run when Claude registration, executability, or session health is unhealthy
+  - do not report self-check as `clean` when artifact capture is broken; artifact-layer defects must end `issues_detected`
+  - artifact capture must persist structured per-snapshot evidence including command source, PATH override source, elapsed time, exit status/signal, timeout state, pid/process state, and partial stdout/stderr
+  - if helper exits nonzero or does not emit `SELF_CHECK_HEALER_READY`, stop and report the blocked reason
+  - if helper emits `SELF_CHECK_HEALER_READY`, spawn a generic `default` outer healer using the generated prompt/context artifacts
+  - `SELF_CHECK_REPAIR_BUNDLE` on `issues_detected` is approval-gated repair packaging guidance, not permission to bypass PM gates
+  - healer may only package repair work through the normal PM flow and must not bypass approvals
 - `/pm self-update` and `$pm self-update` are manual-only and must run the Codex self-update check flow, then trigger:
-  - `/pm plan: Inspect latest Codex changes and align orchestrator behavior with lead-model profile runtime policy.`
+  - `/pm plan: Inspect latest Codex changes and align orchestrator behavior with runtime-inferred execution-mode policy.`
 - Self-update check policy:
   - changelog website is source of truth
   - release/npm signals are corroborative only
@@ -135,15 +144,14 @@ This workflow is the source of truth for PM orchestration in this repo. Installe
 - Report blocked items with explicit reason and next action.
 
 ## Model Routing Policy
-- Lead-model profiles:
-  - `codex-main` (default): Codex main roles, Claude support roles where configured.
-  - `full-codex`: Codex handles all orchestration and support roles without Claude.
-  - `claude-main`: Claude-native main roles plus Claude-routed support roles, with Codex-routed support roles delegated through `codex-worker` MCP.
-- Planning/discovery/docs/research/QA/review orchestration model selection follows active profile routing matrix.
-- Implementation coding tasks follow active profile routing matrix.
+- Execution modes:
+  - `dynamic-cross-runtime` (default): main roles stay on the detected outer runtime and routed support roles cross into the opposite provider through MCP.
+  - `main-runtime-only`: all roles stay on the detected outer runtime.
+- Planning/discovery/docs/research/QA/review orchestration model selection follows the active execution-mode routing matrix.
+- Implementation coding tasks follow the active execution-mode routing matrix.
 - External Claude agents are allowed only through `claude-code` MCP contract.
 - Direct Claude CLI/app orchestration is not allowed.
-- If a required Claude-routed role is unavailable under `codex-main`, or a required `codex-worker` role is unavailable under `claude-main`, block the current phase and return control to PM. Do not auto-fallback to codex-native.
+- If a required Claude-routed role is unavailable under `dynamic-cross-runtime` with Codex outer runtime, or a required `codex-worker` role is unavailable under `dynamic-cross-runtime` with Claude outer runtime, block the current phase and return control to PM. Do not auto-fallback to the main runtime.
 
 ## Git / Shipping Policy
 - No `git commit` or `git push` during PM execution phases (Discovery through Awaiting Final Review).
@@ -154,7 +162,7 @@ This workflow is the source of truth for PM orchestration in this repo. Installe
 
 ## Subagent Orchestration Policy
 - PM must launch only supported generic subagent types: `default`, `explorer`, and `worker`.
-- PM/Team Lead may delegate only when the current runtime/tool policy permits it and the user explicitly requested delegation, subagents, or parallel agent work.
+- PM/Team Lead must launch the required orchestrator subagents by default whenever the current runtime/tool policy permits delegation.
 - If current policy blocks delegation for the active session, PM/Team Lead must perform the equivalent repo analysis, external research, or QA work locally and report the skipped delegation as a warning with mitigation and status.
 - PM must encode functional role in prompt payloads (for example: `[Role: Senior Engineer]`).
 - PM must not depend on named workflow agents or custom launcher types.
@@ -174,10 +182,10 @@ This workflow is the source of truth for PM orchestration in this repo. Installe
   - `<pm-helper> claude-contract run-loop --context-file <json> --response-file <txt> [--response-file <txt> ...] --session-id <id> --role <role>`
 - If handshake parser/wrapper returns `status=context_needed` or `status=awaiting_context`, orchestrator must gather requested context and continue in the same Claude session.
 - Required discovery support coverage:
-  - Senior Engineer (`explorer` when delegation is permitted; otherwise local codebase analysis)
-  - Librarian (`default` when delegation is permitted; otherwise local official-doc research)
-  - Smoke Test Planner (`default` when delegation is permitted; otherwise local smoke planning)
-  - Alternative PM (`default` when delegation is permitted; otherwise local alternatives analysis)
+  - Senior Engineer (`explorer` by default when delegation is permitted; otherwise local codebase analysis)
+  - Librarian (`default` by default when delegation is permitted; otherwise local official-doc research)
+  - Smoke Test Planner (`default` by default when delegation is permitted; otherwise local smoke planning)
+  - Alternative PM (`default` by default when delegation is permitted; otherwise local alternatives analysis)
 - Implementation must run through Team Lead (`default`), which delegates coding to:
   - Backend Engineer (`worker`)
   - Frontend Engineer (`worker`)

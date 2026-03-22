@@ -117,10 +117,9 @@ Use the PM helper path that matches where you are running:
 
 1. Open a session in the target repo.
 2. Start the workflow with `/pm` and your request.
-3. Select lead model before Discovery starts:
-   - `Full Codex Orchestration`
-   - `Codex as Main Agent`
-   - `Claude as Main Orchestrator`
+3. Let the helper infer the outer runtime from the active Codex or Claude session, then select execution mode before Discovery starts:
+   - `Dynamic Cross-Runtime`
+   - `Main Runtime Only`
 4. Respond to discovery clarification questions.
 5. Approve PRD by replying exactly `approved`.
 6. Review Beads plan and approve by replying exactly `approved`.
@@ -138,14 +137,21 @@ Help command:
 /pm help
 ```
 
-Lead-model commands:
+Self-check command:
 
 ```text
-/pm lead-model show
-/pm lead-model set --profile full-codex
-/pm lead-model set --profile codex-main
-/pm lead-model set --profile claude-main
-/pm lead-model reset
+/pm self-check
+```
+
+The self-check route runs the built-in deterministic PM fixture suite, prints verbose `SELF_CHECK_EVENT` diagnostics to console, and writes an artifact bundle under `.codex/self-check-runs/<run-id>/`. Claude health is mandatory for this route: unhealthy registration, command executability, or session usability fails the whole run. Broken artifact capture does not stay `clean`: self-check downgrades to `issues_detected`, records structured snapshot evidence and issue codes, and still emits healer-ready artifacts so the outer healer can package repairs through the normal PM flow without bypassing approvals.
+
+Execution-mode commands:
+
+```text
+/pm execution-mode show
+/pm execution-mode set --mode dynamic-cross-runtime
+/pm execution-mode set --mode main-runtime-only
+/pm execution-mode reset
 ```
 
 Big-feature mode example:
@@ -158,7 +164,7 @@ Big-feature mode selector:
 - `conflict-aware`: discovery enforces anti-conflict boundaries between PRDs.
 - `worktree-isolated`: each PRD is planned for isolated worktree execution context.
 - If not provided in the request, PM asks for mode selection during discovery.
-- Lead-model gate still runs before Discovery and applies to both plan routes.
+- Execution-mode gate still runs before Discovery and applies to both plan routes.
 - Worktree note: Ralph already uses worktrees for parallel execution; external tools (for example Worktrunk) are optional helpers.
 - Queue behavior: each PRD enters async enqueue only after both approvals and empty `Open Questions`; worker cap is 2 with single auto-retry.
 
@@ -169,9 +175,19 @@ Manual self-update mode:
   - pipeline relevance filtering (`RELEVANCE_SUMMARY`, `RELEVANT_CHANGES_JSON`, `IGNORED_CHANGES_JSON`)
   - integration proposals for relevant items (`INTEGRATION_PLAN_JSON`)
 - The command outputs a required planning trigger in this format:
-  - `/pm plan: Inspect latest Codex changes and align orchestrator behavior with lead-model profile runtime policy.`
+  - `/pm plan: Inspect latest Codex changes and align orchestrator behavior with runtime-inferred execution-mode policy.`
 - After full PM completion gate succeeds, finalize processed version checkpoint:
   - `./skills/pm/scripts/pm-command.sh self-update complete --approval approved --prd-approval approved --beads-approval approved --prd-path docs/prd/<approved-prd>.md`
+
+Manual self-check mode:
+- List built-in fixtures:
+  - `./skills/pm/scripts/pm-command.sh self-check fixtures`
+- Run the deterministic harness:
+  - `./skills/pm/scripts/pm-command.sh self-check run --mode main-runtime-only`
+- The harness writes artifacts under `.codex/self-check-runs/<run-id>/`.
+- Healthy runtime plus healthy artifact capture ends `clean`.
+- Unhealthy Claude registration, executability, or session usability ends `failed`.
+- Broken artifact capture with otherwise usable runtime ends `issues_detected`, writes per-snapshot attempt JSON plus stdout/stderr artifacts, and still emits `SELF_CHECK_HEALER_READY` so the outer healer can package repairs through the normal PM flow.
 
 ## Fixed phase order
 
@@ -181,19 +197,20 @@ Manual self-update mode:
 
 Execution is tracked in Beads (`bd`) and `.beads/` should stay committed in Git.
 For big-feature queue mode, persist queue state in `docs/prd/_queue/<feature-slug>.json` using the contract in `docs/QUEUE_WORKFLOW.md`.
-Runtime policy is lead-model profile driven with `codex-main` default, plus optional `full-codex` and `claude-main`.
+Runtime policy is execution-mode driven with `dynamic-cross-runtime` default and `main-runtime-only` as the single-runtime alternative.
 The public orchestration contract uses only generic subagent types (`default`, `explorer`, `worker`).
+Required PM support, handoff, implementation, review, and QA subagents should launch by default whenever the active runtime/tool policy permits delegation; only platform/runtime policy failures should force the documented local fallback path.
 Claude remains an external MCP runtime rather than a public launcher type, and any Codex-side Claude wrapper is internal-only if implemented.
-Codex-native orchestrator roles are pinned to `gpt-5.4` with `xhigh` reasoning effort.
-Selection precedence is explicit `--lead-model` override, then Conductor runtime auto-detection, then persisted lead-model state.
-In Conductor workspaces, Codex sessions auto-select `codex-main` and Claude sessions auto-select `claude-main`.
-`Full Codex Orchestration` requires no Claude runtime.
-`Codex as Main Agent` checks Claude MCP availability immediately after selection and, on failure, blocks with an offer to fall back to `Full Codex Orchestration`.
-`Claude as Main Orchestrator` keeps Claude-native roles as the outer runtime and checks `codex-worker` availability immediately after selection for Codex-routed roles.
+Codex-native roles resolve model and reasoning effort from `.codex/config.toml`, then `~/.codex/config.toml`, with `gpt-5.4` / `xhigh` as the fallback.
+Claude-native roles resolve model and effort from `.claude/settings.local.json`, `.claude/settings.json`, then `~/.claude/settings.json`, with `<unpinned>` as the fallback.
+Selection precedence is explicit `--mode` override, then persisted execution-mode state. Outer runtime is inferred fresh on every gate run.
+`Main Runtime Only` requires no opposite-provider MCP runtime.
+`Dynamic Cross-Runtime` on Codex checks Claude MCP availability immediately and blocks with remediation to fix `claude-code` or switch to `Main Runtime Only`.
+`Dynamic Cross-Runtime` on Claude checks `codex-worker` availability immediately and blocks with remediation to fix `codex-worker` or switch to `Main Runtime Only`.
 Claude availability requires both a healthy `codex mcp list` entry and an executable configured command in the PM runtime. That executability can come from an absolute `command`, from `[shell_environment_policy.set].PATH`, or from `[mcp_servers.claude-code.env].PATH`.
-`codex-worker` availability for `claude-main` requires both a healthy `claude mcp list` entry and an executable `codex` command in the Claude runtime.
-Use `codex mcp add claude-code -- claude mcp serve` when the server is actually missing. If the server is enabled but the launcher is unusable, report that limitation, block the Claude-dependent mode or phase, and do not continue in degraded fallback.
-Use `claude mcp add codex-worker -- codex mcp-server` when `claude-main` is selected and the secondary Codex runtime is actually missing. If `codex-worker` is enabled but `codex` is not executable in the Claude runtime, block before Discovery and fix that runtime instead of continuing.
+`codex-worker` availability in Claude requires both a healthy `claude mcp list` entry and an executable `codex` command in the Claude runtime.
+Use `codex mcp add claude-code -- claude mcp serve` when the server is actually missing. If the server is enabled but the launcher is unusable, report that limitation, block the routed phase, and do not continue in degraded fallback.
+Use `claude mcp add codex-worker -- codex mcp-server` when the Claude-side Codex runtime is actually missing. If `codex-worker` is enabled but `codex` is not executable in the Claude runtime, block before Discovery and fix that runtime instead of continuing.
 Telemetry helpers are available in PM command helper:
 - `./skills/pm/scripts/pm-command.sh telemetry init-db --dsn <postgres-dsn>`
 - `./skills/pm/scripts/pm-command.sh telemetry log-step --workflow-run-id <id> --step-id <id> ...`

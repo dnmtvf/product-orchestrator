@@ -1,0 +1,21 @@
+RUNTIME_DETECTION|run_id=pm-plan-gate-1774198748-89569::default|route=default|workspace_path=/Users/d/product-orchestrator|outer_runtime=codex|source=codex_env|detail=Detected Codex runtime from Codex session environment markers.
+EXECUTION_MODE_GATE|route=default|question=Select execution mode before Discovery|options=Dynamic Cross-Runtime;Main Runtime Only|persisted_mode=dynamic-cross-runtime|selected_mode=main-runtime-only|selected_label=Main Runtime Only|selection_source=explicit_override|outer_runtime=codex|outer_runtime_source=codex_env|codex_model=gpt-5.4|codex_reasoning_effort=xhigh|claude_model=opus[1m]|claude_reasoning_effort=high|state_file=.codex/pm-lead-model-state.json
+ROUTING_PROFILE|route=default|mode=main-runtime-only|selection_source=explicit_override|outer_runtime=codex|outer_runtime_source=codex_env|main_runtime=codex-native|main_model=gpt-5.4|main_reasoning_effort=xhigh|fallback_active=0
+ROUTING_ROLE|role=project_manager|class=main|runtime=codex-native|model=gpt-5.4|reasoning_effort=xhigh|agent_type=default
+ROUTING_ROLE|role=team_lead|class=main|runtime=codex-native|model=gpt-5.4|reasoning_effort=xhigh|agent_type=default
+ROUTING_ROLE|role=pm_beads_plan_handoff|class=main|runtime=codex-native|model=gpt-5.4|reasoning_effort=xhigh|agent_type=default
+ROUTING_ROLE|role=pm_implement_handoff|class=main|runtime=codex-native|model=gpt-5.4|reasoning_effort=xhigh|agent_type=default
+ROUTING_ROLE|role=senior_engineer|class=sub|runtime=codex-native|model=gpt-5.4|reasoning_effort=xhigh|agent_type=explorer
+ROUTING_ROLE|role=librarian|class=sub|runtime=codex-native|model=gpt-5.4|reasoning_effort=xhigh|agent_type=default
+ROUTING_ROLE|role=smoke_test_planner|class=sub|runtime=codex-native|model=gpt-5.4|reasoning_effort=xhigh|agent_type=default
+ROUTING_ROLE|role=alternative_pm|class=sub|runtime=codex-native|model=gpt-5.4|reasoning_effort=xhigh|agent_type=default
+ROUTING_ROLE|role=researcher|class=sub|runtime=codex-native|model=gpt-5.4|reasoning_effort=xhigh|agent_type=default
+ROUTING_ROLE|role=backend_engineer|class=sub|runtime=codex-native|model=gpt-5.4|reasoning_effort=xhigh|agent_type=worker
+ROUTING_ROLE|role=frontend_engineer|class=sub|runtime=codex-native|model=gpt-5.4|reasoning_effort=xhigh|agent_type=worker
+ROUTING_ROLE|role=security_engineer|class=sub|runtime=codex-native|model=gpt-5.4|reasoning_effort=xhigh|agent_type=worker
+ROUTING_ROLE|role=agents_compliance_reviewer|class=sub|runtime=codex-native|model=gpt-5.4|reasoning_effort=xhigh|agent_type=default
+ROUTING_ROLE|role=jazz_reviewer|class=sub|runtime=codex-native|model=gpt-5.4|reasoning_effort=xhigh|agent_type=default
+ROUTING_ROLE|role=codex_reviewer|class=sub|runtime=codex-native|model=gpt-5.4|reasoning_effort=xhigh|agent_type=default
+ROUTING_ROLE|role=manual_qa|class=sub|runtime=codex-native|model=gpt-5.4|reasoning_effort=xhigh|agent_type=default
+ROUTING_ROLE|role=task_verification|class=sub|runtime=codex-native|model=gpt-5.4|reasoning_effort=xhigh|agent_type=default
+PLAN_ROUTE_READY|route=default|selected_mode=main-runtime-only|selected_label=Main Runtime Only|selection_source=explicit_override|outer_runtime=codex|outer_runtime_source=codex_env|discovery_can_start=1

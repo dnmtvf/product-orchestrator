@@ -1,21 +1,28 @@
-# Model Routing Configuration (Lead-model aware)
-# Policy contract for PM role-to-runtime mapping by lead-model profile.
+# Model Routing Configuration (runtime-inferred execution-mode aware)
+# Policy contract for PM role-to-runtime mapping by execution mode and detected outer runtime.
 # pm-command plan gate outputs must remain conformance-aligned with this matrix.
 
-version: 4
+version: 5
 
 policy:
-  default_profile: codex-main
-  lead_model_gate_required_routes:
+  default_mode: dynamic-cross-runtime
+  execution_mode_gate_required_routes:
     - default
     - big-feature
-  lead_model_options:
-    full-codex: Full Codex Orchestration
-    codex-main: Codex as Main Agent
-    claude-main: Claude as Main Orchestrator
-  codex_pinning:
-    model: gpt-5.4
-    reasoning_effort: xhigh
+  execution_mode_options:
+    dynamic-cross-runtime: Dynamic Cross-Runtime
+    main-runtime-only: Main Runtime Only
+  runtime_detection:
+    fail_closed: true
+    codex_positive_markers:
+      - CODEX_THREAD_ID
+      - CODEX_INTERNAL_ORIGINATOR_OVERRIDE
+      - process tree contains codex
+    claude_positive_markers:
+      - CLAUDECODE
+      - CLAUDE_CODE
+      - CLAUDE_SESSION_ID
+      - process tree contains claude
   main_roles:
     - project_manager
     - team_lead
@@ -23,11 +30,13 @@ policy:
     - pm_implement_handoff
   phase_entry_requirements:
     - plan gate must emit PLAN_ROUTE_READY and discovery_can_start=1 before Discovery starts
-    - codex-main with unavailable claude-code blocks and offers fallback to full-codex
-    - claude-main with unavailable claude-code blocks until Claude is fixed or the mode changes
+    - dynamic-cross-runtime under codex blocks until claude-code is healthy and executable
+    - dynamic-cross-runtime under claude blocks until codex-worker is healthy and codex is executable
+    - main-runtime-only remains usable without opposite-provider MCP
   runtime_failure_policy:
-    - if a required claude-code-mcp role later becomes unavailable under codex-main or claude-main, stop the current phase and return control to PM
-    - do not auto-fallback blocked Claude-dependent phases to codex-native
+    - if outer runtime detection is unresolved or ambiguous, fail closed and persist a runtime detection run
+    - if a required opposite-provider MCP path later becomes unavailable under dynamic-cross-runtime, stop the current phase and return control to PM
+    - do not auto-fallback blocked routed-runtime phases to the main runtime
 
 runtimes:
   codex-native:
@@ -37,308 +46,145 @@ runtimes:
       - default
       - explorer
       - worker
+    model_source:
+      - repo .codex/config.toml
+      - ~/.codex/config.toml
+      - fallback gpt-5.4 / xhigh
 
   claude-code-mcp:
-    description: External Claude MCP path for roles/prompt flows that require Claude swarm execution.
+    description: External Claude MCP path for roles that must cross from Codex into Claude.
     setup_command: "codex mcp add claude-code -- claude mcp serve"
     availability_requirements:
       - claude-code MCP server registered and enabled
-      - a required Claude-routed phase must block if the actual Claude invocation reports no supported agent type or equivalent launcher failure
+      - configured command executable in the actual Codex runtime
+      - launcher failures such as no supported agent type must block the phase
+    model_source:
+      - ANTHROPIC_MODEL when set
+      - repo .claude/settings.local.json
+      - repo .claude/settings.json
+      - ~/.claude/settings.json
+      - fallback <unpinned>
     invalid_paths:
       - mcp__claude-code__Agent with implicit general-purpose launcher
 
   claude-native:
-    description: Native Claude runtime for roles executed when Claude is already the outer orchestrator.
+    description: Native Claude runtime for roles executed when Claude is the outer orchestrator.
+    model_source:
+      - ANTHROPIC_MODEL when set
+      - repo .claude/settings.local.json
+      - repo .claude/settings.json
+      - ~/.claude/settings.json
+      - fallback <unpinned>
 
   codex-worker-mcp:
-    description: External Codex MCP path for Codex-routed roles when Claude is the outer runtime.
+    description: External Codex MCP path for roles that must cross from Claude into Codex.
     setup_command: "claude mcp add codex-worker -- codex mcp-server"
     availability_requirements:
       - codex-worker MCP server registered and enabled in the Claude runtime
-      - codex executable resolvable in the runtime that launches codex-worker
+      - configured codex command executable in the actual Claude runtime
+    model_source:
+      - repo .codex/config.toml
+      - ~/.codex/config.toml
+      - fallback gpt-5.4 / xhigh
 
-profiles:
-  full-codex:
-    description: Codex handles all orchestration and support roles without requiring Claude MCP.
-    roles:
-      project_manager:
-        class: main
-        runtime: codex-native
-        model: gpt-5.4
-        reasoning_effort: xhigh
-        agent_type: default
-      team_lead:
-        class: main
-        runtime: codex-native
-        model: gpt-5.4
-        reasoning_effort: xhigh
-        agent_type: default
-      pm_beads_plan_handoff:
-        class: main
-        runtime: codex-native
-        model: gpt-5.4
-        reasoning_effort: xhigh
-        agent_type: default
-      pm_implement_handoff:
-        class: main
-        runtime: codex-native
-        model: gpt-5.4
-        reasoning_effort: xhigh
-        agent_type: default
-      senior_engineer:
-        class: sub
-        runtime: codex-native
-        model: gpt-5.4
-        reasoning_effort: xhigh
-        agent_type: explorer
-      librarian:
-        class: sub
-        runtime: codex-native
-        model: gpt-5.4
-        reasoning_effort: xhigh
-        agent_type: default
-      smoke_test_planner:
-        class: sub
-        runtime: codex-native
-        model: gpt-5.4
-        reasoning_effort: xhigh
-        agent_type: default
-      alternative_pm:
-        class: sub
-        runtime: codex-native
-        model: gpt-5.4
-        reasoning_effort: xhigh
-        agent_type: default
-      researcher:
-        class: sub
-        runtime: codex-native
-        model: gpt-5.4
-        reasoning_effort: xhigh
-        agent_type: default
-      backend_engineer:
-        class: sub
-        runtime: codex-native
-        model: gpt-5.4
-        reasoning_effort: xhigh
-        agent_type: worker
-      frontend_engineer:
-        class: sub
-        runtime: codex-native
-        model: gpt-5.4
-        reasoning_effort: xhigh
-        agent_type: worker
-      security_engineer:
-        class: sub
-        runtime: codex-native
-        model: gpt-5.4
-        reasoning_effort: xhigh
-        agent_type: worker
-      agents_compliance_reviewer:
-        class: sub
-        runtime: codex-native
-        model: gpt-5.4
-        reasoning_effort: xhigh
-        agent_type: default
-      jazz_reviewer:
-        class: sub
-        runtime: codex-native
-        model: gpt-5.4
-        reasoning_effort: xhigh
-        agent_type: default
-      codex_reviewer:
-        class: sub
-        runtime: codex-native
-        model: gpt-5.4
-        reasoning_effort: xhigh
-        agent_type: default
-      manual_qa:
-        class: sub
-        runtime: codex-native
-        model: gpt-5.4
-        reasoning_effort: xhigh
-        agent_type: default
-      task_verification:
-        class: sub
-        runtime: codex-native
-        model: gpt-5.4
-        reasoning_effort: xhigh
-        agent_type: default
+execution_modes:
+  dynamic-cross-runtime:
+    description: Keep main orchestration on the detected outer runtime and use the opposite provider for routed support roles.
+    outer_runtime_matrix:
+      codex:
+        main_runtime: codex-native
+        opposite_runtime: claude-code-mcp
+        roles:
+          project_manager: { class: main, runtime: codex-native, agent_type: default }
+          team_lead: { class: main, runtime: codex-native, agent_type: default }
+          pm_beads_plan_handoff: { class: main, runtime: codex-native, agent_type: default }
+          pm_implement_handoff: { class: main, runtime: codex-native, agent_type: default }
+          senior_engineer: { class: sub, runtime: claude-code-mcp, agent_type: explorer }
+          librarian: { class: sub, runtime: claude-code-mcp, agent_type: default }
+          smoke_test_planner: { class: sub, runtime: claude-code-mcp, agent_type: default }
+          alternative_pm: { class: sub, runtime: claude-code-mcp, agent_type: default }
+          researcher: { class: sub, runtime: claude-code-mcp, agent_type: default }
+          backend_engineer: { class: sub, runtime: codex-native, agent_type: worker }
+          frontend_engineer: { class: sub, runtime: codex-native, agent_type: worker }
+          security_engineer: { class: sub, runtime: codex-native, agent_type: worker }
+          agents_compliance_reviewer: { class: sub, runtime: codex-native, agent_type: default }
+          jazz_reviewer: { class: sub, runtime: claude-code-mcp, agent_type: default }
+          codex_reviewer: { class: sub, runtime: codex-native, agent_type: default }
+          manual_qa: { class: sub, runtime: codex-native, agent_type: default }
+          task_verification: { class: sub, runtime: codex-native, agent_type: default }
+      claude:
+        main_runtime: claude-native
+        opposite_runtime: codex-worker-mcp
+        roles:
+          project_manager: { class: main, runtime: claude-native, agent_type: default }
+          team_lead: { class: main, runtime: claude-native, agent_type: default }
+          pm_beads_plan_handoff: { class: main, runtime: claude-native, agent_type: default }
+          pm_implement_handoff: { class: main, runtime: claude-native, agent_type: default }
+          senior_engineer: { class: sub, runtime: codex-worker-mcp, agent_type: explorer }
+          librarian: { class: sub, runtime: claude-native, agent_type: default }
+          smoke_test_planner: { class: sub, runtime: codex-worker-mcp, agent_type: default }
+          alternative_pm: { class: sub, runtime: codex-worker-mcp, agent_type: default }
+          researcher: { class: sub, runtime: claude-native, agent_type: default }
+          backend_engineer: { class: sub, runtime: claude-native, agent_type: worker }
+          frontend_engineer: { class: sub, runtime: claude-native, agent_type: worker }
+          security_engineer: { class: sub, runtime: claude-native, agent_type: worker }
+          agents_compliance_reviewer: { class: sub, runtime: claude-native, agent_type: default }
+          jazz_reviewer: { class: sub, runtime: codex-worker-mcp, agent_type: default }
+          codex_reviewer: { class: sub, runtime: claude-native, agent_type: default }
+          manual_qa: { class: sub, runtime: claude-native, agent_type: default }
+          task_verification: { class: sub, runtime: claude-native, agent_type: default }
 
-  codex-main:
-    description: Codex leads orchestration and handoffs, with Claude support roles where required.
-    roles:
-      project_manager:
-        class: main
-        runtime: codex-native
-        model: gpt-5.4
-        reasoning_effort: xhigh
-        agent_type: default
-      team_lead:
-        class: main
-        runtime: codex-native
-        model: gpt-5.4
-        reasoning_effort: xhigh
-        agent_type: default
-      pm_beads_plan_handoff:
-        class: main
-        runtime: codex-native
-        model: gpt-5.4
-        reasoning_effort: xhigh
-        agent_type: default
-      pm_implement_handoff:
-        class: main
-        runtime: codex-native
-        model: gpt-5.4
-        reasoning_effort: xhigh
-        agent_type: default
-      senior_engineer:
-        class: sub
-        runtime: claude-code-mcp
-        agent_type: explorer
-      librarian:
-        class: sub
-        runtime: claude-code-mcp
-        agent_type: default
-      smoke_test_planner:
-        class: sub
-        runtime: claude-code-mcp
-        agent_type: default
-      alternative_pm:
-        class: sub
-        runtime: claude-code-mcp
-        agent_type: default
-      researcher:
-        class: sub
-        runtime: claude-code-mcp
-        agent_type: default
-      backend_engineer:
-        class: sub
-        runtime: codex-native
-        model: gpt-5.4
-        reasoning_effort: xhigh
-        agent_type: worker
-      frontend_engineer:
-        class: sub
-        runtime: codex-native
-        model: gpt-5.4
-        reasoning_effort: xhigh
-        agent_type: worker
-      security_engineer:
-        class: sub
-        runtime: codex-native
-        model: gpt-5.4
-        reasoning_effort: xhigh
-        agent_type: worker
-      agents_compliance_reviewer:
-        class: sub
-        runtime: codex-native
-        model: gpt-5.4
-        reasoning_effort: xhigh
-        agent_type: default
-      jazz_reviewer:
-        class: sub
-        runtime: claude-code-mcp
-        agent_type: default
-      codex_reviewer:
-        class: sub
-        runtime: codex-native
-        model: gpt-5.4
-        reasoning_effort: xhigh
-        agent_type: default
-      manual_qa:
-        class: sub
-        runtime: codex-native
-        model: gpt-5.4
-        reasoning_effort: xhigh
-        agent_type: default
-      task_verification:
-        class: sub
-        runtime: codex-native
-        model: gpt-5.4
-        reasoning_effort: xhigh
-        agent_type: default
-        note: Codex-native verification is pinned the same as other codex-native orchestrator roles.
-
-  claude-main:
-    description: Claude leads orchestration and handoffs, with Codex support roles where required.
-    roles:
-      project_manager:
-        class: main
-        runtime: claude-native
-        agent_type: default
-      team_lead:
-        class: main
-        runtime: claude-native
-        agent_type: default
-      pm_beads_plan_handoff:
-        class: main
-        runtime: claude-native
-        agent_type: default
-      pm_implement_handoff:
-        class: main
-        runtime: claude-native
-        agent_type: default
-      senior_engineer:
-        class: sub
-        runtime: codex-worker-mcp
-        agent_type: explorer
-      librarian:
-        class: sub
-        runtime: claude-native
-        agent_type: default
-      smoke_test_planner:
-        class: sub
-        runtime: codex-worker-mcp
-        agent_type: default
-      alternative_pm:
-        class: sub
-        runtime: codex-worker-mcp
-        agent_type: default
-      researcher:
-        class: sub
-        runtime: claude-native
-        agent_type: default
-      backend_engineer:
-        class: sub
-        runtime: claude-native
-        agent_type: worker
-      frontend_engineer:
-        class: sub
-        runtime: claude-native
-        agent_type: worker
-      security_engineer:
-        class: sub
-        runtime: claude-native
-        agent_type: worker
-      agents_compliance_reviewer:
-        class: sub
-        runtime: claude-native
-        agent_type: default
-      jazz_reviewer:
-        class: sub
-        runtime: codex-worker-mcp
-        agent_type: default
-      codex_reviewer:
-        class: sub
-        runtime: claude-native
-        agent_type: default
-      manual_qa:
-        class: sub
-        runtime: claude-native
-        agent_type: default
-      task_verification:
-        class: sub
-        runtime: claude-native
-        agent_type: default
+  main-runtime-only:
+    description: Keep all orchestration, support, review, and QA roles on the detected outer runtime.
+    outer_runtime_matrix:
+      codex:
+        main_runtime: codex-native
+        roles:
+          project_manager: { class: main, runtime: codex-native, agent_type: default }
+          team_lead: { class: main, runtime: codex-native, agent_type: default }
+          pm_beads_plan_handoff: { class: main, runtime: codex-native, agent_type: default }
+          pm_implement_handoff: { class: main, runtime: codex-native, agent_type: default }
+          senior_engineer: { class: sub, runtime: codex-native, agent_type: explorer }
+          librarian: { class: sub, runtime: codex-native, agent_type: default }
+          smoke_test_planner: { class: sub, runtime: codex-native, agent_type: default }
+          alternative_pm: { class: sub, runtime: codex-native, agent_type: default }
+          researcher: { class: sub, runtime: codex-native, agent_type: default }
+          backend_engineer: { class: sub, runtime: codex-native, agent_type: worker }
+          frontend_engineer: { class: sub, runtime: codex-native, agent_type: worker }
+          security_engineer: { class: sub, runtime: codex-native, agent_type: worker }
+          agents_compliance_reviewer: { class: sub, runtime: codex-native, agent_type: default }
+          jazz_reviewer: { class: sub, runtime: codex-native, agent_type: default }
+          codex_reviewer: { class: sub, runtime: codex-native, agent_type: default }
+          manual_qa: { class: sub, runtime: codex-native, agent_type: default }
+          task_verification: { class: sub, runtime: codex-native, agent_type: default }
+      claude:
+        main_runtime: claude-native
+        roles:
+          project_manager: { class: main, runtime: claude-native, agent_type: default }
+          team_lead: { class: main, runtime: claude-native, agent_type: default }
+          pm_beads_plan_handoff: { class: main, runtime: claude-native, agent_type: default }
+          pm_implement_handoff: { class: main, runtime: claude-native, agent_type: default }
+          senior_engineer: { class: sub, runtime: claude-native, agent_type: explorer }
+          librarian: { class: sub, runtime: claude-native, agent_type: default }
+          smoke_test_planner: { class: sub, runtime: claude-native, agent_type: default }
+          alternative_pm: { class: sub, runtime: claude-native, agent_type: default }
+          researcher: { class: sub, runtime: claude-native, agent_type: default }
+          backend_engineer: { class: sub, runtime: claude-native, agent_type: worker }
+          frontend_engineer: { class: sub, runtime: claude-native, agent_type: worker }
+          security_engineer: { class: sub, runtime: claude-native, agent_type: worker }
+          agents_compliance_reviewer: { class: sub, runtime: claude-native, agent_type: default }
+          jazz_reviewer: { class: sub, runtime: claude-native, agent_type: default }
+          codex_reviewer: { class: sub, runtime: claude-native, agent_type: default }
+          manual_qa: { class: sub, runtime: claude-native, agent_type: default }
+          task_verification: { class: sub, runtime: claude-native, agent_type: default }
 
 guardrails:
   notes:
-    - Lead-model selection gate is mandatory before Discovery on all plan routes.
-    - Selected profile must persist across sessions until explicitly changed.
-    - Full Codex Orchestration must remain usable without Claude MCP.
-    - Codex-native orchestrator roles are pinned to gpt-5.4 with xhigh reasoning effort.
-    - codex mcp list is necessary but not sufficient for claude-code runtime availability.
+    - Execution-mode selection gate is mandatory before Discovery on all plan routes.
+    - Selected execution mode must persist across sessions until explicitly changed.
+    - Outer runtime must be inferred fresh on every plan gate run.
+    - Dynamic Cross-Runtime requires the opposite-provider MCP path for routed support roles.
+    - Main Runtime Only must remain usable without opposite-provider MCP.
     - If plan gate reports discovery_can_start=0, PM must not enter Discovery or any downstream phase.
-    - If a required claude-code-mcp role is unavailable under codex-main or claude-main, block the current phase and return control to PM instead of falling back automatically.
-    - Main model/runtime selection must propagate to pm_beads_plan_handoff and pm_implement_handoff.
-    - In claude-main, Claude-native roles stay native and Codex-routed roles use codex-worker MCP as the secondary runtime.
+    - If a required routed-runtime role is unavailable under dynamic-cross-runtime, block the current phase and return control to PM instead of falling back automatically.
+    - Main runtime/model selection must propagate to pm_beads_plan_handoff and pm_implement_handoff.
