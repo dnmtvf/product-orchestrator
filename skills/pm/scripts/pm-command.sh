@@ -53,6 +53,7 @@ CODEX_RUNTIME_LAST_PATH_OVERRIDE=""
 CODEX_RUNTIME_LAST_PATH_OVERRIDE_SOURCE=""
 CLAUDE_WRAPPER_RUNTIME="claude-code-mcp"
 CLAUDE_WRAPPER_TEMPLATE_RELATIVE_PATH="../references/internal-claude-wrapper.md"
+CLAUDE_MCP_CLIENT_SCRIPT_NAME="claude_mcp_client.py"
 SELF_CHECK_HEALER_TEMPLATE_RELATIVE_PATH="../references/self-check-healer.md"
 CLAUDE_WRAPPER_UNSUPPORTED_LAUNCHER_PATTERN="Agent type 'general-purpose' not found|no supported agent type|unsupported launcher"
 CLAUDE_CONTEXT_REQUEST_PREFIX="CONTEXT_REQUEST|"
@@ -61,10 +62,10 @@ CLAUDE_CLARIFYING_INSTRUCTION="If you have missing or ambiguous context, ask spe
 SELF_CHECK_FIXTURE_SUITE_VERSION="pm-self-check-v1"
 SELF_CHECK_DEFAULT_FIXTURE_CASE="happy-path"
 SELF_CHECK_DEFAULT_EXECUTION_MODE="$EXECUTION_MODE_MAIN_ONLY"
-SELF_CHECK_PROBE_SUCCESS_RESPONSE="Synthetic self-check Claude probe complete."
 SELF_CHECK_CODEX_SNAPSHOT_TIMEOUT_SECONDS_DEFAULT=5
 SELF_CHECK_CLAUDE_SNAPSHOT_TIMEOUT_SECONDS_DEFAULT=12
 SELF_CHECK_CLAUDE_MCP_TIMEOUT_MS_DEFAULT=3000
+CLAUDE_MCP_SESSION_TIMEOUT_SECONDS_DEFAULT=90
 LEGACY_CLAUDE_MCP_SERVER_DROID="droid-worker"
 TELEMETRY_TABLE_NAME="pm_step_events"
 TELEMETRY_RUNS_TABLE_NAME="pm_runtime_detection_runs"
@@ -90,6 +91,7 @@ Usage:
   pm-command.sh claude-contract run-loop --context-file PATH [--response-file PATH ...] [--session-id ID] [--role ROLE] [--max-rounds N]
   pm-command.sh claude-wrapper prepare --context-file PATH --prompt-file PATH --objective TEXT [--session-id ID] [--role ROLE]
   pm-command.sh claude-wrapper evaluate --context-file PATH --response-file PATH [--session-id ID] [--role ROLE]
+  pm-command.sh claude-wrapper invoke --context-file PATH --prompt-file PATH --response-file PATH --objective TEXT [--session-id ID] [--role ROLE] [--agent-type TYPE] [--cwd PATH] [--timeout-seconds N]
   pm-command.sh claude-wrapper run --context-file PATH --prompt-file PATH --objective TEXT [--response-file PATH ...] [--session-id ID] [--role ROLE] [--max-rounds N]
   pm-command.sh telemetry init-db [--dsn POSTGRES_DSN]
   pm-command.sh telemetry log-step --workflow-run-id ID --step-id ID [--event-id ID] [fields...]
@@ -127,6 +129,7 @@ Environment toggles:
   PM_SELF_CHECK_CODEX_SNAPSHOT_TIMEOUT_SECONDS   Override codex snapshot timeout window (default: 5)
   PM_SELF_CHECK_CLAUDE_SNAPSHOT_TIMEOUT_SECONDS  Override Claude snapshot timeout window (default: 12)
   PM_SELF_CHECK_CLAUDE_MCP_TIMEOUT_MS            Override Claude MCP startup timeout used during self-check snapshots (default: 3000)
+  PM_CLAUDE_MCP_SESSION_TIMEOUT_SECONDS          Override live Claude MCP invocation timeout (default: 90)
   PM_TELEMETRY_DSN                         PostgreSQL DSN used for telemetry persistence/query
   PM_TELEMETRY_PSQL_BIN                    Optional absolute path to psql binary
 
@@ -299,6 +302,36 @@ toml_section_string_value() {
   return 1
 }
 
+toml_section_string_pairs() {
+  local file="$1"
+  local section="$2"
+  local line current_section=""
+
+  [ -f "$file" ] || return 1
+
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line%%#*}"
+    if [[ "$line" =~ ^[[:space:]]*$ ]]; then
+      continue
+    fi
+    if [[ "$line" =~ ^[[:space:]]*\[([^]]+)\][[:space:]]*$ ]]; then
+      current_section="${BASH_REMATCH[1]}"
+      continue
+    fi
+    [ "$current_section" = "$section" ] || continue
+    if [[ "$line" =~ ^[[:space:]]*([A-Za-z0-9_.-]+)[[:space:]]*=[[:space:]]*\"([^\"]*)\" ]]; then
+      printf '%s=%s\n' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}"
+      continue
+    fi
+    if [[ "$line" =~ ^[[:space:]]*([A-Za-z0-9_.-]+)[[:space:]]*=[[:space:]]*\'([^\']*)\' ]]; then
+      printf '%s=%s\n' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}"
+      continue
+    fi
+  done < "$file"
+
+  return 0
+}
+
 codex_config_section_string_value() {
   local section="$1"
   local key="$2"
@@ -320,6 +353,34 @@ codex_config_section_string_value() {
   fi
 
   return 1
+}
+
+codex_config_section_string_pairs() {
+  local section="$1"
+  local project_file global_file
+  local -A merged=()
+  local line key
+
+  project_file="$(project_codex_config_file)"
+  global_file="$(global_codex_config_file)"
+
+  while IFS= read -r line || [ -n "$line" ]; do
+    [ -n "$line" ] || continue
+    key="${line%%=*}"
+    merged["$key"]="$line"
+  done < <(toml_section_string_pairs "$global_file" "$section" || true)
+
+  while IFS= read -r line || [ -n "$line" ]; do
+    [ -n "$line" ] || continue
+    key="${line%%=*}"
+    merged["$key"]="$line"
+  done < <(toml_section_string_pairs "$project_file" "$section" || true)
+
+  if [ "${#merged[@]}" -eq 0 ]; then
+    return 1
+  fi
+
+  printf '%s\n' "${merged[@]}" | sort
 }
 
 codex_config_value() {
@@ -1934,10 +1995,8 @@ run_self_check_run() {
 
   if [ "$final_status" != "failed" ]; then
     self_check_write_probe_context "$session_probe_context_file" "$run_id" "$synthetic_task"
-    probe_output="${PM_SELF_CHECK_CLAUDE_SESSION_PROBE_OUTPUT:-$SELF_CHECK_PROBE_SUCCESS_RESPONSE}"
-    printf '%s\n' "$probe_output" >"$session_probe_response_file"
 
-    if probe_eval_out="$(run_claude_wrapper_evaluate --context-file "$session_probe_context_file" --response-file "$session_probe_response_file" --session-id "${run_id}-claude-probe" --role self_check_probe 2>&1)"; then
+    if probe_eval_out="$(claude_mcp_session_probe "$run_id" "$session_probe_response_file" "$(claude_mcp_session_timeout_seconds)" 2>&1)"; then
       probe_eval_rc=0
     else
       probe_eval_rc=$?
@@ -1951,7 +2010,7 @@ run_self_check_run() {
 
     if [ "$probe_eval_rc" -ne 0 ]; then
       summary_reason="claude_session_unusable"
-      summary_detail="$(sanitize_single_line "$(grep -Eim1 'CLAUDE_WRAPPER_RESULT\|' "$session_probe_eval_file" || printf 'Claude session probe failed.')")"
+      summary_detail="$(sanitize_single_line "$(grep -Eim1 'CLAUDE_MCP_PROBE\|' "$session_probe_eval_file" || printf 'Claude session probe failed.')")"
       summary_remediation="Fix the Claude invocation/session path and rerun PM self-check."
       self_check_record_event "$console_log_file" "$events_file" "$findings_file" "$run_id" "health" "claude_session" "critical" "failed" "$summary_reason" "$summary_detail" "$summary_remediation" "$(display_path "$session_probe_eval_file")"
       final_status="failed"
@@ -2418,6 +2477,27 @@ claude_mcp_command_from_config_file() {
   toml_section_string_value "$file" "mcp_servers.claude-code" "command"
 }
 
+claude_mcp_load_wrapper_command() {
+  local project_file global_file value
+
+  project_file="$(project_codex_config_file)"
+  global_file="$(global_codex_config_file)"
+
+  value="$(claude_mcp_command_from_config_file "$project_file" || true)"
+  if [ -n "$value" ]; then
+    printf '%s' "$value"
+    return 0
+  fi
+
+  value="$(claude_mcp_command_from_config_file "$global_file" || true)"
+  if [ -n "$value" ]; then
+    printf '%s' "$value"
+    return 0
+  fi
+
+  printf '%s' "$GLOBAL_CODEX_PM_SCRIPT_DIR/claude-code-mcp"
+}
+
 claude_mcp_load_configured_command() {
   local command_override project_file global_file value
 
@@ -2477,6 +2557,177 @@ claude_mcp_load_effective_path_override() {
   fi
 
   return 1
+}
+
+claude_mcp_client_script_path() {
+  printf '%s/%s' "$PM_SCRIPT_DIR" "$CLAUDE_MCP_CLIENT_SCRIPT_NAME"
+}
+
+claude_mcp_session_timeout_seconds() {
+  local configured="${PM_CLAUDE_MCP_SESSION_TIMEOUT_SECONDS:-$CLAUDE_MCP_SESSION_TIMEOUT_SECONDS_DEFAULT}"
+  if [[ "$configured" =~ ^[0-9]+([.][0-9]+)?$ ]] && awk "BEGIN { exit !($configured >= 1) }" >/dev/null 2>&1; then
+    printf '%s' "$configured"
+    return 0
+  fi
+  printf '%s' "$CLAUDE_MCP_SESSION_TIMEOUT_SECONDS_DEFAULT"
+}
+
+claude_mcp_launch_env_pairs() {
+  local line key value
+  local -A merged=()
+
+  while IFS= read -r line || [ -n "$line" ]; do
+    [ -n "$line" ] || continue
+    key="${line%%=*}"
+    merged["$key"]="${line#*=}"
+  done < <(codex_config_section_string_pairs "shell_environment_policy.set" || true)
+
+  while IFS= read -r line || [ -n "$line" ]; do
+    [ -n "$line" ] || continue
+    key="${line%%=*}"
+    merged["$key"]="${line#*=}"
+  done < <(codex_config_section_string_pairs "mcp_servers.claude-code.env" || true)
+
+  if [ -n "${PM_LEAD_MODEL_CLAUDE_COMMAND_OVERRIDE:-}" ] && [ -z "${merged[CLAUDE_COMMAND]+x}" ]; then
+    merged["CLAUDE_COMMAND"]="$PM_LEAD_MODEL_CLAUDE_COMMAND_OVERRIDE"
+  fi
+
+  if [ "${#merged[@]}" -eq 0 ]; then
+    return 0
+  fi
+
+  for key in "${!merged[@]}"; do
+    value="${merged[$key]}"
+    if [ "$key" = "PATH" ] && [ -n "${PATH:-}" ]; then
+      case "$value" in
+        *"$PATH"*)
+          ;;
+        *)
+          value="${value}:$PATH"
+          ;;
+      esac
+    fi
+    printf '%s=%s\n' "$key" "$value"
+  done | sort
+}
+
+claude_mcp_runtime_error_code_from_output() {
+  local output="$1"
+  if grep -Eiq "$CLAUDE_WRAPPER_UNSUPPORTED_LAUNCHER_PATTERN" <<<"$output"; then
+    printf 'unsupported_launcher'
+    return 0
+  fi
+  if grep -Eiq 'missing expected MCP tools' <<<"$output"; then
+    printf 'tool_unavailable'
+    return 0
+  fi
+  if grep -Eiq 'timed out|timeout' <<<"$output"; then
+    printf 'timeout'
+    return 0
+  fi
+  printf 'invocation_failed'
+}
+
+claude_mcp_invoke_role_prompt() {
+  local role="$1"
+  local prompt_file="$2"
+  local response_file="$3"
+  local session_id="${4:-}"
+  local agent_type="${5:-}"
+  local cwd="${6:-$PWD}"
+  local timeout_seconds="${7:-}"
+  local client_script wrapper_command
+  local -a command=()
+
+  claude_mcp_load_effective_path_override || true
+  wrapper_command="$(claude_mcp_load_wrapper_command)"
+  wrapper_command="$(resolve_runtime_executable "$wrapper_command" "$CLAUDE_MCP_LAST_PATH_OVERRIDE" || true)"
+  [ -n "$wrapper_command" ] || die "${CLAUDE_MCP_LAST_DETAIL:-Claude MCP wrapper command is not usable in this runtime.}"
+
+  client_script="$(claude_mcp_client_script_path)"
+  [ -f "$client_script" ] || die "Claude MCP client script not found: $client_script"
+  require_tool python3
+  [ -n "$timeout_seconds" ] || timeout_seconds="$(claude_mcp_session_timeout_seconds)"
+
+  command=(
+    python3 "$client_script" run-role-prompt
+    --wrapper "$wrapper_command"
+    --cwd "$cwd"
+    --agent-role "$role"
+    --prompt-file "$prompt_file"
+    --response-file "$response_file"
+    --timeout-seconds "$timeout_seconds"
+  )
+  if [ -n "$session_id" ]; then
+    command+=(--session-id "$session_id")
+  fi
+  if [ -n "$agent_type" ]; then
+    command+=(--agent-type "$agent_type")
+  fi
+  while IFS= read -r line || [ -n "$line" ]; do
+    [ -n "$line" ] || continue
+    command+=(--env "$line")
+  done < <(claude_mcp_launch_env_pairs)
+
+  "${command[@]}"
+}
+
+claude_mcp_session_probe() {
+  local probe_id="${1:-claude-session-probe}"
+  local response_file="$2"
+  local timeout_seconds="${3:-}"
+  local prompt session_id invoke_out invoke_rc wrapper_command client_script line
+  local -a cmd=()
+
+  [ -n "$response_file" ] || die "claude_mcp_session_probe requires a response file path"
+  [ -n "$timeout_seconds" ] || timeout_seconds="$(claude_mcp_session_timeout_seconds)"
+  session_id="${probe_id}-probe"
+  prompt=$(
+    cat <<EOF
+This is a PM Claude MCP session probe for $probe_id.
+Reply with a concise confirmation that the Claude MCP session probe succeeded.
+EOF
+  )
+
+  claude_mcp_load_effective_path_override || true
+  wrapper_command="$(claude_mcp_load_wrapper_command)"
+  wrapper_command="$(resolve_runtime_executable "$wrapper_command" "$CLAUDE_MCP_LAST_PATH_OVERRIDE" || true)"
+  [ -n "$wrapper_command" ] || die "Claude MCP wrapper command is not usable in this runtime."
+  client_script="$(claude_mcp_client_script_path)"
+
+  cmd=(
+    python3 "$client_script" run-role-prompt
+    --wrapper "$wrapper_command"
+    --cwd "$PWD"
+    --agent-role project_manager
+    --prompt "$prompt"
+    --response-file "$response_file"
+    --session-id "$session_id"
+    --timeout-seconds "$timeout_seconds"
+  )
+  while IFS= read -r line || [ -n "$line" ]; do
+    [ -n "$line" ] || continue
+    cmd+=(--env "$line")
+  done < <(claude_mcp_launch_env_pairs)
+
+  if invoke_out="$("${cmd[@]}" 2>&1)"; then
+    invoke_rc=0
+  else
+    invoke_rc=$?
+  fi
+  [ -n "$invoke_out" ] && echo "$invoke_out"
+
+  if [ "$invoke_rc" -ne 0 ]; then
+    echo "CLAUDE_MCP_PROBE|status=failed|probe_id=$probe_id|detail=$(sanitize_single_line "$invoke_out")|next_action=fix_claude_mcp"
+    return "$invoke_rc"
+  fi
+
+  if [ ! -s "$response_file" ]; then
+    echo "CLAUDE_MCP_PROBE|status=failed|probe_id=$probe_id|detail=Probe response file was empty.|next_action=fix_claude_mcp"
+    return 8
+  fi
+
+  echo "CLAUDE_MCP_PROBE|status=passed|probe_id=$probe_id|response_file=$(display_path "$response_file")"
 }
 
 resolve_runtime_executable() {
@@ -2571,6 +2822,76 @@ claude_mcp_resolved_command() {
   resolved_command="$(resolve_runtime_executable "$configured_command" "$path_override" || true)"
   [ -n "$resolved_command" ] || return 1
   printf '%s' "$resolved_command"
+}
+
+claude_mcp_session_usable() {
+  local probe_id="${1:-claude-session-probe}"
+  local probe_dir="" cleanup_dir=0
+  local response_file invoke_out invoke_rc result_line error_code detail
+  local force_available
+
+  CLAUDE_MCP_LAST_REASON=""
+  CLAUDE_MCP_LAST_REMEDIATION=""
+  CLAUDE_MCP_LAST_DETAIL=""
+
+  force_available="$(resolve_bool_setting "PM_LEAD_MODEL_FORCE_CLAUDE_MCP_AVAILABLE" "" 0)"
+  if [ "$force_available" -eq 1 ]; then
+    return 0
+  fi
+
+  if ! claude_mcp_available; then
+    return 1
+  fi
+
+  probe_dir="$(mktemp -d "${TMPDIR:-/tmp}/claude-session-probe.XXXXXX")"
+  cleanup_dir=1
+  response_file="$probe_dir/response.txt"
+
+  if invoke_out="$(claude_mcp_session_probe "$probe_id" "$response_file" "$(claude_mcp_session_timeout_seconds)" 2>&1)"; then
+    invoke_rc=0
+  else
+    invoke_rc=$?
+  fi
+
+  if [ "$cleanup_dir" -eq 1 ]; then
+    rm -rf "$probe_dir"
+  fi
+
+  if [ "$invoke_rc" -eq 0 ]; then
+    return 0
+  fi
+
+  result_line="$(awk 'index($0, "CLAUDE_MCP_PROBE|") == 1 { line=$0 } END { print line }' <<<"$invoke_out" || true)"
+  error_code="$(claude_mcp_runtime_error_code_from_output "$invoke_out")"
+  detail="$(pipe_kv_get "$result_line" "detail" || true)"
+  if [ -z "$detail" ]; then
+    detail="$(sanitize_single_line "$invoke_out")"
+  fi
+
+  case "${error_code:-}" in
+    unsupported_launcher)
+      CLAUDE_MCP_LAST_REASON="unsupported_launcher"
+      CLAUDE_MCP_LAST_DETAIL="${detail:-Claude launcher reported an unsupported agent type.}"
+      CLAUDE_MCP_LAST_REMEDIATION="Fix the Claude launcher/session path for claude-code in this runtime, or switch to Main Runtime Only."
+      ;;
+    tool_unavailable)
+      CLAUDE_MCP_LAST_REASON="claude_session_unusable"
+      CLAUDE_MCP_LAST_DETAIL="${detail:-claude-code MCP did not expose the required prompt/session tools in this runtime.}"
+      CLAUDE_MCP_LAST_REMEDIATION="Fix the claude-code MCP tool exposure or wrapper path for this runtime, or switch to Main Runtime Only."
+      ;;
+    timeout)
+      CLAUDE_MCP_LAST_REASON="claude_session_unusable"
+      CLAUDE_MCP_LAST_DETAIL="${detail:-Claude MCP session probe timed out in this runtime.}"
+      CLAUDE_MCP_LAST_REMEDIATION="Fix the claude-code MCP startup/invocation path and rerun the gate, or switch to Main Runtime Only."
+      ;;
+    *)
+      CLAUDE_MCP_LAST_REASON="claude_session_unusable"
+      CLAUDE_MCP_LAST_DETAIL="${detail:-Claude session probe failed in this runtime.}"
+      CLAUDE_MCP_LAST_REMEDIATION="Fix the claude-code MCP invocation/session path and rerun the gate, or switch to Main Runtime Only."
+      ;;
+  esac
+
+  return 1
 }
 
 codex_runtime_load_configured_command() {
@@ -3859,6 +4180,20 @@ run_plan_gate() {
     return 1
   fi
 
+  if [ "$requires_claude_mcp" -eq 1 ] && ! claude_mcp_session_usable "$gate_run_id"; then
+    block_reason="${CLAUDE_MCP_LAST_REASON:-claude_session_unusable}"
+    block_remediation="${CLAUDE_MCP_LAST_REMEDIATION:-Fix the claude-code MCP invocation/session path or switch to Main Runtime Only.}"
+    block_detail="${CLAUDE_MCP_LAST_DETAIL:-Claude session probe failed for dynamic cross-runtime mode.}"
+    next_action="fix_claude_mcp_or_switch_to_main_runtime_only"
+    echo "PLAN_ROUTE_BLOCKED|route=$route|selected_mode=$selected_mode|selected_label=$selected_label|selection_source=$selection_source|outer_runtime=$outer_runtime|reason=$block_reason|remediation=$block_remediation|detail=$block_detail|next_action=$next_action|discovery_can_start=0"
+    metadata_json="$(jq -nc --arg state_file "$(display_path "$state_file")" '{state_file: $state_file}')"
+    telemetry_record_runtime_detection_run_nonblocking \
+      "$gate_run_id" "$route" "$workspace_path" "$outer_runtime" "$selected_mode" "blocked" \
+      "$block_reason" "$block_detail" "$block_remediation" "$outer_runtime_source" \
+      "$gate_started_at" "$(now_utc)" "$metadata_json"
+    return 1
+  fi
+
   if [ "$requires_codex_worker_mcp" -eq 1 ] && ! codex_worker_mcp_available; then
     block_reason="${CODEX_WORKER_MCP_LAST_REASON:-codex_worker_mcp_unavailable}"
     block_remediation="${CODEX_WORKER_MCP_LAST_REMEDIATION:-$CODEX_WORKER_MCP_REMEDIATION_MISSING}"
@@ -4348,6 +4683,130 @@ run_claude_wrapper_evaluate() {
   return "$evaluate_rc"
 }
 
+run_claude_wrapper_invoke() {
+  local context_file=""
+  local prompt_file=""
+  local response_file=""
+  local objective=""
+  local role="unspecified"
+  local agent_type=""
+  local cwd="$PWD"
+  local session_id=""
+  local timeout_seconds=""
+  local prepare_out prepare_rc invoke_out invoke_rc evaluate_out evaluate_rc
+  local ready_line runtime_error
+  local -a prepare_args=()
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --context-file)
+        context_file="${2:-}"
+        shift 2
+        ;;
+      --prompt-file)
+        prompt_file="${2:-}"
+        shift 2
+        ;;
+      --response-file)
+        response_file="${2:-}"
+        shift 2
+        ;;
+      --objective)
+        objective="${2:-}"
+        shift 2
+        ;;
+      --role)
+        role="${2:-}"
+        shift 2
+        ;;
+      --agent-type)
+        agent_type="${2:-}"
+        shift 2
+        ;;
+      --cwd)
+        cwd="${2:-}"
+        shift 2
+        ;;
+      --session-id)
+        session_id="${2:-}"
+        shift 2
+        ;;
+      --timeout-seconds)
+        timeout_seconds="${2:-}"
+        shift 2
+        ;;
+      -h|--help)
+        usage
+        exit 0
+        ;;
+      *)
+        die "Unknown claude-wrapper invoke argument: $1"
+        ;;
+    esac
+  done
+
+  [ -n "$context_file" ] || die "--context-file is required for claude-wrapper invoke"
+  [ -n "$prompt_file" ] || die "--prompt-file is required for claude-wrapper invoke"
+  [ -n "$response_file" ] || die "--response-file is required for claude-wrapper invoke"
+  [ -n "$objective" ] || die "--objective is required for claude-wrapper invoke"
+  [ -n "$timeout_seconds" ] || timeout_seconds="$(claude_mcp_session_timeout_seconds)"
+
+  prepare_args=(--context-file "$context_file" --prompt-file "$prompt_file" --objective "$objective" --role "$role")
+  if [ -n "$session_id" ]; then
+    prepare_args+=(--session-id "$session_id")
+  fi
+
+  if prepare_out="$(run_claude_wrapper_prepare "${prepare_args[@]}")"; then
+    prepare_rc=0
+  else
+    prepare_rc=$?
+  fi
+  [ -n "$prepare_out" ] && echo "$prepare_out"
+  [ "$prepare_rc" -eq 0 ] || return "$prepare_rc"
+
+  ready_line="$(awk 'index($0, "CLAUDE_WRAPPER_READY|") == 1 { print; exit }' <<<"$prepare_out" || true)"
+  session_id="$(pipe_kv_get "$ready_line" "session_id" || true)"
+  [ -n "$session_id" ] || die "Unable to derive session_id from claude-wrapper prepare output"
+
+  if invoke_out="$(claude_mcp_invoke_role_prompt "$role" "$prompt_file" "$response_file" "$session_id" "$agent_type" "$cwd" "$timeout_seconds" 2>&1)"; then
+    invoke_rc=0
+  else
+    invoke_rc=$?
+  fi
+  [ -n "$invoke_out" ] && echo "$invoke_out"
+
+  if [ "$invoke_rc" -ne 0 ]; then
+    runtime_error="$(claude_mcp_runtime_error_code_from_output "$invoke_out")"
+    echo "CLAUDE_WRAPPER_RESULT|status=runtime_error|error=$runtime_error|role=$role|session_id=$session_id|runtime=$CLAUDE_WRAPPER_RUNTIME|response_file=$(display_path "$response_file")|detail=$(sanitize_single_line "$invoke_out")|next_action=return_to_parent"
+    case "$runtime_error" in
+      unsupported_launcher)
+        return 6
+        ;;
+      *)
+        return 7
+        ;;
+    esac
+  fi
+
+  if evaluate_out="$(run_claude_wrapper_evaluate --context-file "$context_file" --response-file "$response_file" --role "$role" --session-id "$session_id")"; then
+    evaluate_rc=0
+  else
+    evaluate_rc=$?
+  fi
+  [ -n "$evaluate_out" ] && echo "$evaluate_out"
+
+  case "$evaluate_rc" in
+    0|3)
+      :
+      ;;
+    *)
+      return "$evaluate_rc"
+      ;;
+  esac
+
+  return "$evaluate_rc"
+}
+
 run_claude_wrapper_run() {
   local context_file=""
   local prompt_file=""
@@ -4470,6 +4929,9 @@ run_claude_wrapper() {
       ;;
     evaluate)
       run_claude_wrapper_evaluate "$@"
+      ;;
+    invoke)
+      run_claude_wrapper_invoke "$@"
       ;;
     run)
       run_claude_wrapper_run "$@"

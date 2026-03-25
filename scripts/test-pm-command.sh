@@ -254,6 +254,49 @@ if [ "${1:-}" = "mcp" ] && [ "${2:-}" = "list" ]; then
       ;;
   esac
 fi
+if [ "${1:-}" = "-p" ]; then
+  shift
+  agent_name=""
+  session_id=""
+  prompt=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --agent)
+        agent_name="${2:-}"
+        shift 2
+        ;;
+      --session-id)
+        session_id="${2:-}"
+        shift 2
+        ;;
+      *)
+        prompt="$1"
+        shift
+        ;;
+    esac
+  done
+  case "${FAKE_CLAUDE_AGENT_MODE:-ok}" in
+    ok)
+      printf 'Current phase: FAKE CLAUDE AGENT\n'
+      printf 'Phase artifact or decision summary: agent=%s session=%s prompt=%s\n' "$agent_name" "${session_id:-<none>}" "$prompt"
+      printf 'What I need from you next: nothing\n'
+      printf 'Phase Error Summary: %s\n' "${FAKE_CLAUDE_AGENT_TOKEN:-Synthetic self-check Claude probe complete.}"
+      exit 0
+      ;;
+    context-needed)
+      printf 'CONTEXT_REQUEST|needed_fields=constraints,evidence|questions=1) Provide missing constraints;2) Provide supporting evidence\n'
+      exit 0
+      ;;
+    unsupported-launcher)
+      printf "Agent type 'general-purpose' not found\n" >&2
+      exit "${FAKE_CLAUDE_AGENT_EXIT_CODE:-9}"
+      ;;
+    nonzero)
+      printf 'claude agent invocation failed\n' >&2
+      exit "${FAKE_CLAUDE_AGENT_EXIT_CODE:-11}"
+      ;;
+  esac
+fi
 exit 0
 EOF
 chmod +x "$FAKE_CLAUDE_BIN/claude"
@@ -486,6 +529,29 @@ if wrapper_run_unsupported_out="$("$HELPER" claude-wrapper run --context-file "$
 fi
 assert_contains "$wrapper_run_unsupported_out" 'CLAUDE_WRAPPER_READY|status=ready|role=jazz_reviewer|session_id=wrap-run-4|runtime=claude-code-mcp'
 assert_contains "$wrapper_run_unsupported_out" 'CLAUDE_WRAPPER_RESULT|status=runtime_error|error=unsupported_launcher|role=jazz_reviewer|session_id=wrap-run-4|runtime=claude-code-mcp'
+
+echo "[test-pm-command] case: claude-wrapper invoke completes through live claude-code MCP"
+CLAUDE_WRAPPER_LIVE_RESPONSE="$TMPDIR/claude-wrapper-live-response.txt"
+wrapper_invoke_out="$(
+  PM_LEAD_MODEL_CLAUDE_COMMAND_OVERRIDE="$FAKE_CLAUDE_BIN/claude" \
+  "$HELPER" claude-wrapper invoke --context-file "$CLAUDE_CONTEXT_FILE" --prompt-file "$CLAUDE_WRAPPER_PROMPT_FILE" --response-file "$CLAUDE_WRAPPER_LIVE_RESPONSE" --objective "review retry policy and latency evidence" --session-id wrap-live-1 --role jazz_reviewer
+)"
+assert_contains "$wrapper_invoke_out" 'CLAUDE_WRAPPER_READY|status=ready|role=jazz_reviewer|session_id=wrap-live-1|runtime=claude-code-mcp'
+assert_contains "$wrapper_invoke_out" '"agent_name": "pm-jazz-reviewer"'
+assert_contains "$wrapper_invoke_out" 'CLAUDE_WRAPPER_RESULT|status=complete|role=jazz_reviewer|session_id=wrap-live-1|runtime=claude-code-mcp'
+[ -f "$CLAUDE_WRAPPER_LIVE_RESPONSE" ] || fail "claude-wrapper invoke did not write live response file"
+assert_contains "$(cat "$CLAUDE_WRAPPER_LIVE_RESPONSE")" 'Current phase: FAKE CLAUDE AGENT'
+
+echo "[test-pm-command] case: claude-wrapper invoke surfaces live unsupported launcher failures"
+if wrapper_invoke_unsupported_out="$(
+  PM_LEAD_MODEL_CLAUDE_COMMAND_OVERRIDE="$FAKE_CLAUDE_BIN/claude" \
+  FAKE_CLAUDE_AGENT_MODE=unsupported-launcher \
+  "$HELPER" claude-wrapper invoke --context-file "$CLAUDE_CONTEXT_FILE" --prompt-file "$CLAUDE_WRAPPER_PROMPT_FILE" --response-file "$TMPDIR/claude-wrapper-live-unsupported.txt" --objective "review retry policy and latency evidence" --session-id wrap-live-2 --role jazz_reviewer 2>&1
+)"; then
+  fail "claude-wrapper invoke unexpectedly completed on live unsupported launcher output"
+fi
+assert_contains "$wrapper_invoke_unsupported_out" 'CLAUDE_WRAPPER_READY|status=ready|role=jazz_reviewer|session_id=wrap-live-2|runtime=claude-code-mcp'
+assert_contains "$wrapper_invoke_unsupported_out" 'CLAUDE_WRAPPER_RESULT|status=runtime_error|error=unsupported_launcher|role=jazz_reviewer|session_id=wrap-live-2|runtime=claude-code-mcp'
 
 SELF_CHECK_HAPPY_DIR="$TMPDIR/self-check-happy"
 echo "[test-pm-command] case: self-check happy path produces clean summary and healer-ready bundle"
@@ -771,6 +837,20 @@ blocked_codex_dynamic_out="$(cat "$blocked_codex_dynamic_file")"
 assert_contains "$blocked_codex_dynamic_out" 'PLAN_ROUTE_BLOCKED|route=default|selected_mode=dynamic-cross-runtime|selected_label=Dynamic Cross-Runtime|selection_source=explicit_override|outer_runtime=codex|reason=claude_code_mcp_command_not_executable'
 assert_contains "$blocked_codex_dynamic_out" 'next_action=fix_claude_mcp_or_switch_to_main_runtime_only|discovery_can_start=0'
 assert_not_contains "$blocked_codex_dynamic_out" 'PLAN_ROUTE_READY|'
+
+echo "[test-pm-command] case: dynamic cross-runtime blocks when live Claude session probe fails"
+blocked_codex_session_file="$TMPDIR/plan-gate-blocked-codex-session.out"
+if PM_PLAN_GATE_RUNTIME_OVERRIDE=codex \
+  PM_LEAD_MODEL_CLAUDE_MCP_LIST_OVERRIDE='claude-code enabled' \
+  PM_LEAD_MODEL_CLAUDE_COMMAND_OVERRIDE="$FAKE_CLAUDE_BIN/claude" \
+  FAKE_CLAUDE_AGENT_MODE=unsupported-launcher \
+  "$HELPER" plan gate --route default --mode dynamic-cross-runtime --state-file "$EXECUTION_MODE_STATE_FILE" >"$blocked_codex_session_file" 2>&1; then
+  fail "dynamic-cross-runtime unexpectedly proceeded when live Claude session probe failed"
+fi
+blocked_codex_session_out="$(cat "$blocked_codex_session_file")"
+assert_contains "$blocked_codex_session_out" 'PLAN_ROUTE_BLOCKED|route=default|selected_mode=dynamic-cross-runtime|selected_label=Dynamic Cross-Runtime|selection_source=explicit_override|outer_runtime=codex|reason=unsupported_launcher'
+assert_contains "$blocked_codex_session_out" 'next_action=fix_claude_mcp_or_switch_to_main_runtime_only|discovery_can_start=0'
+assert_not_contains "$blocked_codex_session_out" 'PLAN_ROUTE_READY|'
 
 echo "[test-pm-command] case: mcp_servers.claude-code.env PATH makes dynamic cross-runtime pass on Codex"
 write_codex_config "$HOME/.codex/config.toml" "gpt-global" "medium" "
