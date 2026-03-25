@@ -24,7 +24,6 @@ This workspace follows a strict PM workflow for feature delivery.
 4. **PUSH TO REMOTE** - This is MANDATORY:
    ```bash
    git pull --rebase
-   bd sync
    git push
    git status  # MUST show "up to date with origin"
    ```
@@ -46,7 +45,7 @@ This workspace follows a strict PM workflow for feature delivery.
 ### Why bd?
 
 - Dependency-aware: Track blockers and relationships between issues
-- Git-friendly: Dolt-powered version control with native sync
+- Git-friendly: issue state lives in the repo and is managed alongside code
 - Agent-optimized: JSON output, ready work detection, discovered-from links
 - Prevents duplicate tracking systems and confusion
 
@@ -103,13 +102,13 @@ bd close bd-42 --reason "Completed" --json
    - `bd create "Found bug" --description="Details about what was found" -p 1 --deps discovered-from:<parent-id>`
 5. **Complete**: `bd close <id> --reason "Done"`
 
-### Auto-Sync
+### Sync Model
 
-bd automatically syncs via Dolt:
+Beads is required for issue tracking in this repo, but a Beads Dolt remote is not required for normal workflow.
 
-- Each write auto-commits to Dolt history
-- Use `bd dolt push`/`bd dolt pull` for remote sync
-- No manual export/import needed!
+- Use `bd` for local issue tracking and status changes
+- Use normal `git pull --rebase` and `git push` to land repository changes
+- Do not assume `bd dolt push` or `bd dolt pull` is configured
 
 ### Important Rules
 
@@ -135,7 +134,6 @@ For more details, see README.md and docs/QUICKSTART.md.
 4. **PUSH TO REMOTE** - This is MANDATORY:
    ```bash
    git pull --rebase
-   bd dolt push
    git push
    git status  # MUST show "up to date with origin"
    ```
