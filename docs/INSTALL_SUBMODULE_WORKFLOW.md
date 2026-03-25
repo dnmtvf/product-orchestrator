@@ -1,5 +1,7 @@
 # Install PM Workflow Into Another Repo (Submodule, No Symlinks)
 
+Preferred setup for most operators is the machine-level bootstrap at `/Users/d/product-orchestrator/scripts/setup-global-orchestrator.sh`. This document covers the compatibility flow where you intentionally keep repo-local runtime copies managed by submodule plus copy.
+
 This setup makes `product-orchestrator` the independently updatable source via git submodule, while installing runtime skills into the target repo as regular folders (copied, not symlinked).
 
 ## Managed Runtime Layout

@@ -1,5 +1,7 @@
 # Install PM Workflow By Injection (No Submodule, No Symlink)
 
+Preferred setup for most operators is the machine-level bootstrap at `/Users/d/product-orchestrator/scripts/setup-global-orchestrator.sh`. This document covers the compatibility flow where you intentionally copy orchestrator runtime assets into a target repo.
+
 Use this mode when you want to copy the current orchestrator version directly into a target repo.
 
 ## Managed Runtime Layout

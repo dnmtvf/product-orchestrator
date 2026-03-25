@@ -214,7 +214,10 @@ sync_claude_agents() {
     return
   fi
 
-  "$sync_script" >/dev/null
+  (
+    cd "$REPO_PATH"
+    "$sync_script" >/dev/null
+  )
   log "Synchronized Claude project agents: $REPO_PATH/.claude/agents"
 }
 

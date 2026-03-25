@@ -33,17 +33,18 @@ The workflow source of truth in this repo is:
 
 ## Prerequisites
 
-1. Codex CLI and Git installed.
-2. Target repository is a Git repo.
-3. Required MCP servers are configured:
+1. Codex CLI, Claude Code, and Git are installed.
+2. Codex is authenticated and `claude` is available in your shell.
+3. Any repository you want to orchestrate is a Git repo.
+4. Run the preferred one-time machine-level bootstrap from this checkout:
 
 ```bash
-# Source repo or submodule checkout
-codex mcp add claude-code -- "$PWD/skills/pm/scripts/claude-code-mcp"
+./scripts/setup-global-orchestrator.sh
+```
 
-# Installed target repo from Codex
-codex mcp add claude-code -- "$PWD/.codex/skills/pm/scripts/claude-code-mcp"
+5. Configure the remaining documentation/research MCP servers:
 
+```bash
 codex mcp add context7 -- npx -y @upstash/context7-mcp
 codex mcp add firecrawl --env FIRECRAWL_API_KEY=YOUR_KEY -- npx -y firecrawl-mcp
 codex mcp add deepwiki --url https://mcp.deepwiki.com/mcp
@@ -55,9 +56,19 @@ codex mcp list
 
 ## Setup
 
-### Option A: Direct injection (no submodule)
+### Preferred setup: Machine-level bootstrap
 
-Best when you want to copy current orchestrator content directly into a target repo.
+This is the default operator story for a fresh Mac:
+
+1. Clone `product-orchestrator` once.
+2. Run `./scripts/setup-global-orchestrator.sh`.
+3. Open any git repo and use `/pm`.
+
+The bootstrap creates machine-level skill links under `~/.codex/skills` and `~/.claude/skills`, registers `claude-code` once at the stable dispatcher path `~/.codex/skills/pm/scripts/claude-code-mcp`, ensures Claude-side `codex-worker` exists, and keeps the active orchestrator version anchored to this checkout. Claude project agents are then materialized lazily into the current repo on first routed use.
+
+### Compatibility setup: Direct injection (no submodule)
+
+Use this when you intentionally want repo-local runtime copies inside a target repo.
 
 ```bash
 /Users/d/product-orchestrator/scripts/inject-workflow.sh \
@@ -78,9 +89,9 @@ Useful variants:
   --if-exists skip
 ```
 
-### Option B: Submodule + copy
+### Compatibility setup: Submodule + copy
 
-Best when you want the orchestrator versioned independently and updatable by submodule.
+Use this when you want the orchestrator versioned independently and refreshed by submodule, but still copied into the target repo for runtime discovery.
 
 ```bash
 /Users/d/product-orchestrator/scripts/install-workflow.sh \
@@ -97,7 +108,18 @@ git -C /path/to/target-repo submodule update --init --recursive .orchestrator
   --sync-only
 ```
 
-## What gets installed into the target repo
+## Machine-level bootstrap outputs
+
+- `~/.codex/skills/{pm,pm-discovery,pm-create-prd,pm-beads-plan,pm-implement,agent-browser}`
+- `~/.claude/skills/{pm,pm-discovery,pm-create-prd,pm-beads-plan,pm-implement,agent-browser}`
+- user-level `codex mcp` registration for `claude-code` pointing to `~/.codex/skills/pm/scripts/claude-code-mcp`
+- user-level `claude mcp` registration for `codex-worker`
+- `~/.codex/pm-orchestrator-bootstrap.json`
+- lazy per-repo Claude project agents under `.claude/agents/pm-*.md` when Claude-routed roles execute
+
+## Compatibility repo-install outputs
+
+If you choose the injection or submodule-copy flows above, they additionally write these managed assets into the target repo:
 
 - `.codex/skills/{pm,pm-discovery,pm-create-prd,pm-beads-plan,pm-implement,agent-browser}`
 - `.claude/skills/{pm,pm-discovery,pm-create-prd,pm-beads-plan,pm-implement,agent-browser}`
@@ -117,9 +139,11 @@ Injection mode also writes:
 
 Use the PM helper path that matches where you are running:
 
+- Preferred machine-level Codex runtime: `~/.codex/skills/pm/scripts/pm-command.sh`
+- Preferred machine-level Claude runtime: `~/.claude/skills/pm/scripts/pm-command.sh`
 - Source repo or submodule checkout: `./skills/pm/scripts/pm-command.sh`
-- Installed target repo from Codex: `./.codex/skills/pm/scripts/pm-command.sh`
-- Installed target repo from Claude: `./.claude/skills/pm/scripts/pm-command.sh`
+- Installed target repo from Codex (compatibility path): `./.codex/skills/pm/scripts/pm-command.sh`
+- Installed target repo from Claude (compatibility path): `./.claude/skills/pm/scripts/pm-command.sh`
 
 ## How to use the orchestrator
 
@@ -223,7 +247,7 @@ Selection precedence is explicit `--mode` override, then persisted execution-mod
 `Dynamic Cross-Runtime` on Claude checks `codex-worker` availability immediately and blocks with remediation to fix `codex-worker` or switch to `Main Runtime Only`.
 Claude availability requires both a healthy `codex mcp list` entry and an executable configured command in the PM runtime. That executability can come from an absolute `command`, from `[shell_environment_policy.set].PATH`, or from `[mcp_servers.claude-code.env].PATH`.
 `codex-worker` availability in Claude requires both a healthy `claude mcp list` entry and an executable `codex` command in the Claude runtime.
-If the server is actually missing, register the repo-owned `claude-code-mcp` wrapper for the active runtime path (`./skills/pm/scripts/claude-code-mcp` in the source repo or `./.codex/skills/pm/scripts/claude-code-mcp` in an installed target repo). If the server is enabled but the launcher is unusable, report that limitation, block the routed phase, and do not continue in degraded fallback.
+If the server is actually missing, run the machine-level bootstrap helper (`~/.codex/skills/pm/scripts/setup-global-orchestrator.sh`, or `./scripts/setup-global-orchestrator.sh` from a checkout before bootstrap) so `claude-code` points at the stable user-level dispatcher. If you are intentionally using legacy repo-installed runtimes, registering the active-runtime wrapper path remains a compatibility fallback. If the server is enabled but the launcher is unusable, report that limitation, block the routed phase, and do not continue in degraded fallback.
 Use `claude mcp add codex-worker -- codex mcp-server` when the Claude-side Codex runtime is actually missing. If `codex-worker` is enabled but `codex` is not executable in the Claude runtime, block before Discovery and fix that runtime instead of continuing.
 Telemetry helpers are available in PM command helper:
 - `./skills/pm/scripts/pm-command.sh telemetry init-db --dsn <postgres-dsn>`

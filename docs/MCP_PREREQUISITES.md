@@ -24,7 +24,29 @@ Codex secondary-runtime policy for Claude outer-runtime sessions:
 - The Claude runtime must also be able to execute `codex` (for example via runtime `PATH` or an absolute command path).
 - If `codex-worker` is enabled but `codex` is not executable, treat `dynamic-cross-runtime` in Claude as unavailable and block before Discovery instead of continuing.
 
-## Install commands (Codex CLI)
+## Preferred machine-level bootstrap
+
+```bash
+./scripts/setup-global-orchestrator.sh
+```
+
+That one-time bootstrap:
+- links global orchestrator skills into `~/.codex/skills` and `~/.claude/skills`
+- registers `claude-code` once at `~/.codex/skills/pm/scripts/claude-code-mcp`
+- ensures Claude-side `codex-worker` exists
+
+After bootstrap, add the remaining documentation/research MCP servers:
+
+```bash
+codex mcp add context7 -- npx -y @upstash/context7-mcp
+codex mcp add firecrawl --env FIRECRAWL_API_KEY=YOUR_KEY -- npx -y firecrawl-mcp
+codex mcp add deepwiki --url https://mcp.deepwiki.com/mcp
+codex mcp add exa --url https://mcp.exa.ai/mcp
+```
+
+## Legacy manual registration fallback
+
+If you are intentionally using the compatibility repo-install flows instead of machine-level bootstrap, the copied wrapper paths remain valid:
 
 ```bash
 # Source repo or submodule checkout
@@ -32,11 +54,6 @@ codex mcp add claude-code -- "$PWD/skills/pm/scripts/claude-code-mcp"
 
 # Installed target repo from Codex
 codex mcp add claude-code -- "$PWD/.codex/skills/pm/scripts/claude-code-mcp"
-
-codex mcp add context7 -- npx -y @upstash/context7-mcp
-codex mcp add firecrawl --env FIRECRAWL_API_KEY=YOUR_KEY -- npx -y firecrawl-mcp
-codex mcp add deepwiki --url https://mcp.deepwiki.com/mcp
-codex mcp add exa --url https://mcp.exa.ai/mcp
 ```
 
 ## Verify configuration
@@ -53,14 +70,14 @@ For `claude-code`, also require a usable Claude launch path in the current runti
 - `firecrawl` requires `FIRECRAWL_API_KEY`.
 - `exa` may require org/account authorization depending your setup.
 - `claude-code` requires the configured `command` to be executable in the runtime that launches it.
-- The orchestrator-specific `claude-code` command is the repo-owned `claude-code-mcp` wrapper, not bare `claude mcp serve`.
+- The preferred orchestrator-specific `claude-code` command is the stable user-level dispatcher at `~/.codex/skills/pm/scripts/claude-code-mcp`, not bare `claude mcp serve`.
 - That executability can come from an absolute command path, from `[shell_environment_policy.set].PATH`, or from `[mcp_servers.claude-code.env].PATH`.
 - If `claude-code` is enabled but PM still reports `no supported agent type`, the MCP server is present but the current runtime does not expose a usable Claude launcher for PM. In that case, block the Claude-dependent phase rather than repeating the install command.
 
 ## Claude project agents
 - Repo-owned PM role prompts are deterministically synced into project Claude agents under `.claude/agents/pm-*.md`.
-- Source repo and installed target repos both use `skills/pm/scripts/sync-claude-agents.py` to materialize those files.
-- The `claude-code-mcp` wrapper refreshes those managed agent files before invoking `claude -p --agent <resolved-name>`.
+- The stable user-level dispatcher resolves the current repo from `cwd` and refreshes `.claude/agents/pm-*.md` there before invoking `claude -p --agent <resolved-name>`.
+- Source repo and installed target repos still use the same `skills/pm/scripts/sync-claude-agents.py` implementation for compatibility flows.
 
 ## Optional but recommended MCP servers
 Not hard-required by PM contract, but commonly useful in real runs:
@@ -73,4 +90,4 @@ Legacy cleanup note:
 - If it still exists in user-scope Claude config, remove it with `claude mcp remove droid-worker -s user`.
 
 ## For workspace images
-MCP config is runtime-level; ensure the workspace image/session has the same MCP entries before running `$pm`.
+MCP config is runtime-level; ensure the workspace image/session has the same user-level bootstrap and MCP entries before running `$pm`.

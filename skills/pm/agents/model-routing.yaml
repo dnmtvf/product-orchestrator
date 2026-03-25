@@ -53,7 +53,7 @@ runtimes:
 
   claude-code-mcp:
     description: External Claude MCP path for roles that must cross from Codex into Claude.
-    setup_command: "codex mcp add claude-code -- <active-runtime>/skills/pm/scripts/claude-code-mcp"
+    setup_command: "~/.codex/skills/pm/scripts/setup-global-orchestrator.sh"
     availability_requirements:
       - claude-code MCP server registered and enabled
       - configured command executable in the actual Codex runtime

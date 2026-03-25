@@ -34,9 +34,11 @@ This workflow is the source of truth for PM orchestration in this repo. Installe
 - `/pm plan: ...` and `$pm plan: ...` map to default single-PRD planning flow.
 - `/pm plan big feature: ...` and `$pm plan big feature: ...` map to big-feature planning flow.
 - PM helper path resolution:
+  - preferred machine-level Codex runtime: `~/.codex/skills/pm/scripts/pm-command.sh`
+  - preferred machine-level Claude runtime: `~/.claude/skills/pm/scripts/pm-command.sh`
   - source repo or submodule checkout: `./skills/pm/scripts/pm-command.sh`
-  - installed target repo from Codex: `./.codex/skills/pm/scripts/pm-command.sh`
-  - installed target repo from Claude: `./.claude/skills/pm/scripts/pm-command.sh`
+  - installed target repo from Codex (compatibility path): `./.codex/skills/pm/scripts/pm-command.sh`
+  - installed target repo from Claude (compatibility path): `./.claude/skills/pm/scripts/pm-command.sh`
 - Both plan routes must execute the helper gate before Discovery:
   - `<pm-helper> plan gate --route default|big-feature [--mode dynamic-cross-runtime|main-runtime-only]`
 - Before Discovery for both plan routes, run a mandatory execution-mode selection gate with exactly two options:
@@ -67,7 +69,7 @@ This workflow is the source of truth for PM orchestration in this repo. Installe
 - PM must treat `[shell_environment_policy.set].PATH`, `[mcp_servers.claude-code.env].PATH`, or an absolute command path as valid ways to satisfy the executable-command requirement.
 - PM must treat the Claude runtime `PATH` (including wrapper scripts or absolute command paths) as valid ways to satisfy the `codex-worker` `codex` executability requirement.
 - `mcp__claude-code__Agent` / implicit `general-purpose` agent launching is not a valid PM orchestration path.
-- If the server is actually missing, register the repo-owned `claude-code-mcp` wrapper command for the active runtime path; if the launcher reports `no supported agent type` or the command is not executable in the PM runtime, treat Claude runtime as unavailable for that session.
+- If the server is actually missing, run the machine-level bootstrap helper (`~/.codex/skills/pm/scripts/setup-global-orchestrator.sh`, or `./scripts/setup-global-orchestrator.sh` before bootstrap) so `claude-code` points at the stable user-level dispatcher; if the launcher reports `no supported agent type` or the command is not executable in the PM runtime, treat Claude runtime as unavailable for that session.
 - Use `claude mcp add codex-worker -- codex mcp-server` only when `codex-worker` is actually missing; if `codex-worker` is enabled but `codex` is not executable in the Claude runtime, treat `dynamic-cross-runtime` in Claude as unavailable for that session.
 - `/pm help` and `$pm help` print command invocations, required phase order, and approval-gate reminders.
 - `/pm execution-mode show|set|reset` and `$pm execution-mode show|set|reset` must route to:
@@ -97,9 +99,11 @@ This workflow is the source of truth for PM orchestration in this repo. Installe
     - `PM_SELF_UPDATE_INCLUDE_PRERELEASE=0|1`
     - `PM_SELF_UPDATE_STRICT_MISMATCH=0|1`
 - Helper script path resolution:
+  - preferred machine-level Codex runtime: `~/.codex/skills/pm/scripts/pm-command.sh`
+  - preferred machine-level Claude runtime: `~/.claude/skills/pm/scripts/pm-command.sh`
   - source repo and submodule checkouts: `./skills/pm/scripts/pm-command.sh`
-  - installed target repo from Codex: `./.codex/skills/pm/scripts/pm-command.sh`
-  - installed target repo from Claude: `./.claude/skills/pm/scripts/pm-command.sh`
+  - installed target repo from Codex (compatibility path): `./.codex/skills/pm/scripts/pm-command.sh`
+  - installed target repo from Claude (compatibility path): `./.claude/skills/pm/scripts/pm-command.sh`
 - Self-update completion gate is explicit and manual:
   - `<pm-helper> self-update complete --approval approved --prd-approval approved --beads-approval approved --prd-path docs/prd/<approved-prd>.md`
   - completion requires PRD coverage evidence for all pending batch versions and empty `Open Questions`

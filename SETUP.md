@@ -10,13 +10,21 @@ This repository is the source of truth for PM orchestration skills and workflow 
 - `skills/pm-implement`
 - `skills/agent-browser`
 - `instructions/pm_workflow.md`
+- `scripts/setup-global-orchestrator.sh` (preferred machine-level bootstrap entrypoint)
 - `skills/pm/scripts/pm-command.sh` (source-repo helper; installed copies land under `.codex/skills/pm/scripts/pm-command.sh` and `.claude/skills/pm/scripts/pm-command.sh`)
-- `skills/pm/scripts/claude-code-mcp` (repo-owned Claude MCP wrapper)
+- `skills/pm/scripts/claude-code-mcp` (repo-aware Claude MCP dispatcher)
 - `skills/pm/scripts/sync-claude-agents.py` (deterministic `.claude/agents` sync)
 - generated project agents under `.claude/agents/pm-*.md`
 
 ## Runtime layout
-The installer and injector manage dual runtime copies in target repos:
+Preferred machine-level runtime layout:
+
+- `~/.codex/skills/...` for Codex sessions
+- `~/.claude/skills/...` for Claude sessions
+- user-level `claude-code` registered at `~/.codex/skills/pm/scripts/claude-code-mcp`
+- lazy repo-local `.claude/agents/pm-*.md` materialized in the current git repo on first Claude-routed use
+
+Compatibility runtime layout for explicit repo installs:
 
 - `.codex/skills/...` for Codex sessions
 - `.claude/skills/...` for Claude sessions
@@ -27,28 +35,36 @@ Referencing a path from `AGENTS.md` is not enough to make `/skill` invocable. Th
 ## Prerequisites
 - MCP requirements: `docs/MCP_PREREQUISITES.md`
 
-## Codex Worker Setup
-The PM workflow uses `codex-worker` only for Codex-routed roles that run inside Claude sessions under `dynamic-cross-runtime`, and for any explicit Claude-side Codex checks.
+## Preferred machine-level bootstrap
 
 1. Install Codex CLI: `npm install -g @openai/codex` or `brew install --cask codex`
-2. Authenticate: `codex login`
-3. Register Codex as an MCP server (one-time user-level setup):
+2. Ensure Claude Code is installed and `claude` is executable in your shell.
+3. Authenticate: `codex login`
+4. Run the one-time bootstrap from this repo:
    ```bash
-   ./scripts/setup-codex-user.sh
+   ./scripts/setup-global-orchestrator.sh
    ```
-   This registers `codex-worker` MCP via `claude mcp add codex-worker -- codex mcp-server`.
+
+That bootstrap links global skills for both runtimes, registers the stable user-level `claude-code` dispatcher, and ensures `codex-worker` exists in Claude.
+
+Legacy fallback:
+- `./scripts/setup-codex-user.sh` still works when only `codex-worker` registration is missing.
 
 See `docs/MCP_PREREQUISITES.md` for the full role-to-model table.
 
 ## Installation modes
 
-1. Direct injection (no submodule, no symlink):
+1. Preferred machine-level bootstrap:
+- Script: `scripts/setup-global-orchestrator.sh`
+- Works across arbitrary git repos on the same machine without repo-local orchestrator installation.
+
+2. Direct injection (compatibility, no submodule, no symlink):
 - See `docs/INSTALL_INJECT_WORKFLOW.md`
 - Script: `scripts/inject-workflow.sh`
 
-2. Submodule + copy (independent fetch + copied runtime skills):
+3. Submodule + copy (compatibility, independent fetch + copied runtime skills):
 - See `docs/INSTALL_SUBMODULE_WORKFLOW.md`
 - Script: `scripts/install-workflow.sh`
 
 ## Runtime reload
-After any install/update, restart the matching runtime session so skill indexes reload. To re-check the managed Claude agent layer directly, run `./skills/pm/scripts/sync-claude-agents.py --check` in the source repo or `./.codex/skills/pm/scripts/sync-claude-agents.py --check` in an installed target repo.
+After any bootstrap/install/update, restart the matching runtime session so skill indexes reload. To verify the machine-level setup, run `./scripts/setup-global-orchestrator.sh --verify`. To re-check the managed Claude agent layer directly, run `~/.codex/skills/pm/scripts/sync-claude-agents.py --check` from the target repo after machine-level bootstrap, or use `./skills/pm/scripts/sync-claude-agents.py --check` / `./.codex/skills/pm/scripts/sync-claude-agents.py --check` in source and compatibility repo-install layouts.

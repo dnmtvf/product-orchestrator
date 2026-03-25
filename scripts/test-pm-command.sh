@@ -148,16 +148,16 @@ printf 'seed\n' >"$DRIFT_REPO/README.md"
 git -C "$DRIFT_REPO" add README.md
 git -C "$DRIFT_REPO" commit -q -m "init"
 cp -R "$ROOT_DIR/skills" "$DRIFT_REPO/skills"
-python3 "$DRIFT_REPO/skills/pm/scripts/sync-claude-agents.py" >/dev/null
+(cd "$DRIFT_REPO" && python3 "$DRIFT_REPO/skills/pm/scripts/sync-claude-agents.py" >/dev/null)
 printf 'obsolete\n' >"$DRIFT_REPO/.claude/agents/pm-obsolete.md"
-if drift_check_out="$(python3 "$DRIFT_REPO/skills/pm/scripts/sync-claude-agents.py" --check 2>&1)"; then
+if drift_check_out="$(cd "$DRIFT_REPO" && python3 "$DRIFT_REPO/skills/pm/scripts/sync-claude-agents.py" --check 2>&1)"; then
   fail "claude agent drift check unexpectedly passed with an obsolete managed file present"
 fi
 assert_contains "$drift_check_out" 'CLAUDE_AGENT_DRIFT|status=unexpected|path=.claude/agents/pm-obsolete.md'
-python3 "$DRIFT_REPO/skills/pm/scripts/sync-claude-agents.py" >/dev/null
+(cd "$DRIFT_REPO" && python3 "$DRIFT_REPO/skills/pm/scripts/sync-claude-agents.py" >/dev/null)
 [ ! -f "$DRIFT_REPO/.claude/agents/pm-obsolete.md" ] || fail "sync should remove obsolete managed Claude agent files"
 
-echo "[test-pm-command] case: active docs distinguish source and installed helper paths"
+echo "[test-pm-command] case: active docs distinguish machine-level and compatibility helper paths"
 helper_path_contracts="$(
   cat \
     "$ROOT_DIR/README.md" \
@@ -168,12 +168,16 @@ helper_path_contracts="$(
     "$ROOT_DIR/instructions/pm_workflow.md" \
     "$ROOT_DIR/.config/opencode/instructions/pm_workflow.md" \
     "$ROOT_DIR/skills/pm/SKILL.md" \
+    "$ROOT_DIR/skills/pm-discovery/SKILL.md" \
     "$ROOT_DIR/skills/pm-implement/SKILL.md"
 )"
+assert_contains "$helper_path_contracts" '~/.codex/skills/pm/scripts/pm-command.sh'
+assert_contains "$helper_path_contracts" '~/.claude/skills/pm/scripts/pm-command.sh'
 assert_contains "$helper_path_contracts" './skills/pm/scripts/pm-command.sh'
 assert_contains "$helper_path_contracts" './.codex/skills/pm/scripts/pm-command.sh'
 assert_contains "$helper_path_contracts" './.claude/skills/pm/scripts/pm-command.sh'
 assert_contains "$helper_path_contracts" 'claude-code-mcp'
+assert_contains "$helper_path_contracts" 'setup-global-orchestrator.sh'
 
 echo "[test-pm-command] case: live PM contracts forbid degraded fallback after a blocked gate"
 live_contracts="$(

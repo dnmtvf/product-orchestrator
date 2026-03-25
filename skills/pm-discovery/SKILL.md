@@ -19,9 +19,11 @@ description: Strict PM Discovery Mode. Trigger on $pm-discovery for questions-on
 - If the active execution mode is `dynamic-cross-runtime` with Claude outer runtime and the gate blocks on `codex-worker` availability, stop and ask PM/user to fix the secondary Codex runtime or choose `Main Runtime Only`.
 
 ## PM Helper Path Resolution
+- preferred machine-level Codex runtime: `~/.codex/skills/pm/scripts/pm-command.sh`
+- preferred machine-level Claude runtime: `~/.claude/skills/pm/scripts/pm-command.sh`
 - source repo or submodule checkout: `./skills/pm/scripts/pm-command.sh`
-- installed target repo from Codex: `./.codex/skills/pm/scripts/pm-command.sh`
-- installed target repo from Claude: `./.claude/skills/pm/scripts/pm-command.sh`
+- installed target repo from Codex (compatibility path): `./.codex/skills/pm/scripts/pm-command.sh`
+- installed target repo from Claude (compatibility path): `./.claude/skills/pm/scripts/pm-command.sh`
 
 ## Subagent Launcher Compatibility (mandatory)
 - Spawn only supported generic agent types: `default`, `explorer`, `worker`.
@@ -42,13 +44,13 @@ description: Strict PM Discovery Mode. Trigger on $pm-discovery for questions-on
 ## Claude MCP Contract (mandatory for external Claude agents)
 - Use Claude through MCP server `claude-code` (not direct CLI/app invocation).
 - Required environment setup (once):
-  - register the repo-owned `claude-code-mcp` wrapper command for the active runtime path
+  - run `~/.codex/skills/pm/scripts/setup-global-orchestrator.sh` (or `./scripts/setup-global-orchestrator.sh` from a checkout before bootstrap) so `claude-code` points at the stable user-level dispatcher
 - `codex mcp list` only verifies that `claude-code` is configured/enabled; it does not prove the current environment exposes a usable Claude launcher.
 - Only use a `claude-code` MCP tool that explicitly provides prompt/session semantics in the current environment. `mcp__claude-code__Agent` with implicit `general-purpose` is not the Discovery contract.
 - If the launcher reports `Agent type 'general-purpose' not found`, `no supported agent type`, or equivalent, treat `claude-code` runtime as unavailable for that step.
 - Do not auto-fallback to `codex-native` inside Discovery. Treat this as a critical phase block and return control to PM.
 - Remediation split:
-  - server missing/not configured -> register the repo-owned `claude-code-mcp` wrapper command for the active runtime path
+  - server missing/not configured -> run the machine-level bootstrap helper so `claude-code` is re-registered to the stable user-level dispatcher
   - server enabled but launcher unusable -> report the launcher limitation, block Discovery, and do not loop on reinstall instructions
 - For Claude MCP agents, prompt must start with:
   - `use agent swarm for <objective>`

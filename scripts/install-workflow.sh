@@ -177,7 +177,10 @@ sync_claude_agents() {
   local sync_script="$REPO_PATH/.codex/skills/pm/scripts/sync-claude-agents.py"
 
   [ -f "$sync_script" ] || err "Missing Claude agent sync script after install: $sync_script"
-  "$sync_script" >/dev/null
+  (
+    cd "$REPO_PATH"
+    "$sync_script" >/dev/null
+  )
   log "Synchronized Claude project agents -> $REPO_PATH/.claude/agents"
 }
 

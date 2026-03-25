@@ -17,7 +17,9 @@ FENCED_BLOCK_RE = re.compile(r"```[^\n]*\n(.*?)\n```", re.DOTALL)
 
 @dataclass(frozen=True)
 class RuntimePaths:
+    orchestrator_root: Path
     repo_root: Path
+    working_dir: Path
     skills_root: Path
     output_dir: Path
     mapping_path: Path
@@ -42,25 +44,50 @@ class ClaudeInvocationError(RuntimeError):
         self.stderr = stderr
 
 
-def repo_root_from(script_file: Path) -> Path:
+def git_repo_root(start_path: Path, *, context: str) -> Path:
     proc = subprocess.run(
-        ["git", "-C", str(script_file.parent), "rev-parse", "--show-toplevel"],
+        ["git", "-C", str(start_path), "rev-parse", "--show-toplevel"],
         check=True,
         capture_output=True,
         text=True,
     )
-    return Path(proc.stdout.strip()).resolve()
+    root = proc.stdout.strip()
+    if not root:
+        raise ClaudeAgentSyncError(f"Unable to resolve git repo root for {context}: {start_path}")
+    return Path(root).resolve()
 
 
-def resolve_runtime_paths(script_file: Path) -> RuntimePaths:
+def orchestrator_root_from(script_file: Path) -> Path:
+    try:
+        return git_repo_root(script_file.parent, context="orchestrator checkout")
+    except subprocess.CalledProcessError as exc:
+        raise ClaudeAgentSyncError(
+            f"Current Claude dispatcher is not inside a supported orchestrator checkout: {script_file.parent}"
+        ) from exc
+
+
+def repo_root_from_working_dir(working_dir: Path) -> Path:
+    try:
+        return git_repo_root(working_dir, context="target repository")
+    except subprocess.CalledProcessError as exc:
+        raise ClaudeAgentSyncError(
+            f"Current working directory is not inside a supported git repository: {working_dir}"
+        ) from exc
+
+
+def resolve_runtime_paths(script_file: Path, *, cwd: str | Path | None = None) -> RuntimePaths:
     script_file = script_file.resolve()
-    repo_root = repo_root_from(script_file)
+    orchestrator_root = orchestrator_root_from(script_file)
     script_dir = script_file.parent
     if script_dir.name != "scripts" or script_dir.parent.name != "pm" or script_dir.parent.parent.name != "skills":
         raise ClaudeAgentSyncError(f"Unsupported PM script layout: {script_dir}")
+    working_dir = Path(cwd).expanduser().resolve() if cwd else Path.cwd().resolve()
+    repo_root = repo_root_from_working_dir(working_dir)
     skills_root = script_dir.parent.parent
     return RuntimePaths(
+        orchestrator_root=orchestrator_root,
         repo_root=repo_root,
+        working_dir=working_dir,
         skills_root=skills_root,
         output_dir=repo_root / ".claude" / "agents",
         mapping_path=skills_root / "pm" / "agents" / "claude-agent-map.json",
@@ -247,17 +274,16 @@ def run_claude_agent(
     if agent_type and agent_type not in {"default", "explorer", "worker"}:
         raise ClaudeAgentSyncError(f"Unsupported agent_type '{agent_type}'. Expected default, explorer, or worker.")
 
-    paths = resolve_runtime_paths(script_file)
+    paths = resolve_runtime_paths(script_file, cwd=cwd)
     sync_summary = sync_agents(paths, check=False)
     agent = mapping_for_role(paths, role)
-    working_directory = Path(cwd).resolve() if cwd else paths.repo_root
     command = [resolve_claude_command(), "-p", "--agent", agent["agent_name"]]
     if session_id:
         command.extend(["--session-id", session_id])
     command.append(prompt)
     proc = subprocess.run(
         command,
-        cwd=working_directory,
+        cwd=paths.working_dir,
         capture_output=True,
         text=True,
     )
@@ -276,7 +302,9 @@ def run_claude_agent(
         "agent_name": agent["agent_name"],
         "agent_type": agent_type or "",
         "prompt_path": agent["prompt_path"],
-        "cwd": str(working_directory),
+        "cwd": str(paths.working_dir),
+        "repo_root": str(paths.repo_root),
+        "orchestrator_root": str(paths.orchestrator_root),
         "response": proc.stdout.strip(),
         "sync": sync_counts(sync_summary),
     }

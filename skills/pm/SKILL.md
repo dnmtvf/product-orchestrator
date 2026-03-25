@@ -36,9 +36,11 @@ description: Strict PM orchestration workflow for any repo. Trigger when user in
 
 ## Command Routing (mandatory)
 - PM helper path resolution:
+  - preferred machine-level Codex runtime: `~/.codex/skills/pm/scripts/pm-command.sh`
+  - preferred machine-level Claude runtime: `~/.claude/skills/pm/scripts/pm-command.sh`
   - source repo or submodule checkout: `./skills/pm/scripts/pm-command.sh`
-  - installed target repo from Codex: `./.codex/skills/pm/scripts/pm-command.sh`
-  - installed target repo from Claude: `./.claude/skills/pm/scripts/pm-command.sh`
+  - installed target repo from Codex (compatibility path): `./.codex/skills/pm/scripts/pm-command.sh`
+  - installed target repo from Claude (compatibility path): `./.claude/skills/pm/scripts/pm-command.sh`
 - Default planning route:
   - Trigger: `/pm plan: ...` or `$pm plan: ...`
   - Behavior: single-PRD planning workflow (existing default).
@@ -79,7 +81,7 @@ description: Strict PM orchestration workflow for any repo. Trigger when user in
   - PM must treat `[shell_environment_policy.set].PATH`, `[mcp_servers.claude-code.env].PATH`, or an absolute command path as valid ways to satisfy the executable-command requirement.
   - PM must treat the Claude runtime `PATH` (including wrappers or absolute command paths) as valid for the `codex-worker` `codex` executability requirement.
   - If the server is actually missing, remediation is:
-    - register the repo-owned `claude-code-mcp` wrapper command for the active runtime path
+    - run the machine-level bootstrap helper `~/.codex/skills/pm/scripts/setup-global-orchestrator.sh` (or `./scripts/setup-global-orchestrator.sh` from a checkout before bootstrap)
   - If `codex-worker` is actually missing for `dynamic-cross-runtime` in Claude, remediation is:
     - `claude mcp add codex-worker -- codex mcp-server`
 
@@ -200,7 +202,7 @@ description: Strict PM orchestration workflow for any repo. Trigger when user in
 - PM orchestration runtime is execution-mode driven (`dynamic-cross-runtime` default, plus `main-runtime-only`).
 - Use Claude through MCP server `claude-code` (do not run Claude as app/interactive CLI for pipeline orchestration).
 - Required environment setup (once):
-  - register the repo-owned `claude-code-mcp` wrapper command for the active runtime path
+  - run `~/.codex/skills/pm/scripts/setup-global-orchestrator.sh` (or `./scripts/setup-global-orchestrator.sh` from a checkout before bootstrap) so `claude-code` points at the stable user-level dispatcher
 - `codex mcp list` only verifies that `claude-code` is configured/enabled; it does not prove the current environment exposes a usable Claude launcher.
 - Only use a `claude-code` MCP tool that explicitly provides prompt/session semantics in the current environment. `mcp__claude-code__Agent` with implicit `general-purpose` is not the PM contract.
 - If the launcher reports `Agent type 'general-purpose' not found`, `no supported agent type`, or equivalent, treat `claude-code` runtime as unavailable for the current phase.
@@ -210,7 +212,7 @@ description: Strict PM orchestration workflow for any repo. Trigger when user in
   - Claude outer runtime + `dynamic-cross-runtime` -> fix `codex-worker` / `codex` executability in the Claude runtime or choose `Main Runtime Only`
   - `main-runtime-only` -> Claude should not be required
 - Remediation split:
-  - server missing/not configured -> register the repo-owned `claude-code-mcp` wrapper command for the active runtime path
+  - server missing/not configured -> run the machine-level bootstrap helper so `claude-code` is re-registered to the stable user-level dispatcher
   - `codex-worker` missing/not configured for `dynamic-cross-runtime` in Claude -> `claude mcp add codex-worker -- codex mcp-server`
   - server enabled but launcher unusable -> report the launcher limitation, block the current phase, and do not loop on reinstall instructions
 - For Claude MCP agents, prompt must start with:

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
 from pathlib import Path
 
@@ -10,7 +11,13 @@ from fastmcp.client.transports import StdioTransport
 
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
-WRAPPER = ROOT_DIR / "skills" / "pm" / "scripts" / "claude-code-mcp"
+WRAPPER = Path(
+    os.environ.get(
+        "CLAUDE_CODE_WRAPPER",
+        str(ROOT_DIR / "skills" / "pm" / "scripts" / "claude-code-mcp"),
+    )
+).expanduser()
+TRANSPORT_CWD = Path(os.environ.get("TEST_REPO_CWD", str(ROOT_DIR))).expanduser()
 TOKEN = "CLAUDE_AGENT_MCP_SMOKE_OK"
 PROMPT = (
     "This is an MCP smoke verification. Follow your normal output contract. "
@@ -25,7 +32,7 @@ def fail(message: str) -> int:
 
 
 async def main() -> int:
-    transport = StdioTransport(command=str(WRAPPER), args=[], cwd=str(ROOT_DIR))
+    transport = StdioTransport(command=str(WRAPPER), args=[], cwd=str(TRANSPORT_CWD))
     async with Client(transport) as client:
         tools = await client.list_tools()
         tool_names = sorted(tool.name for tool in tools)
