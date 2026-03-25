@@ -1,0 +1,33 @@
+{
+  "step": "claude_mcp_snapshot",
+  "runtime_kind": "claude",
+  "execution_mode": "main-runtime-only",
+  "run_id": "self-check-20260322T172656Z-cc9e523bf3",
+  "status": "failed",
+  "primary_code": "snapshot_command_hung",
+  "issue_codes": [
+    "snapshot_command_hung",
+    "snapshot_partial_output"
+  ],
+  "detail": "Snapshot command exceeded timeout while collecting MCP state.",
+  "remediation": "Inspect the snapshot attempt JSON plus stdout/stderr artifacts and fix the runtime or launcher path before rerunning self-check.",
+  "command_path": "/Users/d/.local/bin/claude",
+  "command_source": "/Users/d/.codex/config.toml",
+  "path_override_source": "[shell_environment_policy.set] in /Users/d/.codex/config.toml",
+  "artifact_path": ".codex/self-check-runs/self-check-20260322T172656Z-cc9e523bf3/claude-mcp-list.txt",
+  "stdout_path": ".codex/self-check-runs/self-check-20260322T172656Z-cc9e523bf3/claude-mcp-list.stdout.txt",
+  "stderr_path": ".codex/self-check-runs/self-check-20260322T172656Z-cc9e523bf3/claude-mcp-list.stderr.txt",
+  "attempt_file": ".codex/self-check-runs/self-check-20260322T172656Z-cc9e523bf3/claude-mcp-list.attempt.json",
+  "started_at": "2026-03-22T17:27:00Z",
+  "completed_at": "2026-03-22T17:27:06Z",
+  "elapsed_ms": 6000,
+  "exit_code": null,
+  "exit_signal": "TERM",
+  "timed_out": true,
+  "pid": "41627",
+  "process_state": "41627 41422 S    /Users/d/.local/bin/claude mcp list",
+  "partial_stdout": "Checking MCP server health...",
+  "partial_stderr": "",
+  "partial_combined_output": "Checking MCP server health...",
+  "telemetry_complete": true
+}

@@ -1,0 +1,51 @@
+SELF_CHECK_RUN|run_id=self-check-20260322T180324Z-0a572d76c9|fixture_suite=pm-self-check-v1|fixture_case=happy-path|execution_mode=main-runtime-only|expected_status=clean|artifact_dir=.codex/self-check-runs/self-check-20260322T180324Z-0a572d76c9
+SELF_CHECK_ARTIFACT|kind=console_log|path=.codex/self-check-runs/self-check-20260322T180324Z-0a572d76c9/console.log
+SELF_CHECK_ARTIFACT|kind=codex_mcp_snapshot|path=.codex/self-check-runs/self-check-20260322T180324Z-0a572d76c9/codex-mcp-list.txt
+SELF_CHECK_ARTIFACT|kind=codex_mcp_snapshot_stdout|path=.codex/self-check-runs/self-check-20260322T180324Z-0a572d76c9/codex-mcp-list.stdout.txt
+SELF_CHECK_ARTIFACT|kind=codex_mcp_snapshot_stderr|path=.codex/self-check-runs/self-check-20260322T180324Z-0a572d76c9/codex-mcp-list.stderr.txt
+SELF_CHECK_ARTIFACT|kind=codex_mcp_snapshot_attempt|path=.codex/self-check-runs/self-check-20260322T180324Z-0a572d76c9/codex-mcp-list.attempt.json
+SELF_CHECK_ARTIFACT_STATUS|run_id=self-check-20260322T180324Z-0a572d76c9|step=codex_mcp_snapshot|status=passed|primary_code=none|issue_codes=none|attempt_file=.codex/self-check-runs/self-check-20260322T180324Z-0a572d76c9/codex-mcp-list.attempt.json
+SELF_CHECK_EVENT|run_id=self-check-20260322T180324Z-0a572d76c9|severity=info|phase=artifacts|step=codex_mcp_snapshot|status=passed|code=snapshot_capture_passed|detail=Snapshot capture completed successfully.|remediation=
+SELF_CHECK_ARTIFACT|kind=claude_mcp_snapshot|path=.codex/self-check-runs/self-check-20260322T180324Z-0a572d76c9/claude-mcp-list.txt
+SELF_CHECK_ARTIFACT|kind=claude_mcp_snapshot_stdout|path=.codex/self-check-runs/self-check-20260322T180324Z-0a572d76c9/claude-mcp-list.stdout.txt
+SELF_CHECK_ARTIFACT|kind=claude_mcp_snapshot_stderr|path=.codex/self-check-runs/self-check-20260322T180324Z-0a572d76c9/claude-mcp-list.stderr.txt
+SELF_CHECK_ARTIFACT|kind=claude_mcp_snapshot_attempt|path=.codex/self-check-runs/self-check-20260322T180324Z-0a572d76c9/claude-mcp-list.attempt.json
+SELF_CHECK_ARTIFACT_STATUS|run_id=self-check-20260322T180324Z-0a572d76c9|step=claude_mcp_snapshot|status=passed|primary_code=none|issue_codes=none|attempt_file=.codex/self-check-runs/self-check-20260322T180324Z-0a572d76c9/claude-mcp-list.attempt.json
+SELF_CHECK_EVENT|run_id=self-check-20260322T180324Z-0a572d76c9|severity=info|phase=artifacts|step=claude_mcp_snapshot|status=passed|code=snapshot_capture_passed|detail=Snapshot capture completed successfully.|remediation=
+SELF_CHECK_EVENT|run_id=self-check-20260322T180324Z-0a572d76c9|severity=info|phase=artifacts|step=claude_mcp_snapshot|status=detected|code=legacy_droid_worker_detected|detail=Legacy Claude MCP server droid-worker is still configured in user scope. Current PM runtimes do not use it.|remediation=Remove it with: claude mcp remove droid-worker -s user
+SELF_CHECK_EVENT|run_id=self-check-20260322T180324Z-0a572d76c9|severity=info|phase=health|step=claude_registration|status=passed|code=claude_code_mcp_registered|detail=claude-code MCP registration is present.|remediation=
+SELF_CHECK_EVENT|run_id=self-check-20260322T180324Z-0a572d76c9|severity=info|phase=health|step=claude_executability|status=passed|code=claude_code_mcp_executable|detail=claude-code command is executable in the current runtime.|remediation=
+CLAUDE_CONTEXT_VALID|role=self_check_probe|context_file=.codex/self-check-runs/self-check-20260322T180324Z-0a572d76c9/claude-session-probe-context.json|context_hash=2dd9605e084e857fd2f0b717584bb9c1265c5525d9577429b08f1788a924f7ce|required_fields=feature_objective,prd_context,task_id,acceptance_criteria,implementation_status,changed_files,constraints,evidence,clarifying_instruction
+CLAUDE_HANDSHAKE|status=complete|role=self_check_probe|session_id=self-check-20260322T180324Z-0a572d76c9-claude-probe
+CLAUDE_WRAPPER_RESULT|status=complete|role=self_check_probe|session_id=self-check-20260322T180324Z-0a572d76c9-claude-probe|runtime=claude-code-mcp|context_hash=2dd9605e084e857fd2f0b717584bb9c1265c5525d9577429b08f1788a924f7ce|response_file=.codex/self-check-runs/self-check-20260322T180324Z-0a572d76c9/claude-session-probe-response.txt|response_hash=d2b4aa0d329af93114bec58e1df4cacdbdc0e84a7ad491d3a03141df49497129|next_action=return_to_parent
+SELF_CHECK_ARTIFACT|kind=claude_session_probe_eval|path=.codex/self-check-runs/self-check-20260322T180324Z-0a572d76c9/claude-session-probe-eval.txt
+SELF_CHECK_EVENT|run_id=self-check-20260322T180324Z-0a572d76c9|severity=info|phase=health|step=claude_session|status=passed|code=claude_session_usable|detail=Claude session probe completed successfully.|remediation=
+RUNTIME_DETECTION|run_id=pm-plan-gate-1774202617-63327::default|route=default|workspace_path=/Users/d/product-orchestrator|outer_runtime=codex|source=codex_env|detail=Detected Codex runtime from Codex session environment markers.
+EXECUTION_MODE_GATE|route=default|question=Select execution mode before Discovery|options=Dynamic Cross-Runtime;Main Runtime Only|persisted_mode=main-runtime-only|selected_mode=main-runtime-only|selected_label=Main Runtime Only|selection_source=explicit_override|outer_runtime=codex|outer_runtime_source=codex_env|codex_model=gpt-5.4|codex_reasoning_effort=xhigh|claude_model=opus[1m]|claude_reasoning_effort=high|state_file=.codex/pm-lead-model-state.json
+ROUTING_PROFILE|route=default|mode=main-runtime-only|selection_source=explicit_override|outer_runtime=codex|outer_runtime_source=codex_env|main_runtime=codex-native|main_model=gpt-5.4|main_reasoning_effort=xhigh|fallback_active=0
+ROUTING_ROLE|role=project_manager|class=main|runtime=codex-native|model=gpt-5.4|reasoning_effort=xhigh|agent_type=default
+ROUTING_ROLE|role=team_lead|class=main|runtime=codex-native|model=gpt-5.4|reasoning_effort=xhigh|agent_type=default
+ROUTING_ROLE|role=pm_beads_plan_handoff|class=main|runtime=codex-native|model=gpt-5.4|reasoning_effort=xhigh|agent_type=default
+ROUTING_ROLE|role=pm_implement_handoff|class=main|runtime=codex-native|model=gpt-5.4|reasoning_effort=xhigh|agent_type=default
+ROUTING_ROLE|role=senior_engineer|class=sub|runtime=codex-native|model=gpt-5.4|reasoning_effort=xhigh|agent_type=explorer
+ROUTING_ROLE|role=librarian|class=sub|runtime=codex-native|model=gpt-5.4|reasoning_effort=xhigh|agent_type=default
+ROUTING_ROLE|role=smoke_test_planner|class=sub|runtime=codex-native|model=gpt-5.4|reasoning_effort=xhigh|agent_type=default
+ROUTING_ROLE|role=alternative_pm|class=sub|runtime=codex-native|model=gpt-5.4|reasoning_effort=xhigh|agent_type=default
+ROUTING_ROLE|role=researcher|class=sub|runtime=codex-native|model=gpt-5.4|reasoning_effort=xhigh|agent_type=default
+ROUTING_ROLE|role=backend_engineer|class=sub|runtime=codex-native|model=gpt-5.4|reasoning_effort=xhigh|agent_type=worker
+ROUTING_ROLE|role=frontend_engineer|class=sub|runtime=codex-native|model=gpt-5.4|reasoning_effort=xhigh|agent_type=worker
+ROUTING_ROLE|role=security_engineer|class=sub|runtime=codex-native|model=gpt-5.4|reasoning_effort=xhigh|agent_type=worker
+ROUTING_ROLE|role=agents_compliance_reviewer|class=sub|runtime=codex-native|model=gpt-5.4|reasoning_effort=xhigh|agent_type=default
+ROUTING_ROLE|role=jazz_reviewer|class=sub|runtime=codex-native|model=gpt-5.4|reasoning_effort=xhigh|agent_type=default
+ROUTING_ROLE|role=codex_reviewer|class=sub|runtime=codex-native|model=gpt-5.4|reasoning_effort=xhigh|agent_type=default
+ROUTING_ROLE|role=manual_qa|class=sub|runtime=codex-native|model=gpt-5.4|reasoning_effort=xhigh|agent_type=default
+ROUTING_ROLE|role=task_verification|class=sub|runtime=codex-native|model=gpt-5.4|reasoning_effort=xhigh|agent_type=default
+PLAN_ROUTE_READY|route=default|selected_mode=main-runtime-only|selected_label=Main Runtime Only|selection_source=explicit_override|outer_runtime=codex|outer_runtime_source=codex_env|discovery_can_start=1
+SELF_CHECK_ARTIFACT|kind=child_plan_gate|path=.codex/self-check-runs/self-check-20260322T180324Z-0a572d76c9/child-plan-gate.txt
+SELF_CHECK_EVENT|run_id=self-check-20260322T180324Z-0a572d76c9|severity=info|phase=child_flow|step=plan_gate|status=passed|code=plan_route_ready|detail=Child plan gate completed successfully.|remediation=
+SELF_CHECK_EVENT|run_id=self-check-20260322T180324Z-0a572d76c9|severity=info|phase=fixture|step=synthetic_task|status=passed|code=fixture_ready|detail=Synthetic task prepared: Create a snake game|remediation=
+SELF_CHECK_ARTIFACT|kind=summary|path=.codex/self-check-runs/self-check-20260322T180324Z-0a572d76c9/summary.json
+SELF_CHECK_ARTIFACT|kind=healer_context|path=.codex/self-check-runs/self-check-20260322T180324Z-0a572d76c9/healer-context.json
+SELF_CHECK_ARTIFACT|kind=healer_prompt|path=.codex/self-check-runs/self-check-20260322T180324Z-0a572d76c9/healer-prompt.md
+SELF_CHECK_RESULT|status=clean|run_id=self-check-20260322T180324Z-0a572d76c9|fixture_case=happy-path|finding_count=0|critical_count=0|reason=none|summary_file=.codex/self-check-runs/self-check-20260322T180324Z-0a572d76c9/summary.json
+SELF_CHECK_HEALER_READY|status=ready|run_id=self-check-20260322T180324Z-0a572d76c9|context_file=.codex/self-check-runs/self-check-20260322T180324Z-0a572d76c9/healer-context.json|prompt_file=.codex/self-check-runs/self-check-20260322T180324Z-0a572d76c9/healer-prompt.md|next_action=spawn_outer_healer

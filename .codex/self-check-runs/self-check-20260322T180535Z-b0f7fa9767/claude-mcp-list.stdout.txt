@@ -1,0 +1,14 @@
+Checking MCP server health...
+
+claude.ai Google Calendar: https://gcal.mcp.claude.com/mcp - ! Needs authentication
+claude.ai Gmail: https://gmail.mcp.claude.com/mcp - ! Needs authentication
+context7: npx -y @upstash/context7-mcp - ✓ Connected
+playwright: npx -y @playwright/mcp@latest - ✓ Connected
+chrome-devtools: npx -y chrome-devtools-mcp@latest --autoConnect - ✓ Connected
+serena: uvx --from git+https://github.com/oraios/serena serena start-mcp-server --context codex --enable-web-dashboard false - ✓ Connected
+firecrawl: npx -y firecrawl-mcp - ✓ Connected
+github: https://api.githubcopilot.com/mcp/ (HTTP) - ✓ Connected
+exa: https://mcp.exa.ai/mcp (HTTP) - ✓ Connected
+excalidraw: https://excalidraw-mcp-app.vercel.app/mcp (HTTP) - ✓ Connected
+deepwiki: https://mcp.deepwiki.com/mcp (HTTP) - ✓ Connected
+clickup: https://mcp.clickup.com/mcp (HTTP) - ! Needs authentication

@@ -1,7 +1,7 @@
 {
-  "schema_version": 1,
-  "selected_profile": "codex-main",
-  "selected_label": "Codex as Main Agent",
-  "updated_at": "2026-03-16T00:00:00Z",
-  "last_selected_by": "default_bootstrap"
+  "schema_version": 2,
+  "selected_mode": "dynamic-cross-runtime",
+  "selected_label": "Dynamic Cross-Runtime",
+  "updated_at": "2026-03-25T10:04:11Z",
+  "last_selected_by": "plan_gate_override"
 }

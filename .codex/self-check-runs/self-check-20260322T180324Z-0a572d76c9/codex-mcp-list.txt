@@ -1,0 +1,15 @@
+Name             Command  Args                                                                                                              Env                      Cwd  Status   Auth       
+chrome-devtools  npx      -y chrome-devtools-mcp@latest --autoConnect                                                                       -                        -    enabled  Unsupported
+claude-code      claude   mcp serve                                                                                                         -                        -    enabled  Unsupported
+context7         npx      -y @upstash/context7-mcp                                                                                          -                        -    enabled  Unsupported
+firecrawl        npx      -y firecrawl-mcp                                                                                                  FIRECRAWL_API_KEY=*****  -    enabled  Unsupported
+playwright       npx      -y @playwright/mcp@latest                                                                                         -                        -    enabled  Unsupported
+serena           uvx      --from git+https://github.com/oraios/serena serena start-mcp-server --context codex --enable-web-dashboard false  -                        -    enabled  Unsupported
+
+Name        Url                                        Bearer Token Env Var          Status   Auth        
+clickup     https://mcp.clickup.com/mcp                -                             enabled  OAuth       
+deepwiki    https://mcp.deepwiki.com/mcp               -                             enabled  Unsupported 
+exa         https://mcp.exa.ai/mcp                     -                             enabled  Unsupported 
+excalidraw  https://excalidraw-mcp-app.vercel.app/mcp  -                             enabled  Unsupported 
+github      https://api.githubcopilot.com/mcp/         GITHUB_PERSONAL_ACCESS_TOKEN  enabled  Bearer token
+warpbuild   https://mcp.warpbuild.com/mcp              WARPBUILD_API_KEY             enabled  Bearer token
