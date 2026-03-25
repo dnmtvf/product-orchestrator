@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 HELPER="$ROOT_DIR/skills/pm/scripts/pm-command.sh"
+CLAUDE_WRAPPER="$ROOT_DIR/skills/pm/scripts/claude-code-mcp"
 
 fail() {
   echo "[test-pm-command] FAIL: $*" >&2
@@ -58,8 +59,7 @@ model = "$model"
 model_reasoning_effort = "$reasoning_effort"
 
 [mcp_servers.claude-code]
-command = "claude"
-args = ["mcp", "serve"]
+command = "$CLAUDE_WRAPPER"
 $extra_config
 EOF
 }
@@ -129,6 +129,34 @@ if ! diff -u "$ROOT_DIR/instructions/pm_workflow.md" "$ROOT_DIR/.config/opencode
   fail "workflow instruction files drifted; sync instructions/pm_workflow.md and .config/opencode/instructions/pm_workflow.md"
 fi
 
+echo "[test-pm-command] case: claude agent sync artifacts are current"
+claude_agent_sync_out="$("$ROOT_DIR/skills/pm/scripts/sync-claude-agents.py" --check)"
+assert_contains "$claude_agent_sync_out" 'CLAUDE_AGENT_SYNC|status=ok|check=1'
+[ -f "$ROOT_DIR/.claude/agents/pm-project-manager.md" ] || fail "expected generated Claude project agent to exist"
+
+echo "[test-pm-command] case: claude role mapping resolves to generated project agents"
+claude_role_map_out="$(python3 "$ROOT_DIR/skills/pm/scripts/claude-code-mcp-server.py" resolve-role --role project_manager)"
+assert_contains "$claude_role_map_out" '"agent_name": "pm-project-manager"'
+assert_contains "$claude_role_map_out" '"prompt_path": "pm/references/project-manager.md"'
+
+echo "[test-pm-command] case: claude agent drift check flags unexpected managed files"
+DRIFT_REPO="$(mktemp -d "${TMPDIR:-/tmp}/claude-agent-drift-repo.XXXXXX")"
+git -C "$DRIFT_REPO" init -q
+git -C "$DRIFT_REPO" config user.name "pm-test"
+git -C "$DRIFT_REPO" config user.email "pm-test@example.com"
+printf 'seed\n' >"$DRIFT_REPO/README.md"
+git -C "$DRIFT_REPO" add README.md
+git -C "$DRIFT_REPO" commit -q -m "init"
+cp -R "$ROOT_DIR/skills" "$DRIFT_REPO/skills"
+python3 "$DRIFT_REPO/skills/pm/scripts/sync-claude-agents.py" >/dev/null
+printf 'obsolete\n' >"$DRIFT_REPO/.claude/agents/pm-obsolete.md"
+if drift_check_out="$(python3 "$DRIFT_REPO/skills/pm/scripts/sync-claude-agents.py" --check 2>&1)"; then
+  fail "claude agent drift check unexpectedly passed with an obsolete managed file present"
+fi
+assert_contains "$drift_check_out" 'CLAUDE_AGENT_DRIFT|status=unexpected|path=.claude/agents/pm-obsolete.md'
+python3 "$DRIFT_REPO/skills/pm/scripts/sync-claude-agents.py" >/dev/null
+[ ! -f "$DRIFT_REPO/.claude/agents/pm-obsolete.md" ] || fail "sync should remove obsolete managed Claude agent files"
+
 echo "[test-pm-command] case: active docs distinguish source and installed helper paths"
 helper_path_contracts="$(
   cat \
@@ -145,6 +173,7 @@ helper_path_contracts="$(
 assert_contains "$helper_path_contracts" './skills/pm/scripts/pm-command.sh'
 assert_contains "$helper_path_contracts" './.codex/skills/pm/scripts/pm-command.sh'
 assert_contains "$helper_path_contracts" './.claude/skills/pm/scripts/pm-command.sh'
+assert_contains "$helper_path_contracts" 'claude-code-mcp'
 
 echo "[test-pm-command] case: live PM contracts forbid degraded fallback after a blocked gate"
 live_contracts="$(

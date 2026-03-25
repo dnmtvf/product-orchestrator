@@ -9,6 +9,7 @@ This install mode copies repo-local runtime assets into the target repo. It does
 The managed runtime roots are:
 - `<repo>/.codex/skills/`
 - `<repo>/.claude/skills/`
+- generated Claude project agents under `<repo>/.claude/agents/`
 
 ## Prerequisites
 - Configure MCP servers first: `docs/MCP_PREREQUISITES.md`
@@ -21,6 +22,14 @@ The managed runtime roots are:
   - PM helper scripts:
     - `<repo>/.codex/skills/pm/scripts/pm-command.sh`
     - `<repo>/.claude/skills/pm/scripts/pm-command.sh`
+  - Claude wrapper scripts:
+    - `<repo>/.codex/skills/pm/scripts/claude-code-mcp`
+    - `<repo>/.claude/skills/pm/scripts/claude-code-mcp`
+  - Claude agent sync helpers:
+    - `<repo>/.codex/skills/pm/scripts/sync-claude-agents.py`
+    - `<repo>/.claude/skills/pm/scripts/sync-claude-agents.py`
+  - Generated Claude project agents:
+    - `<repo>/.claude/agents/pm-*.md`
 - Workflow file:
   - `<repo>/instructions/pm_workflow.md`
   - `<repo>/.config/opencode/instructions/pm_workflow.md`
@@ -29,6 +38,7 @@ The managed runtime roots are:
 - Submodule gives independent versioning/fetching/updating of orchestrator logic.
 - Copy mode avoids symlink limitations in some environments (including some container/workspace setups).
 - Tradeoff: after submodule updates, run sync again to refresh copied skill folders.
+- The installer re-runs the Claude agent sync helper so `.claude/agents/pm-*.md` stay aligned with the copied canonical prompt sources.
 
 ## One-time install
 From `product-orchestrator` repo:

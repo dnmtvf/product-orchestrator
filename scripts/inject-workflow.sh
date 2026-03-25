@@ -202,6 +202,24 @@ if [ "$COPY_WORKFLOW" -eq 1 ]; then
   install_workflow_file "$WORKFLOW_SRC" "$REPO_PATH/.config/opencode/instructions/pm_workflow.md" "opencode-pm_workflow.md"
 fi
 
+sync_claude_agents() {
+  local sync_script="$REPO_PATH/.codex/skills/pm/scripts/sync-claude-agents.py"
+
+  if [ ! -f "$sync_script" ]; then
+    err "Missing Claude agent sync script after install: $sync_script"
+  fi
+
+  if [ "$DRY_RUN" -eq 1 ]; then
+    echo "[dry-run] $sync_script"
+    return
+  fi
+
+  "$sync_script" >/dev/null
+  log "Synchronized Claude project agents: $REPO_PATH/.claude/agents"
+}
+
+sync_claude_agents
+
 SOURCE_COMMIT="unknown"
 SOURCE_REMOTE="unknown"
 SOURCE_DIRTY="unknown"
@@ -227,6 +245,7 @@ if [ "$DRY_RUN" -eq 0 ]; then
   "managed_skills": ["pm", "pm-discovery", "pm-create-prd", "pm-beads-plan", "pm-implement", "agent-browser"],
   "runtime_mode": "dual",
   "managed_runtime_roots": [".codex/skills", ".claude/skills"],
+  "managed_claude_agents_dir": ".claude/agents",
   "copied_workflow_file": $COPY_WORKFLOW
 }
 EOF
@@ -240,5 +259,5 @@ echo
 echo "Backups: $BACKUP_ROOT"
 echo "Next steps:"
 echo "  1) Review: git -C \"$REPO_PATH\" status"
-echo "  2) Commit copied skills/workflow/manifest"
+echo "  2) Commit copied skills/generated Claude agents/workflow/manifest"
 echo "  3) Restart Codex or Claude session in target repo"

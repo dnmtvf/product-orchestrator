@@ -1,0 +1,87 @@
+[
+  {
+    "role": "project_manager",
+    "agent_name": "pm-project-manager",
+    "prompt_path": "pm/references/project-manager.md"
+  },
+  {
+    "role": "team_lead",
+    "agent_name": "pm-team-lead",
+    "prompt_path": "pm-implement/references/team-lead.md"
+  },
+  {
+    "role": "pm_beads_plan_handoff",
+    "agent_name": "pm-beads-plan-handoff",
+    "prompt_path": "pm/references/pm-beads-plan-handoff.md"
+  },
+  {
+    "role": "pm_implement_handoff",
+    "agent_name": "pm-implement-handoff",
+    "prompt_path": "pm/references/pm-implement-handoff.md"
+  },
+  {
+    "role": "senior_engineer",
+    "agent_name": "pm-senior-engineer",
+    "prompt_path": "pm/references/senior-engineer.md"
+  },
+  {
+    "role": "librarian",
+    "agent_name": "pm-librarian",
+    "prompt_path": "pm/references/librarian.md"
+  },
+  {
+    "role": "smoke_test_planner",
+    "agent_name": "pm-smoke-test-planner",
+    "prompt_path": "pm/references/smoke-test-planner.md"
+  },
+  {
+    "role": "alternative_pm",
+    "agent_name": "pm-alternative-pm",
+    "prompt_path": "pm/references/alternative-pm.md"
+  },
+  {
+    "role": "researcher",
+    "agent_name": "pm-researcher",
+    "prompt_path": "pm/references/researcher.md"
+  },
+  {
+    "role": "backend_engineer",
+    "agent_name": "pm-backend-engineer",
+    "prompt_path": "pm-implement/references/backend-engineer.md"
+  },
+  {
+    "role": "frontend_engineer",
+    "agent_name": "pm-frontend-engineer",
+    "prompt_path": "pm-implement/references/frontend-engineer.md"
+  },
+  {
+    "role": "security_engineer",
+    "agent_name": "pm-security-engineer",
+    "prompt_path": "pm-implement/references/security-engineer.md"
+  },
+  {
+    "role": "agents_compliance_reviewer",
+    "agent_name": "pm-agents-compliance-reviewer",
+    "prompt_path": "pm-implement/references/agents-compliance.md"
+  },
+  {
+    "role": "jazz_reviewer",
+    "agent_name": "pm-jazz-reviewer",
+    "prompt_path": "pm-implement/references/jazz.md"
+  },
+  {
+    "role": "codex_reviewer",
+    "agent_name": "pm-codex-reviewer",
+    "prompt_path": "pm-implement/references/codex-reviewer.md"
+  },
+  {
+    "role": "manual_qa",
+    "agent_name": "pm-manual-qa",
+    "prompt_path": "pm-implement/references/manual-qa-smoke.md"
+  },
+  {
+    "role": "task_verification",
+    "agent_name": "pm-task-verification",
+    "prompt_path": "pm-implement/references/task-verification.md"
+  }
+]

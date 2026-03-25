@@ -67,7 +67,7 @@ This workflow is the source of truth for PM orchestration in this repo. Installe
 - PM must treat `[shell_environment_policy.set].PATH`, `[mcp_servers.claude-code.env].PATH`, or an absolute command path as valid ways to satisfy the executable-command requirement.
 - PM must treat the Claude runtime `PATH` (including wrapper scripts or absolute command paths) as valid ways to satisfy the `codex-worker` `codex` executability requirement.
 - `mcp__claude-code__Agent` / implicit `general-purpose` agent launching is not a valid PM orchestration path.
-- Use `codex mcp add claude-code -- claude mcp serve` only when the server is actually missing; if the launcher reports `no supported agent type` or the command is not executable in the PM runtime, treat Claude runtime as unavailable for that session.
+- If the server is actually missing, register the repo-owned `claude-code-mcp` wrapper command for the active runtime path; if the launcher reports `no supported agent type` or the command is not executable in the PM runtime, treat Claude runtime as unavailable for that session.
 - Use `claude mcp add codex-worker -- codex mcp-server` only when `codex-worker` is actually missing; if `codex-worker` is enabled but `codex` is not executable in the Claude runtime, treat `dynamic-cross-runtime` in Claude as unavailable for that session.
 - `/pm help` and `$pm help` print command invocations, required phase order, and approval-gate reminders.
 - `/pm execution-mode show|set|reset` and `$pm execution-mode show|set|reset` must route to:

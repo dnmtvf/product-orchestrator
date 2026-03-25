@@ -9,6 +9,7 @@ The injector copies repo-local runtime assets into the target repo. It does not 
 The managed runtime roots are:
 - `.codex/skills/`
 - `.claude/skills/`
+- generated Claude project agents under `.claude/agents/`
 
 ## Behavior with existing runtime folders
 The injector is safe for repos that already contain these folders:
@@ -66,6 +67,9 @@ To avoid replacing existing managed paths:
 - `.codex/skills/{pm,pm-discovery,pm-create-prd,pm-beads-plan,pm-implement,agent-browser}`
 - `.claude/skills/{pm,pm-discovery,pm-create-prd,pm-beads-plan,pm-implement,agent-browser}`
 - PM helper script is included under both `.codex/skills/pm/scripts/pm-command.sh` and `.claude/skills/pm/scripts/pm-command.sh`
+- Claude wrapper scripts are included under both `.codex/skills/pm/scripts/claude-code-mcp` and `.claude/skills/pm/scripts/claude-code-mcp`
+- Claude agent sync helper is included under both `.codex/skills/pm/scripts/sync-claude-agents.py` and `.claude/skills/pm/scripts/sync-claude-agents.py`
+- The injector runs the sync helper after copying skills so target `.claude/agents/pm-*.md` are materialized immediately
 - `instructions/pm_workflow.md`
 - `.config/opencode/instructions/pm_workflow.md`
 - `.orchestrator-injected.json` (metadata: source path, commit, timestamp)
@@ -80,4 +84,4 @@ Rollback:
 3. Restart the matching Codex or Claude session.
 
 ## Update model
-This mode is copy-based. After orchestrator changes, run injector again to refresh target repo.
+This mode is copy-based. After orchestrator changes, run injector again to refresh target repo; the injector will re-sync the managed `.claude/agents` files automatically.

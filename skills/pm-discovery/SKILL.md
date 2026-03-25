@@ -42,13 +42,13 @@ description: Strict PM Discovery Mode. Trigger on $pm-discovery for questions-on
 ## Claude MCP Contract (mandatory for external Claude agents)
 - Use Claude through MCP server `claude-code` (not direct CLI/app invocation).
 - Required environment setup (once):
-  - `codex mcp add claude-code -- claude mcp serve`
+  - register the repo-owned `claude-code-mcp` wrapper command for the active runtime path
 - `codex mcp list` only verifies that `claude-code` is configured/enabled; it does not prove the current environment exposes a usable Claude launcher.
 - Only use a `claude-code` MCP tool that explicitly provides prompt/session semantics in the current environment. `mcp__claude-code__Agent` with implicit `general-purpose` is not the Discovery contract.
 - If the launcher reports `Agent type 'general-purpose' not found`, `no supported agent type`, or equivalent, treat `claude-code` runtime as unavailable for that step.
 - Do not auto-fallback to `codex-native` inside Discovery. Treat this as a critical phase block and return control to PM.
 - Remediation split:
-  - server missing/not configured -> `codex mcp add claude-code -- claude mcp serve`
+  - server missing/not configured -> register the repo-owned `claude-code-mcp` wrapper command for the active runtime path
   - server enabled but launcher unusable -> report the launcher limitation, block Discovery, and do not loop on reinstall instructions
 - For Claude MCP agents, prompt must start with:
   - `use agent swarm for <objective>`

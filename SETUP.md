@@ -11,12 +11,16 @@ This repository is the source of truth for PM orchestration skills and workflow 
 - `skills/agent-browser`
 - `instructions/pm_workflow.md`
 - `skills/pm/scripts/pm-command.sh` (source-repo helper; installed copies land under `.codex/skills/pm/scripts/pm-command.sh` and `.claude/skills/pm/scripts/pm-command.sh`)
+- `skills/pm/scripts/claude-code-mcp` (repo-owned Claude MCP wrapper)
+- `skills/pm/scripts/sync-claude-agents.py` (deterministic `.claude/agents` sync)
+- generated project agents under `.claude/agents/pm-*.md`
 
 ## Runtime layout
 The installer and injector manage dual runtime copies in target repos:
 
 - `.codex/skills/...` for Codex sessions
 - `.claude/skills/...` for Claude sessions
+- `.claude/agents/pm-*.md` for Claude project-agent materialization
 
 Referencing a path from `AGENTS.md` is not enough to make `/skill` invocable. The skill must be discoverable from the runtime skill directory used by the active session.
 
@@ -47,4 +51,4 @@ See `docs/MCP_PREREQUISITES.md` for the full role-to-model table.
 - Script: `scripts/install-workflow.sh`
 
 ## Runtime reload
-After any install/update, restart the matching runtime session so skill indexes reload.
+After any install/update, restart the matching runtime session so skill indexes reload. To re-check the managed Claude agent layer directly, run `./skills/pm/scripts/sync-claude-agents.py --check` in the source repo or `./.codex/skills/pm/scripts/sync-claude-agents.py --check` in an installed target repo.

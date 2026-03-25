@@ -6,6 +6,8 @@ This document is the canonical routed-role map for the PM orchestrator.
 - Workflow source of truth: [instructions/pm_workflow.md](/Users/d/product-orchestrator/instructions/pm_workflow.md) and [.config/opencode/instructions/pm_workflow.md](/Users/d/product-orchestrator/.config/opencode/instructions/pm_workflow.md)
 - Prompt-source rule: every active routed role must have one canonical prompt source. If a phase wrapper duplicates or mirrors that prompt, the wrapper must point back to the canonical source instead of creating an independent contract.
 - Inspiration rule: `awesome-codex-subagents` is source material for role-contract patterns only. Its `.toml` agents are not runtime dependencies for this orchestrator.
+- Claude agent sync rule: PM role prompts stay canonical in the reference files below, `skills/pm/agents/claude-agent-map.json` is the internal role-to-Claude-agent mapping contract, and `skills/pm/scripts/sync-claude-agents.py` deterministically materializes `.claude/agents/*.md`.
+- Claude wrapper rule: `skills/pm/scripts/claude-code-mcp` auto-syncs `.claude/agents` before invoking `claude -p --agent <resolved-name>`, so the public PM launcher contract can remain generic while Claude uses repo-owned project agents internally.
 
 ## Role Map
 | Role | Canonical Prompt Source | Recommended Launcher | Primary Inspiration |

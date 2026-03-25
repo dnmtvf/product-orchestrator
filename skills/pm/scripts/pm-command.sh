@@ -2,6 +2,7 @@
 set -euo pipefail
 
 SCRIPT_NAME="$(basename "$0")"
+PM_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APPROVAL_TOKEN="approved"
 DEFAULT_CHANGELOG_URL="https://developers.openai.com/codex/changelog/"
 DEFAULT_RELEASE_URL="https://github.com/openai/codex/releases/latest"
@@ -27,7 +28,7 @@ CODEX_PINNED_MODEL="gpt-5.4"
 CODEX_PINNED_REASONING_EFFORT="xhigh"
 UNPINNED_MODEL_VALUE="<unpinned>"
 UNPINNED_REASONING_VALUE="<unpinned>"
-CLAUDE_MCP_INSTALL_COMMAND="codex mcp add claude-code -- claude mcp serve"
+CLAUDE_MCP_INSTALL_COMMAND="codex mcp add claude-code -- $PM_SCRIPT_DIR/claude-code-mcp"
 CLAUDE_MCP_REMEDIATION_MISSING="$CLAUDE_MCP_INSTALL_COMMAND"
 CLAUDE_MCP_LAST_REASON=""
 CLAUDE_MCP_LAST_REMEDIATION=""
@@ -195,7 +196,7 @@ global_claude_settings_file() {
 }
 
 script_dir() {
-  cd "$(dirname "${BASH_SOURCE[0]}")" && pwd
+  printf '%s' "$PM_SCRIPT_DIR"
 }
 
 internal_claude_wrapper_template_path() {

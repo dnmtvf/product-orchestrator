@@ -38,7 +38,12 @@ The workflow source of truth in this repo is:
 3. Required MCP servers are configured:
 
 ```bash
-codex mcp add claude-code -- claude mcp serve
+# Source repo or submodule checkout
+codex mcp add claude-code -- "$PWD/skills/pm/scripts/claude-code-mcp"
+
+# Installed target repo from Codex
+codex mcp add claude-code -- "$PWD/.codex/skills/pm/scripts/claude-code-mcp"
+
 codex mcp add context7 -- npx -y @upstash/context7-mcp
 codex mcp add firecrawl --env FIRECRAWL_API_KEY=YOUR_KEY -- npx -y firecrawl-mcp
 codex mcp add deepwiki --url https://mcp.deepwiki.com/mcp
@@ -96,9 +101,12 @@ git -C /path/to/target-repo submodule update --init --recursive .orchestrator
 
 - `.codex/skills/{pm,pm-discovery,pm-create-prd,pm-beads-plan,pm-implement,agent-browser}`
 - `.claude/skills/{pm,pm-discovery,pm-create-prd,pm-beads-plan,pm-implement,agent-browser}`
+- generated Claude project agents under `.claude/agents/pm-*.md`
 - `instructions/pm_workflow.md`
 - `.config/opencode/instructions/pm_workflow.md`
 - helper copies at `.codex/skills/pm/scripts/pm-command.sh` and `.claude/skills/pm/scripts/pm-command.sh`
+- Claude wrapper copies at `.codex/skills/pm/scripts/claude-code-mcp` and `.claude/skills/pm/scripts/claude-code-mcp`
+- Claude agent sync helper copies at `.codex/skills/pm/scripts/sync-claude-agents.py` and `.claude/skills/pm/scripts/sync-claude-agents.py`
 - Backup snapshots under `.orchestrator-backups/<timestamp>/`
 
 Injection mode also writes:
@@ -215,7 +223,7 @@ Selection precedence is explicit `--mode` override, then persisted execution-mod
 `Dynamic Cross-Runtime` on Claude checks `codex-worker` availability immediately and blocks with remediation to fix `codex-worker` or switch to `Main Runtime Only`.
 Claude availability requires both a healthy `codex mcp list` entry and an executable configured command in the PM runtime. That executability can come from an absolute `command`, from `[shell_environment_policy.set].PATH`, or from `[mcp_servers.claude-code.env].PATH`.
 `codex-worker` availability in Claude requires both a healthy `claude mcp list` entry and an executable `codex` command in the Claude runtime.
-Use `codex mcp add claude-code -- claude mcp serve` when the server is actually missing. If the server is enabled but the launcher is unusable, report that limitation, block the routed phase, and do not continue in degraded fallback.
+If the server is actually missing, register the repo-owned `claude-code-mcp` wrapper for the active runtime path (`./skills/pm/scripts/claude-code-mcp` in the source repo or `./.codex/skills/pm/scripts/claude-code-mcp` in an installed target repo). If the server is enabled but the launcher is unusable, report that limitation, block the routed phase, and do not continue in degraded fallback.
 Use `claude mcp add codex-worker -- codex mcp-server` when the Claude-side Codex runtime is actually missing. If `codex-worker` is enabled but `codex` is not executable in the Claude runtime, block before Discovery and fix that runtime instead of continuing.
 Telemetry helpers are available in PM command helper:
 - `./skills/pm/scripts/pm-command.sh telemetry init-db --dsn <postgres-dsn>`
@@ -229,6 +237,13 @@ Common commands:
 bd ready --parent <epic-id> --pretty
 bd list --parent <epic-id> --pretty
 bd graph <epic-id> --compact
+```
+
+Claude agent sync helpers:
+
+```bash
+./skills/pm/scripts/sync-claude-agents.py --check
+./scripts/test-claude-agent-mcp-smoke.py
 ```
 
 ## Troubleshooting

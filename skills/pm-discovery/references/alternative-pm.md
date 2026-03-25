@@ -15,7 +15,7 @@ Invocation model:
   - Do not use `mcp__claude-code__Agent` / implicit `general-purpose` agent launching as this role's Claude path.
 - Use Claude through MCP server `claude-code` (not direct CLI/app invocation).
 - Required environment setup (once):
-  - `codex mcp add claude-code -- claude mcp serve`
+  - register the repo-owned `claude-code-mcp` wrapper command for the active runtime path
 - `codex mcp list` only verifies that `claude-code` is configured/enabled; it does not prove the current runtime exposes a usable Claude launcher.
 - If the current runtime reports `Agent type 'general-purpose' not found`, `no supported agent type`, or equivalent, treat Claude as unavailable for this role, stop the Claude path, and return a blocking runtime error to PM instead of rerouting to codex-native.
 - Prompt must start with:

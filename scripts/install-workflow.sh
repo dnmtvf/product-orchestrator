@@ -173,10 +173,20 @@ else
   log "Warning: workflow source missing: $WORKFLOW_SRC"
 fi
 
+sync_claude_agents() {
+  local sync_script="$REPO_PATH/.codex/skills/pm/scripts/sync-claude-agents.py"
+
+  [ -f "$sync_script" ] || err "Missing Claude agent sync script after install: $sync_script"
+  "$sync_script" >/dev/null
+  log "Synchronized Claude project agents -> $REPO_PATH/.claude/agents"
+}
+
+sync_claude_agents
+
 log "Completed successfully"
 echo
 echo "Backups saved under: $BACKUP_ROOT"
 echo "Next steps:"
 echo "  1) Review changes: git -C \"$REPO_PATH\" status"
-echo "  2) Commit submodule + Codex skill files + workflow file"
+echo "  2) Commit submodule + runtime skill files + generated Claude agents + workflow file"
 echo "  3) Restart Codex or Claude session in that repo so skills are re-indexed"

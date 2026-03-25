@@ -27,7 +27,12 @@ Codex secondary-runtime policy for Claude outer-runtime sessions:
 ## Install commands (Codex CLI)
 
 ```bash
-codex mcp add claude-code -- claude mcp serve
+# Source repo or submodule checkout
+codex mcp add claude-code -- "$PWD/skills/pm/scripts/claude-code-mcp"
+
+# Installed target repo from Codex
+codex mcp add claude-code -- "$PWD/.codex/skills/pm/scripts/claude-code-mcp"
+
 codex mcp add context7 -- npx -y @upstash/context7-mcp
 codex mcp add firecrawl --env FIRECRAWL_API_KEY=YOUR_KEY -- npx -y firecrawl-mcp
 codex mcp add deepwiki --url https://mcp.deepwiki.com/mcp
@@ -48,8 +53,14 @@ For `claude-code`, also require a usable Claude launch path in the current runti
 - `firecrawl` requires `FIRECRAWL_API_KEY`.
 - `exa` may require org/account authorization depending your setup.
 - `claude-code` requires the configured `command` to be executable in the runtime that launches it.
+- The orchestrator-specific `claude-code` command is the repo-owned `claude-code-mcp` wrapper, not bare `claude mcp serve`.
 - That executability can come from an absolute command path, from `[shell_environment_policy.set].PATH`, or from `[mcp_servers.claude-code.env].PATH`.
 - If `claude-code` is enabled but PM still reports `no supported agent type`, the MCP server is present but the current runtime does not expose a usable Claude launcher for PM. In that case, block the Claude-dependent phase rather than repeating the install command.
+
+## Claude project agents
+- Repo-owned PM role prompts are deterministically synced into project Claude agents under `.claude/agents/pm-*.md`.
+- Source repo and installed target repos both use `skills/pm/scripts/sync-claude-agents.py` to materialize those files.
+- The `claude-code-mcp` wrapper refreshes those managed agent files before invoking `claude -p --agent <resolved-name>`.
 
 ## Optional but recommended MCP servers
 Not hard-required by PM contract, but commonly useful in real runs:
