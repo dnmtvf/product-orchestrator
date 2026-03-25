@@ -4,7 +4,7 @@
 
 set -euo pipefail
 
-MAIN_WORKSPACE="${MAIN_SKILLS_WORKSPACE:-/Users/d/conductor/workspaces/product-orchestrator/main}"
+MAIN_WORKSPACE="${MAIN_SKILLS_WORKSPACE:-/Users/d/product-orchestrator}"
 GLOBAL_SKILLS="${GLOBAL_SKILLS_DIR:-$HOME/.claude/skills}"
 
 usage() {
@@ -20,7 +20,7 @@ Options:
 
 The stable convention:
   - Global skills at ~/.claude/skills/ must point to main workspace
-  - Main workspace at ~/workspaces/product-orchestrator/main tracks main branch
+  - Main workspace at /Users/d/product-orchestrator tracks main branch
   - Only deviate when explicitly testing unstable versions
 
 Examples:

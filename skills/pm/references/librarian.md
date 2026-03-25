@@ -1,5 +1,5 @@
 # Librarian Agent Prompt
-**Model: Claude Code** (via Task tool, subagent_type: default)
+**Model: Claude-routed generic `default` subagent**
 
 Use this prompt for PM's external research sub-agent.
 

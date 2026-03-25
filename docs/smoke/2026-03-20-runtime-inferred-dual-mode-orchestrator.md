@@ -20,7 +20,8 @@ PM_LEAD_MODEL_FORCE_CODEX_MCP_AVAILABLE=1 \
 PM_PLAN_GATE_RUNTIME_OVERRIDE=none \
 ./skills/pm/scripts/pm-command.sh plan gate --route default
 
-diff -u instructions/pm_workflow.md .config/opencode/instructions/pm_workflow.md
+test -f instructions/pm_workflow.md
+test ! -f .config/opencode/instructions/pm_workflow.md
 ```
 
 ## Results
@@ -28,7 +29,7 @@ diff -u instructions/pm_workflow.md .config/opencode/instructions/pm_workflow.md
 - PASS | Codex outer runtime emits `RUNTIME_DETECTION`, `EXECUTION_MODE_GATE`, Codex-native main roles, and Claude MCP-routed support roles under `dynamic-cross-runtime`.
 - PASS | Claude outer runtime emits `RUNTIME_DETECTION`, `EXECUTION_MODE_GATE`, and keeps all roles Claude-native under `main-runtime-only`.
 - PASS | Explicit detection disable (`PM_PLAN_GATE_RUNTIME_OVERRIDE=none`) fails closed with `RUNTIME_DETECTION_ERROR` and `PLAN_ROUTE_BLOCKED`.
-- PASS | Workflow instruction copies remain synchronized after the contract update.
+- PASS | The single live workflow file contract is enforced after the contract update.
 
 ## Regression Checklist
 - [x] Top-level user selection is reduced to `Dynamic Cross-Runtime` and `Main Runtime Only`.

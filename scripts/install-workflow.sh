@@ -168,7 +168,6 @@ WORKFLOW_SRC="$REPO_PATH/$SUBMODULE_PATH/instructions/pm_workflow.md"
 
 if [ -f "$WORKFLOW_SRC" ]; then
   install_workflow_file "$WORKFLOW_SRC" "$REPO_PATH/instructions/pm_workflow.md"
-  install_workflow_file "$WORKFLOW_SRC" "$REPO_PATH/.config/opencode/instructions/pm_workflow.md"
 else
   log "Warning: workflow source missing: $WORKFLOW_SRC"
 fi

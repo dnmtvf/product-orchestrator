@@ -441,28 +441,6 @@ resolved_claude_reasoning_effort() {
   printf '%s' "$UNPINNED_REASONING_VALUE"
 }
 
-conductor_workspace_path() {
-  if [ -n "${PM_PLAN_GATE_WORKSPACE_PATH_OVERRIDE:-}" ]; then
-    printf '%s' "$PM_PLAN_GATE_WORKSPACE_PATH_OVERRIDE"
-    return 0
-  fi
-
-  repo_root
-}
-
-in_conductor_workspace() {
-  local workspace_path
-
-  workspace_path="$(conductor_workspace_path)"
-  case "$workspace_path" in
-    */conductor/workspaces/*)
-      return 0
-      ;;
-  esac
-
-  return 1
-}
-
 codex_runtime_detected() {
   [ -n "${CODEX_THREAD_ID:-}" ] || [ -n "${CODEX_INTERNAL_ORIGINATOR_OVERRIDE:-}" ]
 }
@@ -3741,7 +3719,7 @@ run_plan_gate() {
 
   gate_started_at="$(now_utc)"
   gate_start_ms="$(epoch_ms)"
-  workspace_path="$(conductor_workspace_path)"
+  workspace_path="$(repo_root)"
   gate_run_id="${PM_WORKFLOW_RUN_ID:-pm-plan-gate-$(date +%s)-$$}::${route:-pending}"
 
   while [ $# -gt 0 ]; do

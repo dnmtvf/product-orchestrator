@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 INJECTOR="$ROOT_DIR/scripts/inject-workflow.sh"
 INSTALLER="$ROOT_DIR/scripts/install-workflow.sh"
+USER_SKILL_INSTALLER="$ROOT_DIR/scripts/install-user-codex-skills.sh"
 
 fail() {
   echo "[test-runtime-layout] FAIL: $*" >&2
@@ -17,6 +18,11 @@ require_tool() {
 assert_file() {
   local path="$1"
   [ -f "$path" ] || fail "expected file to exist: $path"
+}
+
+assert_not_file() {
+  local path="$1"
+  [ ! -f "$path" ] || fail "expected file to not exist: $path"
 }
 
 make_repo() {
@@ -53,7 +59,7 @@ assert_file "$INJECT_TARGET/.claude/skills/pm/scripts/pm-command.sh"
 assert_file "$INJECT_TARGET/.codex/skills/pm/references/internal-claude-wrapper.md"
 assert_file "$INJECT_TARGET/.claude/skills/pm/references/internal-claude-wrapper.md"
 assert_file "$INJECT_TARGET/instructions/pm_workflow.md"
-assert_file "$INJECT_TARGET/.config/opencode/instructions/pm_workflow.md"
+assert_not_file "$INJECT_TARGET/.config/opencode/instructions/pm_workflow.md"
 jq -e '.runtime_mode == "dual"' "$INJECT_TARGET/.orchestrator-injected.json" >/dev/null || fail "inject manifest should record dual runtime mode"
 
 echo "[test-runtime-layout] case: installer sync-only installs dual-runtime layout"
@@ -71,6 +77,13 @@ assert_file "$INSTALL_TARGET/.claude/skills/pm/scripts/pm-command.sh"
 assert_file "$INSTALL_TARGET/.codex/skills/pm/references/internal-claude-wrapper.md"
 assert_file "$INSTALL_TARGET/.claude/skills/pm/references/internal-claude-wrapper.md"
 assert_file "$INSTALL_TARGET/instructions/pm_workflow.md"
-assert_file "$INSTALL_TARGET/.config/opencode/instructions/pm_workflow.md"
+assert_not_file "$INSTALL_TARGET/.config/opencode/instructions/pm_workflow.md"
+
+echo "[test-runtime-layout] case: user skill installer copies standalone Codex skills"
+USER_SKILL_TARGET="$TMPDIR/user-skill-target"
+"$USER_SKILL_INSTALLER" --dest "$USER_SKILL_TARGET" >/dev/null
+
+assert_file "$USER_SKILL_TARGET/librarian/SKILL.md"
+assert_file "$USER_SKILL_TARGET/researcher/SKILL.md"
 
 echo "[test-runtime-layout] PASS"

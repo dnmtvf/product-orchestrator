@@ -199,7 +199,6 @@ install_workflow_file() {
 if [ "$COPY_WORKFLOW" -eq 1 ]; then
   WORKFLOW_SRC="$SOURCE_ROOT/instructions/pm_workflow.md"
   install_workflow_file "$WORKFLOW_SRC" "$REPO_PATH/instructions/pm_workflow.md" "instructions-pm_workflow.md"
-  install_workflow_file "$WORKFLOW_SRC" "$REPO_PATH/.config/opencode/instructions/pm_workflow.md" "opencode-pm_workflow.md"
 fi
 
 SOURCE_COMMIT="unknown"

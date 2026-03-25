@@ -46,5 +46,19 @@ See `docs/MCP_PREREQUISITES.md` for the full role-to-model table.
 - See `docs/INSTALL_SUBMODULE_WORKFLOW.md`
 - Script: `scripts/install-workflow.sh`
 
+## Optional standalone user skills
+
+This repo also ships optional standalone Codex user skills for `librarian` and `researcher`.
+
+- Source templates live under `user-skills/`
+- User-level install target is `~/.codex/skills`
+- Install them with:
+
+```bash
+./scripts/install-user-codex-skills.sh
+```
+
+These standalone user skills are optional and are not part of the required PM runtime contract.
+
 ## Runtime reload
 After any install/update, restart the matching runtime session so skill indexes reload.

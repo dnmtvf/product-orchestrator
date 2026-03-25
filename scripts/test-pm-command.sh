@@ -124,10 +124,16 @@ assert_contains "$routing_contract" 'do not auto-fallback blocked routed-runtime
 assert_not_contains "$routing_contract" 'default_profile:'
 assert_not_contains "$routing_contract" 'lead_model_options:'
 
-echo "[test-pm-command] case: workflow instruction copies stay synchronized"
-if ! diff -u "$ROOT_DIR/instructions/pm_workflow.md" "$ROOT_DIR/.config/opencode/instructions/pm_workflow.md" >/dev/null; then
-  fail "workflow instruction files drifted; sync instructions/pm_workflow.md and .config/opencode/instructions/pm_workflow.md"
-fi
+echo "[test-pm-command] case: workflow docs use the single live workflow file contract"
+single_workflow_contracts="$(
+  cat \
+    "$ROOT_DIR/AGENTS.md" \
+    "$ROOT_DIR/README.md" \
+    "$ROOT_DIR/docs/INSTALL_INJECT_WORKFLOW.md" \
+    "$ROOT_DIR/docs/INSTALL_SUBMODULE_WORKFLOW.md" \
+    "$ROOT_DIR/instructions/pm_workflow.md"
+)"
+assert_not_contains "$single_workflow_contracts" '.config/opencode/instructions/pm_workflow.md'
 
 echo "[test-pm-command] case: active docs distinguish source and installed helper paths"
 helper_path_contracts="$(
@@ -138,13 +144,22 @@ helper_path_contracts="$(
     "$ROOT_DIR/docs/INSTALL_SUBMODULE_WORKFLOW.md" \
     "$ROOT_DIR/docs/MCP_PREREQUISITES.md" \
     "$ROOT_DIR/instructions/pm_workflow.md" \
-    "$ROOT_DIR/.config/opencode/instructions/pm_workflow.md" \
     "$ROOT_DIR/skills/pm/SKILL.md" \
     "$ROOT_DIR/skills/pm-implement/SKILL.md"
 )"
 assert_contains "$helper_path_contracts" './skills/pm/scripts/pm-command.sh'
 assert_contains "$helper_path_contracts" './.codex/skills/pm/scripts/pm-command.sh'
 assert_contains "$helper_path_contracts" './.claude/skills/pm/scripts/pm-command.sh'
+assert_not_contains "$helper_path_contracts" '.config/opencode/instructions/pm_workflow.md'
+
+echo "[test-pm-command] case: standalone Codex user skills are documented at the verified skills path"
+user_skill_contracts="$(
+  cat \
+    "$ROOT_DIR/README.md" \
+    "$ROOT_DIR/SETUP.md"
+)"
+assert_contains "$user_skill_contracts" '~/.codex/skills'
+assert_contains "$user_skill_contracts" 'install-user-codex-skills.sh'
 
 echo "[test-pm-command] case: live PM contracts forbid degraded fallback after a blocked gate"
 live_contracts="$(

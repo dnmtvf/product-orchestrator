@@ -12,7 +12,7 @@ It installs PM skills plus a workflow policy file into target repositories so fe
 The workflow source of truth in this repo is:
 
 - `instructions/pm_workflow.md`
-- copied into target repos as both `instructions/pm_workflow.md` and `.config/opencode/instructions/pm_workflow.md`
+- copied into target repos as `instructions/pm_workflow.md`
 
 ## What this repository contains
 
@@ -30,6 +30,9 @@ The workflow source of truth in this repo is:
   - `docs/MCP_PREREQUISITES.md`
   - `docs/INSTALL_INJECT_WORKFLOW.md`
   - `docs/INSTALL_SUBMODULE_WORKFLOW.md`
+- Optional standalone user-skill templates:
+  - `user-skills/librarian`
+  - `user-skills/researcher`
 
 ## Prerequisites
 
@@ -92,12 +95,32 @@ git -C /path/to/target-repo submodule update --init --recursive .orchestrator
   --sync-only
 ```
 
+## Optional standalone Codex user skills
+
+For standalone reuse outside `/pm`, this repository ships optional Codex user skills for `librarian` and `researcher`.
+
+- Verified user-level install surface in this environment: `~/.codex/skills`
+- These standalone skills are optional conveniences and are not required by the PM orchestrator
+- The PM public contract remains built-in generic subagent types plus role-labeled prompts
+
+Install them into your user-level Codex skills directory:
+
+```bash
+/Users/d/product-orchestrator/scripts/install-user-codex-skills.sh
+```
+
+Use `--dest` for a custom target or test fixture:
+
+```bash
+/Users/d/product-orchestrator/scripts/install-user-codex-skills.sh \
+  --dest /tmp/codex-user-skills
+```
+
 ## What gets installed into the target repo
 
 - `.codex/skills/{pm,pm-discovery,pm-create-prd,pm-beads-plan,pm-implement,agent-browser}`
 - `.claude/skills/{pm,pm-discovery,pm-create-prd,pm-beads-plan,pm-implement,agent-browser}`
 - `instructions/pm_workflow.md`
-- `.config/opencode/instructions/pm_workflow.md`
 - helper copies at `.codex/skills/pm/scripts/pm-command.sh` and `.claude/skills/pm/scripts/pm-command.sh`
 - Backup snapshots under `.orchestrator-backups/<timestamp>/`
 

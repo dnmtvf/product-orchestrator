@@ -1,6 +1,6 @@
 # PM Workflow (Strict)
 
-This workflow is the source of truth for PM orchestration in this repo. Installed target repos receive the same file at both `instructions/pm_workflow.md` and `.config/opencode/instructions/pm_workflow.md`.
+This workflow is the source of truth for PM orchestration in this repo. Installed target repos receive the same file at `instructions/pm_workflow.md`.
 
 ## Required Phase Order
 `Discovery -> PRD -> Awaiting PRD Approval -> Beads Planning -> Awaiting Beads Approval -> Team Lead Orchestration -> Implementation -> Post-Implementation Reviews -> Review Iteration -> Manual QA Smoke Tests -> Awaiting Final Review`

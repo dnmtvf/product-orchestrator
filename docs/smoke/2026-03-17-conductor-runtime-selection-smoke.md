@@ -1,16 +1,18 @@
-# Conductor Runtime Selection Smoke
+# Historical Conductor Runtime Selection Smoke
 
 Date: 2026-03-17
 
 ## Scope
 
-Smoke evidence for the approved Conductor-aware dual-runtime contract:
+Historical smoke evidence for an older Conductor-aware dual-runtime contract:
 
 - Conductor Codex sessions auto-select `codex-main`
 - Conductor Claude sessions auto-select `claude-main`
 - `codex-main` blocks with an explicit fallback offer when Claude is configured but not executable
 - `claude-main` blocks when `codex-worker` is configured but `codex` is not executable in the Claude runtime
-- install and inject flows create the dual-runtime helper layout used by both runtimes
+- install and inject flows created the dual-runtime helper layout used by both runtimes
+
+This document is retained for historical reference only and does not define the current PM contract.
 
 Helper path used for source-repo checks:
 

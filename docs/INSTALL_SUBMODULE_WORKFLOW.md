@@ -23,7 +23,6 @@ The managed runtime roots are:
     - `<repo>/.claude/skills/pm/scripts/pm-command.sh`
 - Workflow file:
   - `<repo>/instructions/pm_workflow.md`
-  - `<repo>/.config/opencode/instructions/pm_workflow.md`
 
 ## Why submodule + copy
 - Submodule gives independent versioning/fetching/updating of orchestrator logic.

@@ -1,5 +1,5 @@
 # Senior Engineer Agent Prompt
-**Model: gpt-5.3-codex (xhigh reasoning)** (via codex-worker MCP)
+**Model: Codex-native config-selected `model`**
 
 Use this prompt for PM's codebase expert sub-agent.
 

@@ -1,5 +1,5 @@
 # AGENTS Compliance Reviewer Prompt
-**Model: Claude Code** (via Task tool, subagent_type: default)
+**Model: Claude-routed generic `default` subagent**
 
 Use this prompt for the first post-implementation reviewer agent.
 

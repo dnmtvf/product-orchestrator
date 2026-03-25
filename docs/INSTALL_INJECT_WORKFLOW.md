@@ -67,7 +67,6 @@ To avoid replacing existing managed paths:
 - `.claude/skills/{pm,pm-discovery,pm-create-prd,pm-beads-plan,pm-implement,agent-browser}`
 - PM helper script is included under both `.codex/skills/pm/scripts/pm-command.sh` and `.claude/skills/pm/scripts/pm-command.sh`
 - `instructions/pm_workflow.md`
-- `.config/opencode/instructions/pm_workflow.md`
 - `.orchestrator-injected.json` (metadata: source path, commit, timestamp)
 
 ## Backups and rollback
