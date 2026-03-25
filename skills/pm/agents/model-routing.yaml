@@ -57,6 +57,8 @@ runtimes:
     availability_requirements:
       - claude-code MCP server registered and enabled
       - configured command executable in the actual Codex runtime
+      - repo-owned launcher contract in skills/pm/agents/claude-launcher-contract.json
+      - live launcher probe must complete initialize, tools/list, and Agent tools/call with the configured candidates
       - launcher failures such as no supported agent type must block the phase
     model_source:
       - ANTHROPIC_MODEL when set

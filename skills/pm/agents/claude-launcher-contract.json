@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "tool_name": "Agent",
+  "candidate_field": "subagent_type",
+  "launcher_candidates": [
+    "default",
+    "Plan",
+    "Explore"
+  ],
+  "probe": {
+    "description": "PM launcher probe",
+    "prompt_template": "You are validating the PM Claude launcher path. Return exactly this token and nothing else: {{token}}"
+  },
+  "remediation_hint": "Configure a valid Claude launcher candidate in this contract file or switch the PM run to Main Runtime Only."
+}

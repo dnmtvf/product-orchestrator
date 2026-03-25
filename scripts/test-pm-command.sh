@@ -146,6 +146,11 @@ assert_contains "$helper_path_contracts" './skills/pm/scripts/pm-command.sh'
 assert_contains "$helper_path_contracts" './.codex/skills/pm/scripts/pm-command.sh'
 assert_contains "$helper_path_contracts" './.claude/skills/pm/scripts/pm-command.sh'
 
+echo "[test-pm-command] case: Claude launcher contract is repo-owned and explicit"
+CLAUDE_LAUNCHER_CONTRACT="$ROOT_DIR/skills/pm/agents/claude-launcher-contract.json"
+[ -f "$CLAUDE_LAUNCHER_CONTRACT" ] || fail "missing Claude launcher contract file"
+jq -e '.schema_version == 1 and .tool_name == "Agent" and .candidate_field == "subagent_type" and .launcher_candidates == ["default","Plan","Explore"] and .probe.description == "PM launcher probe" and (.probe.prompt_template | contains("{{token}}"))' "$CLAUDE_LAUNCHER_CONTRACT" >/dev/null || fail "Claude launcher contract missing expected fields"
+
 echo "[test-pm-command] case: live PM contracts forbid degraded fallback after a blocked gate"
 live_contracts="$(
   cat \
@@ -220,6 +225,134 @@ if [ "${1:-}" = "mcp" ] && [ "${2:-}" = "list" ]; then
       exit "${FAKE_CLAUDE_MCP_EXIT_CODE:-42}"
       ;;
   esac
+fi
+if [ "${1:-}" = "mcp" ] && [ "${2:-}" = "serve" ]; then
+  python3 -c "$(cat <<'PY'
+import json
+import os
+import re
+import sys
+
+
+def send(payload):
+    sys.stdout.write(json.dumps(payload) + "\n")
+    sys.stdout.flush()
+
+
+mode = os.environ.get("FAKE_CLAUDE_MCP_SERVE_MODE", "success")
+supported = [
+    item.strip()
+    for item in os.environ.get("FAKE_CLAUDE_AGENT_SUPPORTED_TYPES", "Plan").split(",")
+    if item.strip()
+]
+
+for raw in sys.stdin:
+    raw = raw.strip()
+    if not raw:
+        continue
+    request = json.loads(raw)
+    method = request.get("method")
+    req_id = request.get("id")
+
+    if method == "initialize":
+      send(
+          {
+              "jsonrpc": "2.0",
+              "id": req_id,
+              "result": {
+                  "protocolVersion": "2025-03-26",
+                  "capabilities": {"tools": {}},
+                  "serverInfo": {"name": "claude/tengu", "version": "fake-test"},
+              },
+          }
+      )
+      continue
+
+    if method == "notifications/initialized":
+      continue
+
+    if method == "tools/list":
+      tools = []
+      if mode != "missing_agent":
+        tools.append(
+            {
+                "name": "Agent",
+                "description": "fake agent tool",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "description": {"type": "string"},
+                        "prompt": {"type": "string"},
+                        "subagent_type": {"type": "string"},
+                    },
+                    "required": ["description", "prompt"],
+                    "additionalProperties": False,
+                },
+            }
+        )
+      tools.append(
+          {
+              "name": "Bash",
+              "description": "fake bash tool",
+              "inputSchema": {
+                  "type": "object",
+                  "properties": {"command": {"type": "string"}},
+                  "required": ["command"],
+                  "additionalProperties": False,
+              },
+          }
+      )
+      send({"jsonrpc": "2.0", "id": req_id, "result": {"tools": tools}})
+      continue
+
+    if method == "tools/call":
+      params = request.get("params", {})
+      name = params.get("name")
+      arguments = params.get("arguments", {})
+      if name != "Agent":
+        send({"jsonrpc": "2.0", "id": req_id, "error": {"code": -32000, "message": f"Unsupported tool {name}"}})
+        continue
+
+      candidate = arguments.get("subagent_type", "")
+      prompt = arguments.get("prompt", "")
+      token_match = re.search(r":\s*(pm-claude-probe-[A-Za-z0-9]+)\s*$", prompt)
+      token = token_match.group(1) if token_match else "missing-token"
+
+      if mode == "unsupported_launcher" or candidate not in supported:
+        available = ", ".join(supported)
+        send(
+            {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "error": {
+                    "code": -32001,
+                    "message": f"Agent type '{candidate}' not found. Available agents: {available}",
+                },
+            }
+        )
+        continue
+
+      if mode == "token_mismatch":
+        text = "wrong-token"
+      else:
+        text = token
+
+      send(
+          {
+              "jsonrpc": "2.0",
+              "id": req_id,
+              "result": {
+                  "content": [{"type": "text", "text": text}],
+                  "isError": False,
+              },
+          }
+      )
+      continue
+
+    send({"jsonrpc": "2.0", "id": req_id, "error": {"code": -32601, "message": f"Unknown method {method}"}})
+PY
+)"
+  exit $?
 fi
 exit 0
 EOF
@@ -473,7 +606,7 @@ assert_not_contains "$self_check_happy_out" 'code=legacy_droid_worker_detected'
 [ -f "$SELF_CHECK_HAPPY_DIR/summary.json" ] || fail "self-check happy path did not write summary.json"
 [ -f "$SELF_CHECK_HAPPY_DIR/healer-context.json" ] || fail "self-check happy path did not write healer-context.json"
 [ -f "$SELF_CHECK_HAPPY_DIR/healer-prompt.md" ] || fail "self-check happy path did not write healer-prompt.md"
-jq -e '.status == "clean" and .fixture_case == "happy-path" and .execution_mode == "main-runtime-only" and .claude_health.registration == "passed" and .claude_health.executability == "passed" and .claude_health.session_usability == "passed" and .child_plan_gate.status == "ready" and .artifact_checks.codex_mcp_snapshot.status == "passed" and .artifact_checks.claude_mcp_snapshot.status == "passed" and (.artifact_checks.codex_mcp_snapshot.command_path | test("fake-codex-bin/codex$")) and .artifact_checks.codex_mcp_snapshot.timeout_seconds == 5 and .artifact_checks.claude_mcp_snapshot.command_source == "env:PM_LEAD_MODEL_CLAUDE_COMMAND_OVERRIDE" and .artifact_checks.claude_mcp_snapshot.timeout_seconds == 12 and .artifact_checks.claude_mcp_snapshot.command_env_overrides == "MCP_TIMEOUT=3000" and ([.events[] | select(.code == "legacy_droid_worker_detected")] | length) == 0' "$SELF_CHECK_HAPPY_DIR/summary.json" >/dev/null || fail "self-check happy path summary missing expected clean health or artifact fields"
+jq -e '.status == "clean" and .fixture_case == "happy-path" and .execution_mode == "main-runtime-only" and .claude_health.registration == "passed" and .claude_health.executability == "passed" and .claude_health.session_usability == "passed" and .claude_health.launcher_candidate == "Plan" and (.claude_health.launcher_contract_file | test("skills/pm/agents/claude-launcher-contract.json$")) and .child_plan_gate.status == "ready" and .artifact_checks.codex_mcp_snapshot.status == "passed" and .artifact_checks.claude_mcp_snapshot.status == "passed" and .artifact_checks.claude_launcher_probe.status == "passed" and .artifact_checks.claude_launcher_probe.selected_candidate == "Plan" and (.artifact_checks.codex_mcp_snapshot.command_path | test("fake-codex-bin/codex$")) and .artifact_checks.codex_mcp_snapshot.timeout_seconds == 5 and .artifact_checks.claude_mcp_snapshot.command_source == "env:PM_LEAD_MODEL_CLAUDE_COMMAND_OVERRIDE" and .artifact_checks.claude_mcp_snapshot.timeout_seconds == 12 and .artifact_checks.claude_mcp_snapshot.command_env_overrides == "MCP_TIMEOUT=3000" and ([.events[] | select(.code == "legacy_droid_worker_detected")] | length) == 0' "$SELF_CHECK_HAPPY_DIR/summary.json" >/dev/null || fail "self-check happy path summary missing expected clean health or artifact fields"
 
 SELF_CHECK_CLAUDE_BOUNDED_DIR="$TMPDIR/self-check-claude-bounded"
 echo "[test-pm-command] case: self-check keeps clean status when Claude snapshot is slow but completes within bounded timeout"
@@ -516,6 +649,25 @@ assert_contains "$self_check_legacy_droid_out" 'code=legacy_droid_worker_detecte
 jq -e '.status == "clean" and ([.events[] | select(.code == "legacy_droid_worker_detected")] | length) == 1' "$SELF_CHECK_LEGACY_DROID_DIR/summary.json" >/dev/null || fail "self-check legacy droid-worker summary missing expected cleanup event"
 rm -f "$LEGACY_DROID_CONFIG"
 
+SELF_CHECK_LAUNCHER_FAIL_DIR="$TMPDIR/self-check-launcher-fail"
+echo "[test-pm-command] case: self-check fails when delegated launcher probe cannot find a valid candidate"
+if self_check_launcher_fail_out="$(
+  PM_PLAN_GATE_RUNTIME_OVERRIDE=codex \
+  PM_LEAD_MODEL_CLAUDE_MCP_LIST_OVERRIDE='claude-code enabled' \
+  PM_LEAD_MODEL_CODEX_COMMAND_OVERRIDE="$FAKE_CODEX_BIN/codex" \
+  PM_LEAD_MODEL_CLAUDE_COMMAND_OVERRIDE="$FAKE_CLAUDE_BIN/claude" \
+  FAKE_CLAUDE_MCP_SERVE_MODE=unsupported_launcher \
+  "$HELPER" self-check run --fixture-case happy-path --artifacts-dir "$SELF_CHECK_LAUNCHER_FAIL_DIR" --mode dynamic-cross-runtime 2>&1
+)"; then
+  fail "self-check unexpectedly succeeded when the delegated launcher probe failed"
+fi
+assert_contains "$self_check_launcher_fail_out" 'SELF_CHECK_EVENT|'
+assert_contains "$self_check_launcher_fail_out" 'code=claude_code_mcp_launcher_unusable'
+assert_contains "$self_check_launcher_fail_out" 'SELF_CHECK_RESULT|status=failed|'
+assert_not_contains "$self_check_launcher_fail_out" 'PLAN_ROUTE_READY|route=default|selected_mode=dynamic-cross-runtime'
+[ -f "$SELF_CHECK_LAUNCHER_FAIL_DIR/summary.json" ] || fail "self-check launcher failure path did not write summary.json"
+jq -e '.status == "failed" and .execution_mode == "dynamic-cross-runtime" and .claude_health.registration == "passed" and .claude_health.executability == "passed" and .claude_health.session_usability == "failed" and .child_plan_gate.status == "not_started" and .artifact_checks.claude_launcher_probe.status == "failed" and .artifact_checks.claude_launcher_probe.reason == "claude_code_mcp_launcher_unusable" and (.artifact_checks.claude_launcher_probe.candidate_results | length) >= 1' "$SELF_CHECK_LAUNCHER_FAIL_DIR/summary.json" >/dev/null || fail "self-check launcher failure summary missing expected launcher probe evidence"
+
 SELF_CHECK_UNHEALTHY_DIR="$TMPDIR/self-check-unhealthy"
 echo "[test-pm-command] case: self-check fails whole run when Claude health checks fail"
 if self_check_unhealthy_out="$(
@@ -531,7 +683,7 @@ assert_contains "$self_check_unhealthy_out" 'code=claude_code_mcp_unavailable'
 assert_contains "$self_check_unhealthy_out" 'SELF_CHECK_RESULT|status=failed|'
 assert_not_contains "$self_check_unhealthy_out" 'SELF_CHECK_HEALER_READY|'
 [ -f "$SELF_CHECK_UNHEALTHY_DIR/summary.json" ] || fail "self-check unhealthy path did not write summary.json"
-jq -e '.status == "failed" and .claude_health.executability == "failed" and .claude_health.session_usability == "failed" and .child_plan_gate.status == "not_started" and .artifact_checks.claude_mcp_snapshot.primary_code == "snapshot_runtime_unavailable"' "$SELF_CHECK_UNHEALTHY_DIR/summary.json" >/dev/null || fail "self-check unhealthy summary missing expected failed health or artifact runtime-unavailable fields"
+jq -e '.status == "failed" and .claude_health.executability == "failed" and .claude_health.session_usability == "failed" and .child_plan_gate.status == "not_started" and .artifact_checks.claude_mcp_snapshot.primary_code == "snapshot_runtime_unavailable" and .artifact_checks.claude_launcher_probe == {}' "$SELF_CHECK_UNHEALTHY_DIR/summary.json" >/dev/null || fail "self-check unhealthy summary missing expected failed health or artifact runtime-unavailable fields"
 
 SELF_CHECK_ARTIFACT_HANG_DIR="$TMPDIR/self-check-artifact-hang"
 echo "[test-pm-command] case: self-check downgrades to issues_detected when Claude snapshot hangs after partial output"
@@ -549,7 +701,7 @@ assert_contains "$self_check_artifact_hang_out" 'issue_codes=snapshot_command_hu
 assert_contains "$self_check_artifact_hang_out" 'SELF_CHECK_RESULT|status=issues_detected|'
 assert_contains "$self_check_artifact_hang_out" 'SELF_CHECK_REPAIR_BUNDLE|path='
 assert_contains "$self_check_artifact_hang_out" 'SELF_CHECK_HEALER_READY|status=ready|'
-jq -e '.status == "issues_detected" and .claude_health.session_usability == "passed" and .artifact_checks.claude_mcp_snapshot.primary_code == "snapshot_command_hung" and .artifact_checks.claude_mcp_snapshot.timeout_seconds == 12 and .artifact_checks.claude_mcp_snapshot.command_env_overrides == "MCP_TIMEOUT=3000" and (.artifact_checks.claude_mcp_snapshot.issue_codes | index("snapshot_partial_output")) != null and .artifact_checks.claude_mcp_snapshot.partial_combined_output == "Checking MCP server health..."' "$SELF_CHECK_ARTIFACT_HANG_DIR/summary.json" >/dev/null || fail "self-check artifact hang summary missing expected hang classification"
+jq -e '.status == "issues_detected" and .claude_health.session_usability == "passed" and .artifact_checks.claude_mcp_snapshot.primary_code == "snapshot_command_hung" and .artifact_checks.claude_mcp_snapshot.timeout_seconds == 12 and .artifact_checks.claude_mcp_snapshot.command_env_overrides == "MCP_TIMEOUT=3000" and .artifact_checks.claude_launcher_probe.status == "passed" and (.artifact_checks.claude_mcp_snapshot.issue_codes | index("snapshot_partial_output")) != null and .artifact_checks.claude_mcp_snapshot.partial_combined_output == "Checking MCP server health..."' "$SELF_CHECK_ARTIFACT_HANG_DIR/summary.json" >/dev/null || fail "self-check artifact hang summary missing expected hang classification"
 
 SELF_CHECK_ARTIFACT_NONZERO_DIR="$TMPDIR/self-check-artifact-nonzero"
 echo "[test-pm-command] case: self-check downgrades to issues_detected when Claude snapshot exits nonzero"
@@ -738,6 +890,20 @@ blocked_codex_dynamic_out="$(cat "$blocked_codex_dynamic_file")"
 assert_contains "$blocked_codex_dynamic_out" 'PLAN_ROUTE_BLOCKED|route=default|selected_mode=dynamic-cross-runtime|selected_label=Dynamic Cross-Runtime|selection_source=explicit_override|outer_runtime=codex|reason=claude_code_mcp_command_not_executable'
 assert_contains "$blocked_codex_dynamic_out" 'next_action=fix_claude_mcp_or_switch_to_main_runtime_only|discovery_can_start=0'
 assert_not_contains "$blocked_codex_dynamic_out" 'PLAN_ROUTE_READY|'
+
+echo "[test-pm-command] case: dynamic cross-runtime blocks when the delegated launcher probe fails"
+blocked_codex_launcher_file="$TMPDIR/plan-gate-blocked-codex-launcher.out"
+if PM_PLAN_GATE_RUNTIME_OVERRIDE=codex \
+  PM_LEAD_MODEL_CLAUDE_MCP_LIST_OVERRIDE='claude-code enabled' \
+  PM_LEAD_MODEL_CLAUDE_COMMAND_OVERRIDE="$FAKE_CLAUDE_BIN/claude" \
+  FAKE_CLAUDE_MCP_SERVE_MODE=unsupported_launcher \
+  "$HELPER" plan gate --route default --mode dynamic-cross-runtime --state-file "$EXECUTION_MODE_STATE_FILE" >"$blocked_codex_launcher_file" 2>&1; then
+  fail "dynamic-cross-runtime unexpectedly proceeded when the delegated launcher probe failed"
+fi
+blocked_codex_launcher_out="$(cat "$blocked_codex_launcher_file")"
+assert_contains "$blocked_codex_launcher_out" 'PLAN_ROUTE_BLOCKED|route=default|selected_mode=dynamic-cross-runtime|selected_label=Dynamic Cross-Runtime|selection_source=explicit_override|outer_runtime=codex|reason=claude_code_mcp_launcher_unusable'
+assert_contains "$blocked_codex_launcher_out" 'next_action=fix_claude_mcp_or_switch_to_main_runtime_only|discovery_can_start=0'
+assert_not_contains "$blocked_codex_launcher_out" 'PLAN_ROUTE_READY|'
 
 echo "[test-pm-command] case: mcp_servers.claude-code.env PATH makes dynamic cross-runtime pass on Codex"
 write_codex_config "$HOME/.codex/config.toml" "gpt-global" "medium" "

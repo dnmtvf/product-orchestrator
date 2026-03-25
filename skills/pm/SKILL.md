@@ -196,7 +196,9 @@ description: Strict PM orchestration workflow for any repo. Trigger when user in
 - Required environment setup (once):
   - `codex mcp add claude-code -- claude mcp serve`
 - `codex mcp list` only verifies that `claude-code` is configured/enabled; it does not prove the current environment exposes a usable Claude launcher.
+- The repo-owned Claude launcher contract lives at `skills/pm/agents/claude-launcher-contract.json`.
 - Only use a `claude-code` MCP tool that explicitly provides prompt/session semantics in the current environment. `mcp__claude-code__Agent` with implicit `general-purpose` is not the PM contract.
+- Claude health for PM is proven only by a live `claude mcp serve` probe that completes MCP lifecycle and returns the exact deterministic token from one of the configured launcher candidates in `skills/pm/agents/claude-launcher-contract.json`.
 - If the launcher reports `Agent type 'general-purpose' not found`, `no supported agent type`, or equivalent, treat `claude-code` runtime as unavailable for the current phase.
 - Do not auto-fallback to the main runtime inside `dynamic-cross-runtime`. Surface a critical phase block and return control to PM.
 - Recovery split:

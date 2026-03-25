@@ -41,7 +41,9 @@ If any precondition fails:
 - Required environment setup (once):
   - `codex mcp add claude-code -- claude mcp serve`
 - `codex mcp list` only verifies that `claude-code` is configured/enabled; it does not prove the current environment exposes a usable Claude launcher.
+- The repo-owned Claude launcher contract lives at `skills/pm/agents/claude-launcher-contract.json`.
 - Only use a `claude-code` MCP tool that explicitly provides prompt/session semantics in the current environment. `mcp__claude-code__Agent` with implicit `general-purpose` is not the implementation contract.
+- Claude health for implementation/review is proven only by a live `claude mcp serve` probe that completes MCP lifecycle and returns the exact deterministic token from one of the configured launcher candidates in `skills/pm/agents/claude-launcher-contract.json`.
 - If the launcher reports `Agent type 'general-purpose' not found`, `no supported agent type`, or equivalent, treat `claude-code` runtime as unavailable for that step.
 - In that case, block the current phase and return control to PM/Team Lead.
 - Remediation split:

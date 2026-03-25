@@ -213,9 +213,13 @@ Selection precedence is explicit `--mode` override, then persisted execution-mod
 `Main Runtime Only` requires no opposite-provider MCP runtime.
 `Dynamic Cross-Runtime` on Codex checks Claude MCP availability immediately and blocks with remediation to fix `claude-code` or switch to `Main Runtime Only`.
 `Dynamic Cross-Runtime` on Claude checks `codex-worker` availability immediately and blocks with remediation to fix `codex-worker` or switch to `Main Runtime Only`.
-Claude availability requires both a healthy `codex mcp list` entry and an executable configured command in the PM runtime. That executability can come from an absolute `command`, from `[shell_environment_policy.set].PATH`, or from `[mcp_servers.claude-code.env].PATH`.
+Claude availability requires all of:
+- a healthy `codex mcp list` entry
+- an executable configured command in the PM runtime
+- a passing live launcher probe against the repo-owned contract in `skills/pm/agents/claude-launcher-contract.json`
+That executability can come from an absolute `command`, from `[shell_environment_policy.set].PATH`, or from `[mcp_servers.claude-code.env].PATH`.
 `codex-worker` availability in Claude requires both a healthy `claude mcp list` entry and an executable `codex` command in the Claude runtime.
-Use `codex mcp add claude-code -- claude mcp serve` when the server is actually missing. If the server is enabled but the launcher is unusable, report that limitation, block the routed phase, and do not continue in degraded fallback.
+Use `codex mcp add claude-code -- claude mcp serve` when the server is actually missing. If the server is enabled but the launcher is unusable, report that limitation, block the routed phase, and do not continue in degraded fallback. A launcher is only considered usable when `initialize`, `tools/list`, and a real `Agent` `tools/call` return the exact deterministic probe token for one of the configured candidates.
 Use `claude mcp add codex-worker -- codex mcp-server` when the Claude-side Codex runtime is actually missing. If `codex-worker` is enabled but `codex` is not executable in the Claude runtime, block before Discovery and fix that runtime instead of continuing.
 Telemetry helpers are available in PM command helper:
 - `./skills/pm/scripts/pm-command.sh telemetry init-db --dsn <postgres-dsn>`

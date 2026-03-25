@@ -36,6 +36,9 @@ CLAUDE_MCP_LAST_COMMAND=""
 CLAUDE_MCP_LAST_COMMAND_SOURCE=""
 CLAUDE_MCP_LAST_PATH_OVERRIDE=""
 CLAUDE_MCP_LAST_PATH_OVERRIDE_SOURCE=""
+CLAUDE_MCP_LAST_LAUNCHER_CANDIDATE=""
+CLAUDE_MCP_LAST_LAUNCHER_CONTRACT_PATH=""
+CLAUDE_MCP_LAST_LAUNCHER_RESULT_JSON=""
 CODEX_WORKER_MCP_INSTALL_COMMAND="claude mcp add codex-worker -- codex mcp-server"
 CODEX_WORKER_MCP_REMEDIATION_MISSING="$CODEX_WORKER_MCP_INSTALL_COMMAND"
 CODEX_WORKER_MCP_LAST_REASON=""
@@ -52,6 +55,7 @@ CODEX_RUNTIME_LAST_PATH_OVERRIDE_SOURCE=""
 CLAUDE_WRAPPER_RUNTIME="claude-code-mcp"
 CLAUDE_WRAPPER_TEMPLATE_RELATIVE_PATH="../references/internal-claude-wrapper.md"
 SELF_CHECK_HEALER_TEMPLATE_RELATIVE_PATH="../references/self-check-healer.md"
+CLAUDE_LAUNCHER_CONTRACT_RELATIVE_PATH="../agents/claude-launcher-contract.json"
 CLAUDE_WRAPPER_UNSUPPORTED_LAUNCHER_PATTERN="Agent type 'general-purpose' not found|no supported agent type|unsupported launcher"
 CLAUDE_CONTEXT_REQUEST_PREFIX="CONTEXT_REQUEST|"
 CLAUDE_CONTEXT_REQUIRED_FIELDS_CSV="feature_objective,prd_context,task_id,acceptance_criteria,implementation_status,changed_files,constraints,evidence,clarifying_instruction"
@@ -63,6 +67,7 @@ SELF_CHECK_PROBE_SUCCESS_RESPONSE="Synthetic self-check Claude probe complete."
 SELF_CHECK_CODEX_SNAPSHOT_TIMEOUT_SECONDS_DEFAULT=5
 SELF_CHECK_CLAUDE_SNAPSHOT_TIMEOUT_SECONDS_DEFAULT=12
 SELF_CHECK_CLAUDE_MCP_TIMEOUT_MS_DEFAULT=3000
+CLAUDE_MCP_LAUNCHER_TIMEOUT_MS_DEFAULT=8000
 LEGACY_CLAUDE_MCP_SERVER_DROID="droid-worker"
 TELEMETRY_TABLE_NAME="pm_step_events"
 TELEMETRY_RUNS_TABLE_NAME="pm_runtime_detection_runs"
@@ -208,6 +213,12 @@ internal_self_check_healer_template_path() {
   local base
   base="$(script_dir)"
   printf '%s/%s' "$base" "$SELF_CHECK_HEALER_TEMPLATE_RELATIVE_PATH"
+}
+
+internal_claude_launcher_contract_path() {
+  local base
+  base="$(script_dir)"
+  printf '%s/%s' "$base" "$CLAUDE_LAUNCHER_CONTRACT_RELATIVE_PATH"
 }
 
 display_path() {
@@ -1591,30 +1602,54 @@ self_check_write_probe_context() {
   local context_file="$1"
   local run_id="$2"
   local synthetic_task="$3"
+  local probe_token="$4"
+  local probe_prompt="$5"
+  local contract_path="$6"
+  local tool_name="$7"
+  local candidate_field="$8"
+  local launcher_candidates_json="${9:-[]}"
 
   mkdir -p "$(dirname "$context_file")"
-  cat >"$context_file" <<EOF
-{
-  "feature_objective": "Validate Claude session usability for PM self-check run ${run_id}",
-  "prd_context": "docs/prd/2026-03-17--pm-self-check-healer-mode.md#self-check",
-  "task_id": "${run_id}",
-  "acceptance_criteria": [
-    "Claude wrapper evaluation returns a usable result for the synthetic probe"
-  ],
-  "implementation_status": "Self-check preflight",
-  "changed_files": [
-    "skills/pm/scripts/pm-command.sh"
-  ],
-  "constraints": [
-    "Keep PM public launcher contract generic",
-    "Do not bypass approval gates"
-  ],
-  "evidence": {
-    "synthetic_task": "${synthetic_task}"
-  },
-  "clarifying_instruction": "${CLAUDE_CLARIFYING_INSTRUCTION}"
-}
-EOF
+  jq -n \
+    --arg feature_objective "Validate Claude delegated launcher usability for PM self-check run ${run_id}" \
+    --arg prd_context "docs/prd/2026-03-25--claude-mcp-launcher-health-and-contract-repair.md#acceptance-criteria" \
+    --arg task_id "$run_id" \
+    --arg implementation_status "Self-check preflight" \
+    --arg clarifying_instruction "$CLAUDE_CLARIFYING_INSTRUCTION" \
+    --arg synthetic_task "$synthetic_task" \
+    --arg probe_token "$probe_token" \
+    --arg probe_prompt "$probe_prompt" \
+    --arg contract_path "$contract_path" \
+    --arg tool_name "$tool_name" \
+    --arg candidate_field "$candidate_field" \
+    --argjson launcher_candidates "$launcher_candidates_json" \
+    '{
+      feature_objective: $feature_objective,
+      prd_context: $prd_context,
+      task_id: $task_id,
+      acceptance_criteria: [
+        "Claude launcher probe returns the exact expected deterministic token."
+      ],
+      implementation_status: $implementation_status,
+      changed_files: [
+        "skills/pm/scripts/pm-command.sh",
+        "skills/pm/agents/claude-launcher-contract.json"
+      ],
+      constraints: [
+        "Keep PM public launcher contract generic",
+        "Do not bypass approval gates"
+      ],
+      evidence: {
+        synthetic_task: $synthetic_task,
+        expected_token: $probe_token,
+        probe_prompt: $probe_prompt,
+        contract_path: $contract_path,
+        tool_name: $tool_name,
+        candidate_field: $candidate_field,
+        launcher_candidates: $launcher_candidates
+      },
+      clarifying_instruction: $clarifying_instruction
+    }' >"$context_file"
 }
 
 self_check_write_healer_prompt() {
@@ -1662,12 +1697,14 @@ self_check_write_summary() {
   local findings_file="${18}"
   local codex_attempt_file="${19:-}"
   local claude_attempt_file="${20:-}"
-  local events_json findings_json codex_attempt_json claude_attempt_json
+  local launcher_probe_file="${21:-}"
+  local events_json findings_json codex_attempt_json claude_attempt_json launcher_probe_json
 
   events_json="$(jq -s '.' "$events_file" 2>/dev/null || echo '[]')"
   findings_json="$(jq -s '.' "$findings_file" 2>/dev/null || echo '[]')"
   codex_attempt_json="$(jq -c '.' "$codex_attempt_file" 2>/dev/null || echo '{}')"
   claude_attempt_json="$(jq -c '.' "$claude_attempt_file" 2>/dev/null || echo '{}')"
+  launcher_probe_json="$(jq -c '.' "$launcher_probe_file" 2>/dev/null || echo '{}')"
 
   jq -n \
     --arg run_id "$run_id" \
@@ -1690,6 +1727,7 @@ self_check_write_summary() {
     --argjson findings "$findings_json" \
     --argjson codex_attempt "$codex_attempt_json" \
     --argjson claude_attempt "$claude_attempt_json" \
+    --argjson launcher_probe "$launcher_probe_json" \
     '{
       run_id: $run_id,
       fixture_suite_version: $fixture_suite_version,
@@ -1703,7 +1741,9 @@ self_check_write_summary() {
       claude_health: {
         registration: $registration_status,
         executability: $executability_status,
-        session_usability: $session_status
+        session_usability: $session_status,
+        launcher_candidate: ($launcher_probe.selected_candidate // ""),
+        launcher_contract_file: ($launcher_probe.contract_path // "")
       },
       child_plan_gate: {
         status: $plan_gate_status,
@@ -1711,7 +1751,8 @@ self_check_write_summary() {
       },
       artifact_checks: {
         codex_mcp_snapshot: $codex_attempt,
-        claude_mcp_snapshot: $claude_attempt
+        claude_mcp_snapshot: $claude_attempt,
+        claude_launcher_probe: $launcher_probe
       },
       healer_prompt_file: $prompt_file,
       healer_context_file: $context_file,
@@ -1737,7 +1778,7 @@ run_self_check_run() {
   local codex_snapshot_file codex_snapshot_stdout_file codex_snapshot_stderr_file codex_snapshot_attempt_file
   local claude_snapshot_file claude_snapshot_stdout_file claude_snapshot_stderr_file claude_snapshot_attempt_file
   local plan_gate_output_file
-  local session_probe_context_file session_probe_response_file session_probe_eval_file
+  local session_probe_context_file session_probe_result_file
   local run_id synthetic_task failure_mode expected_status started_at completed_at
   local registration_status="failed" executability_status="failed" session_status="failed"
   local plan_gate_status="not_started"
@@ -1746,12 +1787,14 @@ run_self_check_run() {
   local finding_count=0 critical_count=0
   local plan_gate_out="" plan_gate_rc=0 blocked_line="" blocked_reason="" blocked_detail="" blocked_remediation=""
   local template_path healer_prompt_file healer_context_file
-  local probe_output probe_eval_out probe_eval_rc=0
+  local probe_eval_out="" probe_eval_rc=0
+  local probe_result_json="" probe_rc=0
   local codex_snapshot_command="" codex_snapshot_command_source="" codex_snapshot_path_override_source=""
   local claude_snapshot_command="" claude_snapshot_command_source="" claude_snapshot_path_override_source=""
   local codex_snapshot_timeout_seconds="" claude_snapshot_timeout_seconds="" claude_mcp_timeout_ms=""
   local claude_command_env_overrides="" legacy_droid_worker_config=""
   local artifact_status="passed" artifact_metadata_json=""
+  local session_probe_token="" session_probe_prompt="" session_probe_contract_path="" session_probe_tool_name="" session_probe_candidate_field="" session_probe_candidates_json="[]"
 
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -1818,8 +1861,7 @@ run_self_check_run() {
   claude_snapshot_attempt_file="$artifacts_dir/claude-mcp-list.attempt.json"
   plan_gate_output_file="$artifacts_dir/child-plan-gate.txt"
   session_probe_context_file="$artifacts_dir/claude-session-probe-context.json"
-  session_probe_response_file="$artifacts_dir/claude-session-probe-response.txt"
-  session_probe_eval_file="$artifacts_dir/claude-session-probe-eval.txt"
+  session_probe_result_file="$artifacts_dir/claude-session-probe-result.json"
   healer_prompt_file="${prompt_file:-$artifacts_dir/healer-prompt.md}"
   healer_context_file="${context_file:-$artifacts_dir/healer-context.json}"
 
@@ -1931,31 +1973,40 @@ run_self_check_run() {
   fi
 
   if [ "$final_status" != "failed" ]; then
-    self_check_write_probe_context "$session_probe_context_file" "$run_id" "$synthetic_task"
-    probe_output="${PM_SELF_CHECK_CLAUDE_SESSION_PROBE_OUTPUT:-$SELF_CHECK_PROBE_SUCCESS_RESPONSE}"
-    printf '%s\n' "$probe_output" >"$session_probe_response_file"
+    session_probe_token="$(claude_mcp_probe_token "${run_id}|${synthetic_task}")"
+    session_probe_prompt="$(claude_launcher_contract_prompt_for_token "$session_probe_token" || true)"
+    session_probe_contract_path="$(claude_launcher_contract_display_path || true)"
+    session_probe_tool_name="$(claude_launcher_contract_tool_name || printf 'Agent')"
+    session_probe_candidate_field="$(claude_launcher_contract_candidate_field || printf 'subagent_type')"
+    session_probe_candidates_json="$(claude_launcher_candidates_json 2>/dev/null || printf '[]')"
+    self_check_write_probe_context \
+      "$session_probe_context_file" \
+      "$run_id" \
+      "$synthetic_task" \
+      "$session_probe_token" \
+      "$session_probe_prompt" \
+      "$session_probe_contract_path" \
+      "$session_probe_tool_name" \
+      "$session_probe_candidate_field" \
+      "$session_probe_candidates_json"
 
-    if probe_eval_out="$(run_claude_wrapper_evaluate --context-file "$session_probe_context_file" --response-file "$session_probe_response_file" --session-id "${run_id}-claude-probe" --role self_check_probe 2>&1)"; then
-      probe_eval_rc=0
+    if probe_result_json="$(run_claude_mcp_launcher_probe --probe-id "${run_id}-claude-probe")"; then
+      probe_rc=0
     else
-      probe_eval_rc=$?
+      probe_rc=$?
     fi
-    printf '%s\n' "$probe_eval_out" >"$session_probe_eval_file"
-    while IFS= read -r line || [ -n "$line" ]; do
-      [ -n "$line" ] || continue
-      self_check_emit_line "$console_log_file" "$line"
-    done <<<"$probe_eval_out"
-    self_check_emit_line "$console_log_file" "SELF_CHECK_ARTIFACT|kind=claude_session_probe_eval|path=$(display_path "$session_probe_eval_file")"
+    printf '%s\n' "$probe_result_json" >"$session_probe_result_file"
+    self_check_emit_line "$console_log_file" "SELF_CHECK_ARTIFACT|kind=claude_session_probe_result|path=$(display_path "$session_probe_result_file")"
 
-    if [ "$probe_eval_rc" -ne 0 ]; then
-      summary_reason="claude_session_unusable"
-      summary_detail="$(sanitize_single_line "$(grep -Eim1 'CLAUDE_WRAPPER_RESULT\|' "$session_probe_eval_file" || printf 'Claude session probe failed.')")"
-      summary_remediation="Fix the Claude invocation/session path and rerun PM self-check."
-      self_check_record_event "$console_log_file" "$events_file" "$findings_file" "$run_id" "health" "claude_session" "critical" "failed" "$summary_reason" "$summary_detail" "$summary_remediation" "$(display_path "$session_probe_eval_file")"
+    if [ "$probe_rc" -ne 0 ] || ! printf '%s' "$probe_result_json" | jq -e '.status == "passed"' >/dev/null 2>&1; then
+      summary_reason="$(printf '%s' "$probe_result_json" | jq -r '.reason // "claude_session_unusable"' 2>/dev/null || printf 'claude_session_unusable')"
+      summary_detail="$(printf '%s' "$probe_result_json" | jq -r '.detail // "Claude delegated launcher probe failed."' 2>/dev/null || printf 'Claude delegated launcher probe failed.')"
+      summary_remediation="$(printf '%s' "$probe_result_json" | jq -r '.remediation // "Fix the Claude delegated launcher path and rerun PM self-check."' 2>/dev/null || printf 'Fix the Claude delegated launcher path and rerun PM self-check.')"
+      self_check_record_event "$console_log_file" "$events_file" "$findings_file" "$run_id" "health" "claude_session" "critical" "failed" "$summary_reason" "$summary_detail" "$summary_remediation" "$(display_path "$session_probe_result_file")" "$(printf '%s' "$probe_result_json" | jq -c . 2>/dev/null || printf '{}')"
       final_status="failed"
     else
       session_status="passed"
-      self_check_record_event "$console_log_file" "$events_file" "$findings_file" "$run_id" "health" "claude_session" "info" "passed" "claude_session_usable" "Claude session probe completed successfully." "" "$(display_path "$session_probe_eval_file")"
+      self_check_record_event "$console_log_file" "$events_file" "$findings_file" "$run_id" "health" "claude_session" "info" "passed" "claude_session_usable" "Claude delegated launcher probe completed successfully." "" "$(display_path "$session_probe_result_file")" "$(printf '%s' "$probe_result_json" | jq -c . 2>/dev/null || printf '{}')"
     fi
   fi
 
@@ -2060,9 +2111,11 @@ run_self_check_run() {
     artifact_metadata_json="$(jq -n \
       --slurpfile codex "$codex_snapshot_attempt_file" \
       --slurpfile claude "$claude_snapshot_attempt_file" \
+      --slurpfile launcher "$session_probe_result_file" \
       '{
         codex_mcp_snapshot: ($codex[0] // {}),
-        claude_mcp_snapshot: ($claude[0] // {})
+        claude_mcp_snapshot: ($claude[0] // {}),
+        claude_launcher_probe: ($launcher[0] // {})
       }')"
     mkdir -p "$(dirname "$healer_context_file")"
     jq -n \
@@ -2091,7 +2144,7 @@ run_self_check_run() {
 
     template_path="$(internal_self_check_healer_template_path)"
     [ -f "$template_path" ] || die "Self-check healer template not found: $template_path"
-    self_check_write_summary "$summary_file" "$run_id" "$fixture_case" "$execution_mode" "$artifacts_dir" "$synthetic_task" "$final_status" "$started_at" "$completed_at" "$registration_status" "$executability_status" "$session_status" "$plan_gate_status" "$plan_gate_output_file" "$healer_prompt_file" "$healer_context_file" "$events_file" "$findings_file" "$codex_snapshot_attempt_file" "$claude_snapshot_attempt_file"
+    self_check_write_summary "$summary_file" "$run_id" "$fixture_case" "$execution_mode" "$artifacts_dir" "$synthetic_task" "$final_status" "$started_at" "$completed_at" "$registration_status" "$executability_status" "$session_status" "$plan_gate_status" "$plan_gate_output_file" "$healer_prompt_file" "$healer_context_file" "$events_file" "$findings_file" "$codex_snapshot_attempt_file" "$claude_snapshot_attempt_file" "$session_probe_result_file"
     self_check_write_healer_prompt "$template_path" "$healer_prompt_file" "$run_id" "$fixture_case" "$synthetic_task" "$summary_file" "$healer_context_file"
     self_check_emit_line "$console_log_file" "SELF_CHECK_ARTIFACT|kind=summary|path=$(display_path "$summary_file")"
     self_check_emit_line "$console_log_file" "SELF_CHECK_ARTIFACT|kind=healer_context|path=$(display_path "$healer_context_file")"
@@ -2100,7 +2153,7 @@ run_self_check_run() {
       self_check_emit_line "$console_log_file" "SELF_CHECK_REPAIR_BUNDLE|path=$(display_path "$healer_context_file")|next_action=spawn_outer_healer"
     fi
   else
-    self_check_write_summary "$summary_file" "$run_id" "$fixture_case" "$execution_mode" "$artifacts_dir" "$synthetic_task" "$final_status" "$started_at" "$completed_at" "$registration_status" "$executability_status" "$session_status" "$plan_gate_status" "$plan_gate_output_file" "" "" "$events_file" "$findings_file" "$codex_snapshot_attempt_file" "$claude_snapshot_attempt_file"
+    self_check_write_summary "$summary_file" "$run_id" "$fixture_case" "$execution_mode" "$artifacts_dir" "$synthetic_task" "$final_status" "$started_at" "$completed_at" "$registration_status" "$executability_status" "$session_status" "$plan_gate_status" "$plan_gate_output_file" "" "" "$events_file" "$findings_file" "$codex_snapshot_attempt_file" "$claude_snapshot_attempt_file" "$session_probe_result_file"
     self_check_emit_line "$console_log_file" "SELF_CHECK_ARTIFACT|kind=summary|path=$(display_path "$summary_file")"
   fi
 
@@ -2495,6 +2548,549 @@ resolve_runtime_executable() {
 	      fi
 	      ;;
 	  esac
+}
+
+python_runtime_command() {
+  if command -v python3 >/dev/null 2>&1; then
+    command -v python3
+    return 0
+  fi
+  if command -v python >/dev/null 2>&1; then
+    command -v python
+    return 0
+  fi
+  return 1
+}
+
+claude_launcher_contract_json() {
+  local override_json contract_file
+
+  override_json="${PM_LEAD_MODEL_CLAUDE_LAUNCHER_CONTRACT_JSON:-}"
+  if [ -n "$override_json" ]; then
+    printf '%s' "$override_json" | jq -ce . || return 1
+    return 0
+  fi
+
+  contract_file="${PM_LEAD_MODEL_CLAUDE_LAUNCHER_CONTRACT_FILE:-$(internal_claude_launcher_contract_path)}"
+  [ -f "$contract_file" ] || return 1
+  jq -ce . "$contract_file"
+}
+
+claude_launcher_contract_display_path() {
+  local contract_file contract_dir
+
+  if [ -n "${PM_LEAD_MODEL_CLAUDE_LAUNCHER_CONTRACT_JSON:-}" ]; then
+    printf '%s' 'env:PM_LEAD_MODEL_CLAUDE_LAUNCHER_CONTRACT_JSON'
+    return 0
+  fi
+
+  contract_file="${PM_LEAD_MODEL_CLAUDE_LAUNCHER_CONTRACT_FILE:-$(internal_claude_launcher_contract_path)}"
+  contract_dir="$(cd "$(dirname "$contract_file")" 2>/dev/null && pwd -P)" || contract_dir=""
+  if [ -n "$contract_dir" ]; then
+    contract_file="$contract_dir/$(basename "$contract_file")"
+  fi
+  printf '%s' "$(display_path "$contract_file")"
+}
+
+claude_launcher_candidates_json() {
+  local override_json contract_json
+
+  override_json="${PM_LEAD_MODEL_CLAUDE_LAUNCHER_CANDIDATES_JSON:-}"
+  if [ -n "$override_json" ]; then
+    printf '%s' "$override_json" | jq -ce 'if type == "array" and all(.[]; type == "string" and length > 0) then . else error("launcher_candidates must be a JSON array of non-empty strings") end'
+    return 0
+  fi
+
+  contract_json="$(claude_launcher_contract_json)" || return 1
+  printf '%s' "$contract_json" | jq -ce 'if (.launcher_candidates // null) == null then error("launcher_candidates missing") elif (.launcher_candidates | type) != "array" then error("launcher_candidates must be an array") elif (.launcher_candidates | all(.[]; type == "string" and length > 0)) then .launcher_candidates else error("launcher_candidates entries must be non-empty strings") end'
+}
+
+claude_launcher_contract_tool_name() {
+  local contract_json
+  contract_json="$(claude_launcher_contract_json)" || return 1
+  printf '%s' "$contract_json" | jq -r '.tool_name // "Agent"'
+}
+
+claude_launcher_contract_candidate_field() {
+  local contract_json
+  contract_json="$(claude_launcher_contract_json)" || return 1
+  printf '%s' "$contract_json" | jq -r '.candidate_field // "subagent_type"'
+}
+
+claude_launcher_contract_probe_description() {
+  local contract_json
+  contract_json="$(claude_launcher_contract_json)" || return 1
+  printf '%s' "$contract_json" | jq -r '.probe.description // "PM launcher probe"'
+}
+
+claude_launcher_contract_prompt_for_token() {
+  local token="$1"
+  local contract_json prompt_template
+
+  contract_json="$(claude_launcher_contract_json)" || return 1
+  prompt_template="$(printf '%s' "$contract_json" | jq -r '.probe.prompt_template // "Return exactly this token and nothing else: {{token}}"' )"
+  printf '%s' "${prompt_template//'{{token}}'/$token}"
+}
+
+claude_launcher_contract_remediation_hint() {
+  local contract_json contract_path
+  contract_json="$(claude_launcher_contract_json)" || return 1
+  contract_path="$(claude_launcher_contract_display_path)"
+  printf '%s' "$contract_json" | jq -r --arg contract_path "$contract_path" '.remediation_hint // ("Configure a valid Claude launcher candidate in " + $contract_path + " or switch to Main Runtime Only.")'
+}
+
+claude_mcp_launcher_timeout_ms() {
+  local configured="${PM_LEAD_MODEL_CLAUDE_LAUNCHER_TIMEOUT_MS:-$CLAUDE_MCP_LAUNCHER_TIMEOUT_MS_DEFAULT}"
+  if [[ "$configured" =~ ^[0-9]+$ ]] && [ "$configured" -ge 1000 ]; then
+    printf '%s' "$configured"
+    return 0
+  fi
+  printf '%s' "$CLAUDE_MCP_LAUNCHER_TIMEOUT_MS_DEFAULT"
+}
+
+claude_mcp_probe_token() {
+  local seed="$1"
+  local digest
+  digest="$(hash_string "$seed")"
+  printf 'pm-claude-probe-%s' "${digest:0:16}"
+}
+
+run_claude_mcp_launcher_probe() {
+  local probe_id="pm-claude-probe"
+  local python_bin command_path path_override timeout_ms
+  local contract_path contract_json candidates_json tool_name candidate_field
+  local description prompt token result_json
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --probe-id)
+        probe_id="${2:-}"
+        shift 2
+        ;;
+      -h|--help)
+        usage
+        exit 0
+        ;;
+      *)
+        die "Unknown Claude launcher probe argument: $1"
+        ;;
+    esac
+  done
+
+  if ! python_bin="$(python_runtime_command)"; then
+    jq -nc \
+      --arg reason "claude_code_mcp_probe_python_missing" \
+      --arg detail "Python is required for the Claude MCP launcher probe." \
+      --arg remediation "Install python3 in the PM runtime or switch the PM run to Main Runtime Only." \
+      '{status:"failed", reason:$reason, detail:$detail, remediation:$remediation, candidate_results:[]}'
+    return 0
+  fi
+  command_path="${CLAUDE_MCP_LAST_COMMAND:-}"
+  if [ -z "$command_path" ]; then
+    command_path="$(claude_mcp_resolved_command || true)"
+  fi
+  if [ -z "$command_path" ]; then
+    jq -nc \
+      --arg reason "claude_code_mcp_command_not_executable" \
+      --arg detail "Claude command is not executable for launcher probing." \
+      --arg remediation "${CLAUDE_MCP_LAST_REMEDIATION:-$CLAUDE_MCP_REMEDIATION_MISSING}" \
+      '{status:"failed", reason:$reason, detail:$detail, remediation:$remediation, candidate_results:[]}'
+    return 0
+  fi
+  path_override="${CLAUDE_MCP_LAST_PATH_OVERRIDE:-}"
+  timeout_ms="$(claude_mcp_launcher_timeout_ms)"
+  contract_path="$(claude_launcher_contract_display_path)"
+  if ! contract_json="$(claude_launcher_contract_json)"; then
+    jq -nc \
+      --arg reason "invalid_launcher_contract" \
+      --arg detail "Claude launcher contract is invalid or missing." \
+      --arg remediation "Repair the Claude launcher contract file and rerun the PM gate/self-check." \
+      --arg contract_path "$contract_path" \
+      '{status:"failed", reason:$reason, detail:$detail, remediation:$remediation, contract_path:$contract_path, candidate_results:[]}'
+    return 0
+  fi
+  if ! candidates_json="$(claude_launcher_candidates_json)"; then
+    jq -nc \
+      --arg reason "invalid_launcher_contract" \
+      --arg detail "Claude launcher candidates are invalid." \
+      --arg remediation "Repair launcher_candidates in the Claude launcher contract and rerun the PM gate/self-check." \
+      --arg contract_path "$contract_path" \
+      '{status:"failed", reason:$reason, detail:$detail, remediation:$remediation, contract_path:$contract_path, candidate_results:[]}'
+    return 0
+  fi
+  tool_name="$(claude_launcher_contract_tool_name || printf 'Agent')"
+  candidate_field="$(claude_launcher_contract_candidate_field || printf 'subagent_type')"
+  description="$(claude_launcher_contract_probe_description || printf 'PM launcher probe')"
+  token="$(claude_mcp_probe_token "$probe_id")"
+  if ! prompt="$(claude_launcher_contract_prompt_for_token "$token")"; then
+    jq -nc \
+      --arg reason "invalid_launcher_contract" \
+      --arg detail "Claude launcher contract is missing a valid probe prompt template." \
+      --arg remediation "Repair probe.prompt_template in the Claude launcher contract and rerun the PM gate/self-check." \
+      --arg contract_path "$contract_path" \
+      '{status:"failed", reason:$reason, detail:$detail, remediation:$remediation, contract_path:$contract_path, candidate_results:[]}'
+    return 0
+  fi
+
+  result_json="$(
+    CLAUDE_PM_PROBE_COMMAND="$command_path" \
+    CLAUDE_PM_PROBE_PATH_OVERRIDE="$path_override" \
+    CLAUDE_PM_PROBE_TIMEOUT_MS="$timeout_ms" \
+    CLAUDE_PM_PROBE_CONTRACT_PATH="$contract_path" \
+    CLAUDE_PM_PROBE_TOOL_NAME="$tool_name" \
+    CLAUDE_PM_PROBE_CANDIDATE_FIELD="$candidate_field" \
+    CLAUDE_PM_PROBE_CANDIDATES_JSON="$candidates_json" \
+    CLAUDE_PM_PROBE_DESCRIPTION="$description" \
+    CLAUDE_PM_PROBE_PROMPT="$prompt" \
+    CLAUDE_PM_PROBE_EXPECTED_TOKEN="$token" \
+    "$python_bin" - <<'PY'
+import json
+import os
+import re
+import selectors
+import subprocess
+import sys
+import time
+
+
+def text_from_content(content):
+    texts = []
+    if isinstance(content, list):
+        for item in content:
+            if isinstance(item, dict):
+                value = item.get("text")
+                if value is None and item.get("type") == "text":
+                    value = item.get("content")
+                if value is not None:
+                    texts.append(str(value))
+    return "\n".join(part.strip() for part in texts if str(part).strip()).strip()
+
+
+def compact(text):
+    return re.sub(r"\s+", " ", str(text or "")).strip()
+
+
+proc = None
+
+
+def result(status, **kwargs):
+    global proc
+    if proc is not None:
+        try:
+            proc.terminate()
+        except Exception:
+            pass
+    payload = {"status": status}
+    payload.update(kwargs)
+    print(json.dumps(payload))
+    raise SystemExit(0)
+
+
+command_path = os.environ["CLAUDE_PM_PROBE_COMMAND"]
+path_override = os.environ.get("CLAUDE_PM_PROBE_PATH_OVERRIDE", "")
+timeout_ms = int(os.environ.get("CLAUDE_PM_PROBE_TIMEOUT_MS", "8000"))
+contract_path = os.environ.get("CLAUDE_PM_PROBE_CONTRACT_PATH", "")
+tool_name = os.environ.get("CLAUDE_PM_PROBE_TOOL_NAME", "Agent")
+candidate_field = os.environ.get("CLAUDE_PM_PROBE_CANDIDATE_FIELD", "subagent_type")
+candidates = json.loads(os.environ["CLAUDE_PM_PROBE_CANDIDATES_JSON"])
+description = os.environ.get("CLAUDE_PM_PROBE_DESCRIPTION", "PM launcher probe")
+prompt = os.environ["CLAUDE_PM_PROBE_PROMPT"]
+expected_token = os.environ["CLAUDE_PM_PROBE_EXPECTED_TOKEN"]
+
+if not candidates:
+    result(
+        "failed",
+        reason="invalid_launcher_contract",
+        detail="Claude launcher contract does not define any launcher candidates.",
+        remediation=f"Populate launcher_candidates in {contract_path}.",
+        contract_path=contract_path,
+        candidate_results=[],
+    )
+
+env = os.environ.copy()
+if path_override:
+    existing_path = env.get("PATH", "")
+    env["PATH"] = path_override if not existing_path else f"{path_override}{os.pathsep}{existing_path}"
+
+try:
+    proc = subprocess.Popen(
+        [command_path, "mcp", "serve"],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        bufsize=1,
+        env=env,
+    )
+except Exception as exc:
+    result(
+        "failed",
+        reason="claude_code_mcp_probe_spawn_failed",
+        detail=compact(exc),
+        remediation=f"Verify that {command_path} can launch `claude mcp serve` in the current runtime.",
+        contract_path=contract_path,
+        candidate_results=[],
+    )
+
+selector = selectors.DefaultSelector()
+selector.register(proc.stdout, selectors.EVENT_READ, "stdout")
+selector.register(proc.stderr, selectors.EVENT_READ, "stderr")
+stderr_lines = []
+transcript = []
+request_id = 0
+
+
+def next_id():
+    global request_id
+    request_id += 1
+    return request_id
+
+
+def send(payload):
+    proc.stdin.write(json.dumps(payload) + "\n")
+    proc.stdin.flush()
+
+
+def recv(expected_id):
+    deadline = time.time() + (timeout_ms / 1000.0)
+    while time.time() < deadline:
+        events = selector.select(max(0.0, deadline - time.time()))
+        if not events:
+            continue
+        for key, _ in events:
+            line = key.fileobj.readline()
+            if not line:
+                continue
+            stripped = line.strip()
+            if not stripped:
+                continue
+            if key.data == "stderr":
+                stderr_lines.append(compact(stripped))
+                continue
+            try:
+                payload = json.loads(stripped)
+            except Exception:
+                transcript.append({"kind": "stdout", "line": compact(stripped)})
+                continue
+            transcript.append({"kind": "json", "payload": payload})
+            if payload.get("id") == expected_id:
+                return payload
+    result(
+        "failed",
+        reason="claude_code_mcp_probe_timeout",
+        detail=f"Timed out waiting for Claude MCP response id {expected_id}.",
+        remediation="Inspect Claude MCP launcher responsiveness and rerun the PM gate/self-check.",
+        contract_path=contract_path,
+        candidate_results=[],
+        stderr=stderr_lines,
+        transcript=transcript,
+    )
+
+
+init_id = next_id()
+send(
+    {
+        "jsonrpc": "2.0",
+        "id": init_id,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2025-03-26",
+            "capabilities": {},
+            "clientInfo": {"name": "pm-command", "version": "1"},
+        },
+    }
+)
+init_resp = recv(init_id)
+if "error" in init_resp:
+    result(
+        "failed",
+        reason="claude_code_mcp_initialize_failed",
+        detail=compact(init_resp["error"].get("message", "initialize failed")),
+        remediation="Repair the `claude mcp serve` MCP server before rerunning the PM gate/self-check.",
+        contract_path=contract_path,
+        candidate_results=[],
+        stderr=stderr_lines,
+        transcript=transcript,
+    )
+
+server_info = init_resp.get("result", {}).get("serverInfo", {})
+send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+
+tools_id = next_id()
+send({"jsonrpc": "2.0", "id": tools_id, "method": "tools/list", "params": {}})
+tools_resp = recv(tools_id)
+if "error" in tools_resp:
+    result(
+        "failed",
+        reason="claude_code_mcp_tools_list_failed",
+        detail=compact(tools_resp["error"].get("message", "tools/list failed")),
+        remediation="Repair Claude MCP tools discovery before rerunning the PM gate/self-check.",
+        contract_path=contract_path,
+        candidate_results=[],
+        server_info=server_info,
+        stderr=stderr_lines,
+        transcript=transcript,
+    )
+
+tools = tools_resp.get("result", {}).get("tools", [])
+tool_names = [tool.get("name", "") for tool in tools if isinstance(tool, dict)]
+if tool_name not in tool_names:
+    result(
+        "failed",
+        reason="claude_code_mcp_agent_tool_missing",
+        detail=f"Claude MCP tools/list did not expose the configured {tool_name} tool.",
+        remediation=f"Verify the current claude-code MCP runtime exposes {tool_name} before rerunning the PM gate/self-check.",
+        contract_path=contract_path,
+        candidate_results=[],
+        server_info=server_info,
+        tools=tool_names,
+        stderr=stderr_lines,
+        transcript=transcript,
+    )
+
+candidate_results = []
+for candidate in candidates:
+    call_id = next_id()
+    arguments = {"description": description, "prompt": prompt}
+    if candidate_field:
+        arguments[candidate_field] = candidate
+    send(
+        {
+            "jsonrpc": "2.0",
+            "id": call_id,
+            "method": "tools/call",
+            "params": {"name": tool_name, "arguments": arguments},
+        }
+    )
+    call_resp = recv(call_id)
+    detail = ""
+    response_text = ""
+    error_kind = ""
+    if "error" in call_resp:
+        detail = compact(call_resp["error"].get("message", "tools/call failed"))
+        error_kind = "jsonrpc_error"
+    else:
+        result_payload = call_resp.get("result", {})
+        response_text = text_from_content(result_payload.get("content", []))
+        if result_payload.get("isError") is True:
+            detail = compact(response_text or f"{tool_name} returned isError=true")
+            error_kind = "tool_error"
+        elif compact(response_text) == expected_token:
+            result(
+                "passed",
+                reason="launcher_probe_passed",
+                detail=f"Claude launcher candidate {candidate} returned the expected deterministic token.",
+                remediation="",
+                contract_path=contract_path,
+                expected_token=expected_token,
+                response_text=response_text,
+                selected_candidate=candidate,
+                tool_name=tool_name,
+                candidate_field=candidate_field,
+                candidate_results=candidate_results
+                + [
+                    {
+                        "candidate": candidate,
+                        "status": "passed",
+                        "detail": f"Returned exact token {expected_token}.",
+                        "response_text": response_text,
+                    }
+                ],
+                server_info=server_info,
+                tools=tool_names,
+                stderr=stderr_lines,
+                transcript=transcript,
+            )
+        else:
+            detail = compact(response_text or "Agent call completed without the expected deterministic token.")
+            error_kind = "token_mismatch"
+
+    unsupported = re.search(r"agent type .* not found|no supported agent type|unsupported launcher", detail, re.I)
+    candidate_results.append(
+        {
+            "candidate": candidate,
+            "status": "failed",
+            "error_kind": "unsupported_launcher" if unsupported else error_kind or "probe_failed",
+            "detail": detail,
+            "response_text": response_text,
+        }
+    )
+
+detail_summary = "; ".join(
+    f"{item['candidate']}: {item['detail']}" for item in candidate_results if item.get("detail")
+)
+result(
+    "failed",
+    reason="claude_code_mcp_launcher_unusable",
+    detail=detail_summary or "No configured Claude launcher candidate returned the expected deterministic token.",
+    remediation=f"Configure a valid Claude launcher candidate in {contract_path} or switch the PM run to Main Runtime Only.",
+    contract_path=contract_path,
+    expected_token=expected_token,
+    selected_candidate="",
+    tool_name=tool_name,
+    candidate_field=candidate_field,
+    candidate_results=candidate_results,
+    server_info=server_info,
+    tools=tool_names,
+    stderr=stderr_lines,
+    transcript=transcript,
+)
+PY
+  )"
+
+  printf '%s\n' "$result_json"
+}
+
+claude_mcp_session_usable() {
+  local force_available force_unavailable probe_json status selected_candidate remediation_hint
+
+  force_available="$(resolve_bool_setting "PM_LEAD_MODEL_FORCE_CLAUDE_MCP_AVAILABLE" "" 0)"
+  force_unavailable="$(resolve_bool_setting "PM_LEAD_MODEL_FORCE_CLAUDE_MCP_UNAVAILABLE" "" 0)"
+
+  CLAUDE_MCP_LAST_LAUNCHER_CANDIDATE=""
+  CLAUDE_MCP_LAST_LAUNCHER_CONTRACT_PATH=""
+  CLAUDE_MCP_LAST_LAUNCHER_RESULT_JSON=""
+
+  if [ "$force_unavailable" -eq 1 ]; then
+    CLAUDE_MCP_LAST_REASON="claude_code_mcp_unavailable"
+    CLAUDE_MCP_LAST_REMEDIATION="$CLAUDE_MCP_REMEDIATION_MISSING"
+    CLAUDE_MCP_LAST_DETAIL="Claude MCP server was forced unavailable for this run."
+    return 1
+  fi
+
+  if ! claude_mcp_available; then
+    return 1
+  fi
+
+  if [ "$force_available" -eq 1 ]; then
+    CLAUDE_MCP_LAST_REASON=""
+    CLAUDE_MCP_LAST_REMEDIATION=""
+    CLAUDE_MCP_LAST_DETAIL=""
+    CLAUDE_MCP_LAST_LAUNCHER_CANDIDATE="forced-available"
+    CLAUDE_MCP_LAST_LAUNCHER_CONTRACT_PATH="$(claude_launcher_contract_display_path || true)"
+    CLAUDE_MCP_LAST_LAUNCHER_RESULT_JSON='{"status":"passed","selected_candidate":"forced-available","reason":"forced_available"}'
+    return 0
+  fi
+
+  probe_json="$(run_claude_mcp_launcher_probe --probe-id "plan-gate-$(epoch_ms)")" || return 1
+  CLAUDE_MCP_LAST_LAUNCHER_RESULT_JSON="$probe_json"
+  CLAUDE_MCP_LAST_LAUNCHER_CONTRACT_PATH="$(printf '%s' "$probe_json" | jq -r '.contract_path // empty')"
+  selected_candidate="$(printf '%s' "$probe_json" | jq -r '.selected_candidate // empty')"
+  status="$(printf '%s' "$probe_json" | jq -r '.status // "failed"')"
+  remediation_hint="$(claude_launcher_contract_remediation_hint || true)"
+
+  if [ "$status" = "passed" ]; then
+    CLAUDE_MCP_LAST_REASON=""
+    CLAUDE_MCP_LAST_REMEDIATION=""
+    CLAUDE_MCP_LAST_DETAIL=""
+    CLAUDE_MCP_LAST_LAUNCHER_CANDIDATE="$selected_candidate"
+    return 0
+  fi
+
+  CLAUDE_MCP_LAST_REASON="$(printf '%s' "$probe_json" | jq -r '.reason // "claude_code_mcp_launcher_unusable"')"
+  CLAUDE_MCP_LAST_DETAIL="$(sanitize_single_line "$(printf '%s' "$probe_json" | jq -r '.detail // "Claude MCP launcher probe failed."' 2>/dev/null || printf 'Claude MCP launcher probe failed.')")"
+  CLAUDE_MCP_LAST_REMEDIATION="$(printf '%s' "$probe_json" | jq -r --arg hint "$remediation_hint" '.remediation // $hint')"
+  return 1
 }
 
 claude_mcp_available() {
@@ -3843,7 +4439,7 @@ run_plan_gate() {
       ;;
   esac
 
-  if [ "$requires_claude_mcp" -eq 1 ] && ! claude_mcp_available; then
+  if [ "$requires_claude_mcp" -eq 1 ] && ! claude_mcp_session_usable; then
     block_reason="${CLAUDE_MCP_LAST_REASON:-claude_code_mcp_unavailable}"
     block_remediation="${CLAUDE_MCP_LAST_REMEDIATION:-$CLAUDE_MCP_REMEDIATION_MISSING}"
     block_detail="${CLAUDE_MCP_LAST_DETAIL:-Claude MCP unavailable for dynamic cross-runtime mode.}"
