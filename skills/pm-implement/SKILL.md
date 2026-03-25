@@ -39,15 +39,15 @@ If any precondition fails:
 ## Claude MCP Contract (mandatory for external Claude agents)
 - Use Claude through MCP server `claude-code` (not direct CLI/app invocation).
 - Required environment setup (once):
-  - `codex mcp add claude-code -- claude mcp serve`
+  - `codex mcp add claude-code -- ./skills/pm/scripts/claude-code-mcp`
 - `codex mcp list` only verifies that `claude-code` is configured/enabled; it does not prove the current environment exposes a usable Claude launcher.
 - The repo-owned Claude launcher contract lives at `skills/pm/agents/claude-launcher-contract.json`.
-- Only use a `claude-code` MCP tool that explicitly provides prompt/session semantics in the current environment. `mcp__claude-code__Agent` with implicit `general-purpose` is not the implementation contract.
-- Claude health for implementation/review is proven only by a live `claude mcp serve` probe that completes MCP lifecycle and returns the exact deterministic token from one of the configured launcher candidates in `skills/pm/agents/claude-launcher-contract.json`.
+- Use the repo-owned `claude-code-mcp` wrapper `Agent` tool with generic launcher types. Do not depend on the raw upstream `claude mcp serve` Agent path or implicit `general-purpose` launching.
+- Claude health for implementation/review is proven only by a live probe against the configured `claude-code` command that completes MCP lifecycle and returns the exact deterministic token from one of the configured launcher candidates in `skills/pm/agents/claude-launcher-contract.json`.
 - If the launcher reports `Agent type 'general-purpose' not found`, `no supported agent type`, or equivalent, treat `claude-code` runtime as unavailable for that step.
 - In that case, block the current phase and return control to PM/Team Lead.
 - Remediation split:
-  - server missing/not configured -> `codex mcp add claude-code -- claude mcp serve`
+  - server missing/not configured -> `codex mcp add claude-code -- ./skills/pm/scripts/claude-code-mcp`
   - server enabled but launcher unusable -> report the launcher limitation, block the current phase, and do not loop on reinstall instructions
 
 ## Codex Reviewer Contract (native-first)

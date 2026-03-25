@@ -149,7 +149,7 @@ assert_contains "$helper_path_contracts" './.claude/skills/pm/scripts/pm-command
 echo "[test-pm-command] case: Claude launcher contract is repo-owned and explicit"
 CLAUDE_LAUNCHER_CONTRACT="$ROOT_DIR/skills/pm/agents/claude-launcher-contract.json"
 [ -f "$CLAUDE_LAUNCHER_CONTRACT" ] || fail "missing Claude launcher contract file"
-jq -e '.schema_version == 1 and .tool_name == "Agent" and .candidate_field == "subagent_type" and .launcher_candidates == ["default","Plan","Explore"] and .probe.description == "PM launcher probe" and (.probe.prompt_template | contains("{{token}}"))' "$CLAUDE_LAUNCHER_CONTRACT" >/dev/null || fail "Claude launcher contract missing expected fields"
+jq -e '.schema_version == 1 and .tool_name == "Agent" and .candidate_field == "subagent_type" and .launcher_candidates == ["default","explorer","worker"] and .probe.description == "PM launcher probe" and (.probe.prompt_template | contains("{{token}}"))' "$CLAUDE_LAUNCHER_CONTRACT" >/dev/null || fail "Claude launcher contract missing expected fields"
 
 echo "[test-pm-command] case: live PM contracts forbid degraded fallback after a blocked gate"
 live_contracts="$(
@@ -242,7 +242,7 @@ def send(payload):
 mode = os.environ.get("FAKE_CLAUDE_MCP_SERVE_MODE", "success")
 supported = [
     item.strip()
-    for item in os.environ.get("FAKE_CLAUDE_AGENT_SUPPORTED_TYPES", "Plan").split(",")
+    for item in os.environ.get("FAKE_CLAUDE_AGENT_SUPPORTED_TYPES", "default").split(",")
     if item.strip()
 ]
 
@@ -606,7 +606,7 @@ assert_not_contains "$self_check_happy_out" 'code=legacy_droid_worker_detected'
 [ -f "$SELF_CHECK_HAPPY_DIR/summary.json" ] || fail "self-check happy path did not write summary.json"
 [ -f "$SELF_CHECK_HAPPY_DIR/healer-context.json" ] || fail "self-check happy path did not write healer-context.json"
 [ -f "$SELF_CHECK_HAPPY_DIR/healer-prompt.md" ] || fail "self-check happy path did not write healer-prompt.md"
-jq -e '.status == "clean" and .fixture_case == "happy-path" and .execution_mode == "main-runtime-only" and .claude_health.registration == "passed" and .claude_health.executability == "passed" and .claude_health.session_usability == "passed" and .claude_health.launcher_candidate == "Plan" and (.claude_health.launcher_contract_file | test("skills/pm/agents/claude-launcher-contract.json$")) and .child_plan_gate.status == "ready" and .artifact_checks.codex_mcp_snapshot.status == "passed" and .artifact_checks.claude_mcp_snapshot.status == "passed" and .artifact_checks.claude_launcher_probe.status == "passed" and .artifact_checks.claude_launcher_probe.selected_candidate == "Plan" and (.artifact_checks.codex_mcp_snapshot.command_path | test("fake-codex-bin/codex$")) and .artifact_checks.codex_mcp_snapshot.timeout_seconds == 5 and .artifact_checks.claude_mcp_snapshot.command_source == "env:PM_LEAD_MODEL_CLAUDE_COMMAND_OVERRIDE" and .artifact_checks.claude_mcp_snapshot.timeout_seconds == 12 and .artifact_checks.claude_mcp_snapshot.command_env_overrides == "MCP_TIMEOUT=3000" and ([.events[] | select(.code == "legacy_droid_worker_detected")] | length) == 0' "$SELF_CHECK_HAPPY_DIR/summary.json" >/dev/null || fail "self-check happy path summary missing expected clean health or artifact fields"
+jq -e '.status == "clean" and .fixture_case == "happy-path" and .execution_mode == "main-runtime-only" and .claude_health.registration == "passed" and .claude_health.executability == "passed" and .claude_health.session_usability == "passed" and .claude_health.launcher_candidate == "default" and (.claude_health.launcher_contract_file | test("skills/pm/agents/claude-launcher-contract.json$")) and .child_plan_gate.status == "ready" and .artifact_checks.codex_mcp_snapshot.status == "passed" and .artifact_checks.claude_mcp_snapshot.status == "passed" and .artifact_checks.claude_launcher_probe.status == "passed" and .artifact_checks.claude_launcher_probe.selected_candidate == "default" and (.artifact_checks.codex_mcp_snapshot.command_path | test("fake-codex-bin/codex$")) and .artifact_checks.codex_mcp_snapshot.timeout_seconds == 5 and .artifact_checks.claude_mcp_snapshot.command_source == "env:PM_LEAD_MODEL_CLAUDE_COMMAND_OVERRIDE" and .artifact_checks.claude_mcp_snapshot.timeout_seconds == 12 and .artifact_checks.claude_mcp_snapshot.command_env_overrides == "MCP_TIMEOUT=3000" and ([.events[] | select(.code == "legacy_droid_worker_detected")] | length) == 0' "$SELF_CHECK_HAPPY_DIR/summary.json" >/dev/null || fail "self-check happy path summary missing expected clean health or artifact fields"
 
 SELF_CHECK_CLAUDE_BOUNDED_DIR="$TMPDIR/self-check-claude-bounded"
 echo "[test-pm-command] case: self-check keeps clean status when Claude snapshot is slow but completes within bounded timeout"

@@ -1,5 +1,5 @@
 # AGENTS Compliance Reviewer Prompt
-**Model: Claude Code** (via Task tool, subagent_type: default)
+**Model: Claude Code** (via `claude-code-mcp` wrapper Agent, `subagent_type: default`)
 
 Use this prompt for the first post-implementation reviewer agent.
 

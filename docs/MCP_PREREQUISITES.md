@@ -16,7 +16,7 @@ Claude availability policy:
 - `Dynamic Cross-Runtime` with Claude outer runtime keeps Claude-native roles as the outer runtime and blocks before Discovery until `codex-worker` is available or the user chooses `Main Runtime Only`.
 - `codex mcp list` only proves `claude-code` is configured/enabled. It does not prove the current Codex runtime exposes a usable Claude launcher.
 - PM launcher health is defined by the repo-owned contract file at `skills/pm/agents/claude-launcher-contract.json`.
-- Dynamic Claude readiness requires a live `claude mcp serve` probe that completes `initialize`, `tools/list`, and a real `tools/call` to the configured `Agent` launcher candidates.
+- Dynamic Claude readiness requires a live probe against the configured `claude-code` command that completes `initialize`, `tools/list`, and a real `tools/call` to the configured `Agent` launcher candidates.
 - If the launcher reports `Agent type 'general-purpose' not found`, `no supported agent type`, or equivalent, treat Claude runtime as unavailable for that session.
 - If a required Claude-routed phase step later loses launcher availability, stop that phase and return control to PM. Do not continue with codex-native fallback.
 
@@ -29,11 +29,17 @@ Codex secondary-runtime policy for Claude outer-runtime sessions:
 ## Install commands (Codex CLI)
 
 ```bash
-codex mcp add claude-code -- claude mcp serve
+codex mcp add claude-code -- ./skills/pm/scripts/claude-code-mcp
 codex mcp add context7 -- npx -y @upstash/context7-mcp
 codex mcp add firecrawl --env FIRECRAWL_API_KEY=YOUR_KEY -- npx -y firecrawl-mcp
 codex mcp add deepwiki --url https://mcp.deepwiki.com/mcp
 codex mcp add exa --url https://mcp.exa.ai/mcp
+```
+
+In installed target repos, use:
+
+```bash
+codex mcp add claude-code -- ./.codex/skills/pm/scripts/claude-code-mcp
 ```
 
 ## Verify configuration
@@ -44,7 +50,7 @@ codex mcp list
 
 You should see all five names above in `enabled` state. That is necessary but not sufficient for `claude-code`.
 
-For `claude-code`, also require a usable Claude launch path in the current runtime. Do not treat direct `mcp__claude-code__Agent` / implicit `general-purpose` agent launching as the PM contract. The helper uses the explicit candidates from `skills/pm/agents/claude-launcher-contract.json` and only reports Claude healthy when one candidate returns the exact deterministic probe token.
+For `claude-code`, also require a usable Claude launch path in the current runtime. Use the repo-owned `claude-code-mcp` wrapper `Agent` tool with generic launcher types; do not depend on the raw upstream `claude mcp serve` Agent path or implicit `general-purpose` launching. The helper uses the explicit candidates from `skills/pm/agents/claude-launcher-contract.json` and only reports Claude healthy when one candidate returns the exact deterministic probe token.
 
 ## Authentication / env notes
 - `firecrawl` requires `FIRECRAWL_API_KEY`.

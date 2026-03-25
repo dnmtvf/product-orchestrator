@@ -37,18 +37,18 @@ description: Strict PM Discovery Mode. Trigger on $pm-discovery for questions-on
   - spawn generic `default` first
   - then invoke `claude-code` MCP
   - do not treat `claude-code` as a launcher type
-  - do not use `mcp__claude-code__Agent` / implicit `general-purpose` agent launching as the Discovery Claude path
+  - use the repo-owned `claude-code-mcp` wrapper `Agent` tool with generic launcher types instead of the raw upstream `claude mcp serve` Agent path
 
 ## Claude MCP Contract (mandatory for external Claude agents)
 - Use Claude through MCP server `claude-code` (not direct CLI/app invocation).
 - Required environment setup (once):
-  - `codex mcp add claude-code -- claude mcp serve`
+  - `codex mcp add claude-code -- ./skills/pm/scripts/claude-code-mcp`
 - `codex mcp list` only verifies that `claude-code` is configured/enabled; it does not prove the current environment exposes a usable Claude launcher.
-- Only use a `claude-code` MCP tool that explicitly provides prompt/session semantics in the current environment. `mcp__claude-code__Agent` with implicit `general-purpose` is not the Discovery contract.
+- Use the repo-owned `claude-code-mcp` wrapper `Agent` tool with generic launcher types. Do not depend on the raw upstream `claude mcp serve` Agent path or implicit `general-purpose` launching.
 - If the launcher reports `Agent type 'general-purpose' not found`, `no supported agent type`, or equivalent, treat `claude-code` runtime as unavailable for that step.
 - Do not auto-fallback to `codex-native` inside Discovery. Treat this as a critical phase block and return control to PM.
 - Remediation split:
-  - server missing/not configured -> `codex mcp add claude-code -- claude mcp serve`
+  - server missing/not configured -> `codex mcp add claude-code -- ./skills/pm/scripts/claude-code-mcp`
   - server enabled but launcher unusable -> report the launcher limitation, block Discovery, and do not loop on reinstall instructions
 - For Claude MCP agents, prompt must start with:
   - `use agent swarm for <objective>`

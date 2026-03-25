@@ -53,7 +53,7 @@ runtimes:
 
   claude-code-mcp:
     description: External Claude MCP path for roles that must cross from Codex into Claude.
-    setup_command: "codex mcp add claude-code -- claude mcp serve"
+    setup_command: "codex mcp add claude-code -- <current-pm-skill-path>/scripts/claude-code-mcp"
     availability_requirements:
       - claude-code MCP server registered and enabled
       - configured command executable in the actual Codex runtime
@@ -67,7 +67,7 @@ runtimes:
       - ~/.claude/settings.json
       - fallback <unpinned>
     invalid_paths:
-      - mcp__claude-code__Agent with implicit general-purpose launcher
+      - raw upstream claude mcp serve Agent path with implicit general-purpose launcher
 
   claude-native:
     description: Native Claude runtime for roles executed when Claude is the outer orchestrator.

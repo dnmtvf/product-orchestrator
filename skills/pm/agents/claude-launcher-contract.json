@@ -4,8 +4,8 @@
   "candidate_field": "subagent_type",
   "launcher_candidates": [
     "default",
-    "Plan",
-    "Explore"
+    "explorer",
+    "worker"
   ],
   "probe": {
     "description": "PM launcher probe",

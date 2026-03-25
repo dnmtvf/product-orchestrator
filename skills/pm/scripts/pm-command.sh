@@ -27,8 +27,6 @@ CODEX_PINNED_MODEL="gpt-5.4"
 CODEX_PINNED_REASONING_EFFORT="xhigh"
 UNPINNED_MODEL_VALUE="<unpinned>"
 UNPINNED_REASONING_VALUE="<unpinned>"
-CLAUDE_MCP_INSTALL_COMMAND="codex mcp add claude-code -- claude mcp serve"
-CLAUDE_MCP_REMEDIATION_MISSING="$CLAUDE_MCP_INSTALL_COMMAND"
 CLAUDE_MCP_LAST_REASON=""
 CLAUDE_MCP_LAST_REMEDIATION=""
 CLAUDE_MCP_LAST_DETAIL=""
@@ -67,7 +65,7 @@ SELF_CHECK_PROBE_SUCCESS_RESPONSE="Synthetic self-check Claude probe complete."
 SELF_CHECK_CODEX_SNAPSHOT_TIMEOUT_SECONDS_DEFAULT=5
 SELF_CHECK_CLAUDE_SNAPSHOT_TIMEOUT_SECONDS_DEFAULT=12
 SELF_CHECK_CLAUDE_MCP_TIMEOUT_MS_DEFAULT=3000
-CLAUDE_MCP_LAUNCHER_TIMEOUT_MS_DEFAULT=8000
+CLAUDE_MCP_LAUNCHER_TIMEOUT_MS_DEFAULT=30000
 LEGACY_CLAUDE_MCP_SERVER_DROID="droid-worker"
 TELEMETRY_TABLE_NAME="pm_step_events"
 TELEMETRY_RUNS_TABLE_NAME="pm_runtime_detection_runs"
@@ -219,6 +217,22 @@ internal_claude_launcher_contract_path() {
   local base
   base="$(script_dir)"
   printf '%s/%s' "$base" "$CLAUDE_LAUNCHER_CONTRACT_RELATIVE_PATH"
+}
+
+internal_claude_mcp_wrapper_path() {
+  local base
+  base="$(script_dir)"
+  printf '%s/claude-code-mcp' "$base"
+}
+
+claude_mcp_install_command() {
+  local wrapper_path
+  wrapper_path="$(internal_claude_mcp_wrapper_path)"
+  printf 'codex mcp add claude-code -- %s' "$wrapper_path"
+}
+
+claude_mcp_remediation_missing() {
+  claude_mcp_install_command
 }
 
 display_path() {
@@ -1920,7 +1934,7 @@ run_self_check_run() {
         "${CLAUDE_MCP_LAST_COMMAND_SOURCE:-default(command=claude)}" \
         "${CLAUDE_MCP_LAST_PATH_OVERRIDE_SOURCE:-<none>}" \
         "${CLAUDE_MCP_LAST_DETAIL:-Claude MCP command is not usable in the current runtime.}" \
-        "${CLAUDE_MCP_LAST_REMEDIATION:-$CLAUDE_MCP_REMEDIATION_MISSING}" \
+        "${CLAUDE_MCP_LAST_REMEDIATION:-$(claude_mcp_remediation_missing)}" \
         "$claude_snapshot_file" "$claude_snapshot_stdout_file" "$claude_snapshot_stderr_file" "$claude_snapshot_attempt_file"
     else
       claude_snapshot_command="$CLAUDE_MCP_LAST_COMMAND"
@@ -1951,7 +1965,7 @@ run_self_check_run() {
   if ! claude_mcp_server_healthy; then
     summary_reason="claude_code_mcp_unavailable"
     summary_detail="claude-code MCP server is missing, disabled, or unhealthy in the current runtime."
-    summary_remediation="$CLAUDE_MCP_REMEDIATION_MISSING"
+    summary_remediation="$(claude_mcp_remediation_missing)"
     self_check_record_event "$console_log_file" "$events_file" "$findings_file" "$run_id" "health" "claude_registration" "critical" "failed" "$summary_reason" "$summary_detail" "$summary_remediation" "$(display_path "$codex_snapshot_file")"
     final_status="failed"
   else
@@ -1963,7 +1977,7 @@ run_self_check_run() {
     if ! claude_mcp_available; then
       summary_reason="${CLAUDE_MCP_LAST_REASON:-claude_code_mcp_unavailable}"
       summary_detail="${CLAUDE_MCP_LAST_DETAIL:-Claude MCP command is not usable in the current runtime.}"
-      summary_remediation="${CLAUDE_MCP_LAST_REMEDIATION:-$CLAUDE_MCP_REMEDIATION_MISSING}"
+      summary_remediation="${CLAUDE_MCP_LAST_REMEDIATION:-$(claude_mcp_remediation_missing)}"
       self_check_record_event "$console_log_file" "$events_file" "$findings_file" "$run_id" "health" "claude_executability" "critical" "failed" "$summary_reason" "$summary_detail" "$summary_remediation" "$(display_path "$codex_snapshot_file")"
       final_status="failed"
     else
@@ -2693,7 +2707,7 @@ run_claude_mcp_launcher_probe() {
     jq -nc \
       --arg reason "claude_code_mcp_command_not_executable" \
       --arg detail "Claude command is not executable for launcher probing." \
-      --arg remediation "${CLAUDE_MCP_LAST_REMEDIATION:-$CLAUDE_MCP_REMEDIATION_MISSING}" \
+      --arg remediation "${CLAUDE_MCP_LAST_REMEDIATION:-$(claude_mcp_remediation_missing)}" \
       '{status:"failed", reason:$reason, detail:$detail, remediation:$remediation, candidate_results:[]}'
     return 0
   fi
@@ -3053,7 +3067,7 @@ claude_mcp_session_usable() {
 
   if [ "$force_unavailable" -eq 1 ]; then
     CLAUDE_MCP_LAST_REASON="claude_code_mcp_unavailable"
-    CLAUDE_MCP_LAST_REMEDIATION="$CLAUDE_MCP_REMEDIATION_MISSING"
+    CLAUDE_MCP_LAST_REMEDIATION="$(claude_mcp_remediation_missing)"
     CLAUDE_MCP_LAST_DETAIL="Claude MCP server was forced unavailable for this run."
     return 1
   fi
@@ -3100,7 +3114,7 @@ claude_mcp_available() {
   force_unavailable="$(resolve_bool_setting "PM_LEAD_MODEL_FORCE_CLAUDE_MCP_UNAVAILABLE" "" 0)"
 
   CLAUDE_MCP_LAST_REASON="claude_code_mcp_unavailable"
-  CLAUDE_MCP_LAST_REMEDIATION="$CLAUDE_MCP_REMEDIATION_MISSING"
+  CLAUDE_MCP_LAST_REMEDIATION="$(claude_mcp_remediation_missing)"
   CLAUDE_MCP_LAST_DETAIL="Claude MCP server is missing, disabled, or unhealthy. The selected orchestration mode cannot continue."
   CLAUDE_MCP_LAST_COMMAND=""
   CLAUDE_MCP_LAST_COMMAND_SOURCE=""
@@ -4441,7 +4455,7 @@ run_plan_gate() {
 
   if [ "$requires_claude_mcp" -eq 1 ] && ! claude_mcp_session_usable; then
     block_reason="${CLAUDE_MCP_LAST_REASON:-claude_code_mcp_unavailable}"
-    block_remediation="${CLAUDE_MCP_LAST_REMEDIATION:-$CLAUDE_MCP_REMEDIATION_MISSING}"
+    block_remediation="${CLAUDE_MCP_LAST_REMEDIATION:-$(claude_mcp_remediation_missing)}"
     block_detail="${CLAUDE_MCP_LAST_DETAIL:-Claude MCP unavailable for dynamic cross-runtime mode.}"
     next_action="fix_claude_mcp_or_switch_to_main_runtime_only"
     echo "PLAN_ROUTE_BLOCKED|route=$route|selected_mode=$selected_mode|selected_label=$selected_label|selection_source=$selection_source|outer_runtime=$outer_runtime|reason=$block_reason|remediation=$block_remediation|detail=$block_detail|next_action=$next_action|discovery_can_start=0"

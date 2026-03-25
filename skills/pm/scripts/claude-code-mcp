@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SERVER_SCRIPT="$SCRIPT_DIR/claude-code-mcp-server.py"
+
+resolve_python_bin() {
+  if command -v python3 >/dev/null 2>&1; then
+    command -v python3
+    return 0
+  fi
+  if command -v python >/dev/null 2>&1; then
+    command -v python
+    return 0
+  fi
+  return 1
+}
+
+resolve_real_claude_bin() {
+  local configured="${PM_CLAUDE_WRAPPER_REAL_BIN:-}"
+  local wrapper_path
+  wrapper_path="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+
+  if [ -n "$configured" ]; then
+    [ -x "$configured" ] || {
+      echo "[claude-code-mcp] ERROR: PM_CLAUDE_WRAPPER_REAL_BIN is not executable: $configured" >&2
+      exit 1
+    }
+    printf '%s' "$configured"
+    return 0
+  fi
+
+  configured="$(command -v claude 2>/dev/null || true)"
+  if [ -z "$configured" ] || [ "$configured" = "$wrapper_path" ]; then
+    echo "[claude-code-mcp] ERROR: unable to resolve the real claude binary. Set PM_CLAUDE_WRAPPER_REAL_BIN." >&2
+    exit 1
+  fi
+  printf '%s' "$configured"
+}
+
+serve_wrapper() {
+  local python_bin claude_bin
+
+  python_bin="$(resolve_python_bin)" || {
+    echo "[claude-code-mcp] ERROR: python3 or python is required" >&2
+    exit 1
+  }
+  claude_bin="$(resolve_real_claude_bin)"
+  export PM_CLAUDE_WRAPPER_REAL_BIN="$claude_bin"
+  exec "$python_bin" "$SERVER_SCRIPT"
+}
+
+if [ "$#" -eq 0 ]; then
+  serve_wrapper
+fi
+
+if [ "${1:-}" = "mcp" ] && [ "${2:-}" = "serve" ]; then
+  serve_wrapper
+fi
+
+exec "$(resolve_real_claude_bin)" "$@"

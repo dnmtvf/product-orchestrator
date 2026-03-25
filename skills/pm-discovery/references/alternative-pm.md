@@ -12,10 +12,10 @@ Invocation model:
 - Launcher compatibility:
   - Spawn this role as generic `default` and pass role context (for example: `[Role: Alternative PM Agent]`).
   - Do not treat `claude-code` as a subagent launcher type.
-  - Do not use `mcp__claude-code__Agent` / implicit `general-purpose` agent launching as this role's Claude path.
+  - Use the repo-owned `claude-code-mcp` wrapper `Agent` tool with generic launcher types; do not depend on the raw upstream `claude mcp serve` Agent path.
 - Use Claude through MCP server `claude-code` (not direct CLI/app invocation).
 - Required environment setup (once):
-  - `codex mcp add claude-code -- claude mcp serve`
+  - `codex mcp add claude-code -- ./skills/pm/scripts/claude-code-mcp`
 - `codex mcp list` only verifies that `claude-code` is configured/enabled; it does not prove the current runtime exposes a usable Claude launcher.
 - If the current runtime reports `Agent type 'general-purpose' not found`, `no supported agent type`, or equivalent, treat Claude as unavailable for this role, stop the Claude path, and return a blocking runtime error to PM instead of rerouting to codex-native.
 - Prompt must start with:

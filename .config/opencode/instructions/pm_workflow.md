@@ -66,8 +66,8 @@ This workflow is the source of truth for PM orchestration in this repo. Installe
   - an executable `codex` command in the actual Claude runtime
 - PM must treat `[shell_environment_policy.set].PATH`, `[mcp_servers.claude-code.env].PATH`, or an absolute command path as valid ways to satisfy the executable-command requirement.
 - PM must treat the Claude runtime `PATH` (including wrapper scripts or absolute command paths) as valid ways to satisfy the `codex-worker` `codex` executability requirement.
-- `mcp__claude-code__Agent` / implicit `general-purpose` agent launching is not a valid PM orchestration path.
-- Use `codex mcp add claude-code -- claude mcp serve` only when the server is actually missing; if the launcher reports `no supported agent type` or the command is not executable in the PM runtime, treat Claude runtime as unavailable for that session.
+- The supported Claude path is the repo-owned `claude-code-mcp` wrapper `Agent` contract with generic launcher types. Do not depend on the raw upstream `claude mcp serve` Agent path or implicit `general-purpose` launching.
+- Use `codex mcp add claude-code -- <repo>/skills/pm/scripts/claude-code-mcp` only when the server is actually missing; if the launcher reports `no supported agent type` or the command is not executable in the PM runtime, treat Claude runtime as unavailable for that session.
 - Use `claude mcp add codex-worker -- codex mcp-server` only when `codex-worker` is actually missing; if `codex-worker` is enabled but `codex` is not executable in the Claude runtime, treat `dynamic-cross-runtime` in Claude as unavailable for that session.
 - `/pm help` and `$pm help` print command invocations, required phase order, and approval-gate reminders.
 - `/pm execution-mode show|set|reset` and `$pm execution-mode show|set|reset` must route to:
@@ -151,7 +151,7 @@ This workflow is the source of truth for PM orchestration in this repo. Installe
   - `main-runtime-only`: all roles stay on the detected outer runtime.
 - Planning/discovery/docs/research/QA/review orchestration model selection follows the active execution-mode routing matrix.
 - Implementation coding tasks follow the active execution-mode routing matrix.
-- External Claude agents are allowed only through `claude-code` MCP contract.
+- External Claude agents are allowed only through the repo-owned `claude-code` MCP wrapper contract.
 - Direct Claude CLI/app orchestration is not allowed.
 - If a required Claude-routed role is unavailable under `dynamic-cross-runtime` with Codex outer runtime, or a required `codex-worker` role is unavailable under `dynamic-cross-runtime` with Claude outer runtime, block the current phase and return control to PM. Do not auto-fallback to the main runtime.
 

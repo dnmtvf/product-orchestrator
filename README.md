@@ -38,12 +38,18 @@ The workflow source of truth in this repo is:
 3. Required MCP servers are configured:
 
 ```bash
-codex mcp add claude-code -- claude mcp serve
+codex mcp add claude-code -- ./skills/pm/scripts/claude-code-mcp
 codex mcp add context7 -- npx -y @upstash/context7-mcp
 codex mcp add firecrawl --env FIRECRAWL_API_KEY=YOUR_KEY -- npx -y firecrawl-mcp
 codex mcp add deepwiki --url https://mcp.deepwiki.com/mcp
 codex mcp add exa --url https://mcp.exa.ai/mcp
 codex mcp list
+```
+
+In installed target repos, use the copied wrapper path instead:
+
+```bash
+codex mcp add claude-code -- ./.codex/skills/pm/scripts/claude-code-mcp
 ```
 
 `codex mcp list` only proves that `claude-code` is configured/enabled. It does not prove the current Codex runtime exposes a usable Claude launcher for PM orchestration.
@@ -99,6 +105,7 @@ git -C /path/to/target-repo submodule update --init --recursive .orchestrator
 - `instructions/pm_workflow.md`
 - `.config/opencode/instructions/pm_workflow.md`
 - helper copies at `.codex/skills/pm/scripts/pm-command.sh` and `.claude/skills/pm/scripts/pm-command.sh`
+- wrapper copies at `.codex/skills/pm/scripts/claude-code-mcp` and `.claude/skills/pm/scripts/claude-code-mcp`
 - Backup snapshots under `.orchestrator-backups/<timestamp>/`
 
 Injection mode also writes:
@@ -206,7 +213,7 @@ For big-feature queue mode, persist queue state in `docs/prd/_queue/<feature-slu
 Runtime policy is execution-mode driven with `dynamic-cross-runtime` default and `main-runtime-only` as the single-runtime alternative.
 The public orchestration contract uses only generic subagent types (`default`, `explorer`, `worker`).
 Required PM support, handoff, implementation, review, and QA subagents should launch by default whenever the active runtime/tool policy permits delegation; only platform/runtime policy failures should force the documented local fallback path.
-Claude remains an external MCP runtime rather than a public launcher type, and any Codex-side Claude wrapper is internal-only if implemented.
+Claude remains an external MCP runtime rather than a public launcher type, and the repo-owned `claude-code-mcp` wrapper is the supported internal adapter behind that contract.
 Codex-native roles resolve model and reasoning effort from `.codex/config.toml`, then `~/.codex/config.toml`, with `gpt-5.4` / `xhigh` as the fallback.
 Claude-native roles resolve model and effort from `.claude/settings.local.json`, `.claude/settings.json`, then `~/.claude/settings.json`, with `<unpinned>` as the fallback.
 Selection precedence is explicit `--mode` override, then persisted execution-mode state. Outer runtime is inferred fresh on every gate run.
@@ -219,7 +226,7 @@ Claude availability requires all of:
 - a passing live launcher probe against the repo-owned contract in `skills/pm/agents/claude-launcher-contract.json`
 That executability can come from an absolute `command`, from `[shell_environment_policy.set].PATH`, or from `[mcp_servers.claude-code.env].PATH`.
 `codex-worker` availability in Claude requires both a healthy `claude mcp list` entry and an executable `codex` command in the Claude runtime.
-Use `codex mcp add claude-code -- claude mcp serve` when the server is actually missing. If the server is enabled but the launcher is unusable, report that limitation, block the routed phase, and do not continue in degraded fallback. A launcher is only considered usable when `initialize`, `tools/list`, and a real `Agent` `tools/call` return the exact deterministic probe token for one of the configured candidates.
+Use the repo-owned `claude-code-mcp` wrapper when the server is actually missing. If the server is enabled but the launcher is unusable, report that limitation, block the routed phase, and do not continue in degraded fallback. A launcher is only considered usable when `initialize`, `tools/list`, and a real `Agent` `tools/call` return the exact deterministic probe token for one of the configured candidates.
 Use `claude mcp add codex-worker -- codex mcp-server` when the Claude-side Codex runtime is actually missing. If `codex-worker` is enabled but `codex` is not executable in the Claude runtime, block before Discovery and fix that runtime instead of continuing.
 Telemetry helpers are available in PM command helper:
 - `./skills/pm/scripts/pm-command.sh telemetry init-db --dsn <postgres-dsn>`

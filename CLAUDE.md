@@ -47,7 +47,7 @@ Only these skills are available:
 - Spawn only generic launcher types: `default`, `explorer`, `worker`
 - Only delegate when the current runtime/tool policy permits it and the user explicitly requested subagents, delegation, or parallel agent work; otherwise do the equivalent work locally and report the skipped delegation plus mitigation.
 - Encode the functional role in prompt payloads instead of relying on named agents or runtime-specific launcher APIs
-- Do not depend on `mcp__claude-code__Agent` or implicit `general-purpose` launching for PM orchestration
+- Use the repo-owned `claude-code-mcp` wrapper `Agent` tool with generic launcher types for PM orchestration; do not depend on the raw upstream `claude mcp serve` Agent path or implicit `general-purpose` launching
 
 ## Git Policy
 
