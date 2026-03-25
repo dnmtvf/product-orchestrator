@@ -88,7 +88,6 @@ Claude invocation contract (mandatory):
 Session completion (mandatory — do not skip):
 - At session end, before declaring work complete:
   - `git pull --rebase`
-  - `bd sync`
   - `git push`
   - Verify `git status` shows "up to date with origin"
 - Work is NOT complete until `git push` succeeds. Never stop before pushing.

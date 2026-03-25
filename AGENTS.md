@@ -24,7 +24,6 @@ This workspace follows a strict PM workflow for feature delivery.
 4. **PUSH TO REMOTE** - This is MANDATORY:
    ```bash
    git pull --rebase
-   bd sync
    git push
    git status  # MUST show "up to date with origin"
    ```
@@ -105,11 +104,11 @@ bd close bd-42 --reason "Completed" --json
 
 ### Auto-Sync
 
-bd automatically syncs via Dolt:
+bd stores issue history in Dolt locally:
 
 - Each write auto-commits to Dolt history
-- Use `bd dolt push`/`bd dolt pull` for remote sync
-- No manual export/import needed!
+- Remote `bd dolt push`/`bd dolt pull` is optional and only needed if this repo explicitly configures a Dolt remote
+- No manual export/import needed for normal local usage
 
 ### Important Rules
 
@@ -135,7 +134,6 @@ For more details, see README.md and docs/QUICKSTART.md.
 4. **PUSH TO REMOTE** - This is MANDATORY:
    ```bash
    git pull --rebase
-   bd dolt push
    git push
    git status  # MUST show "up to date with origin"
    ```
