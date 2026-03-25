@@ -30,9 +30,9 @@ The workflow source of truth in this repo is:
   - `docs/MCP_PREREQUISITES.md`
   - `docs/INSTALL_INJECT_WORKFLOW.md`
   - `docs/INSTALL_SUBMODULE_WORKFLOW.md`
-- Optional standalone user-skill templates:
-  - `user-skills/librarian`
-  - `user-skills/researcher`
+- Optional standalone user-agent templates:
+  - `user-agents/librarian.toml`
+  - `user-agents/researcher.toml`
 
 ## Prerequisites
 
@@ -95,25 +95,25 @@ git -C /path/to/target-repo submodule update --init --recursive .orchestrator
   --sync-only
 ```
 
-## Optional standalone Codex user skills
+## Optional standalone Codex custom agents
 
-For standalone reuse outside `/pm`, this repository ships optional Codex user skills for `librarian` and `researcher`.
+For standalone reuse outside `/pm`, this repository ships optional Codex custom agents for `librarian` and `researcher`.
 
-- Verified user-level install surface in this environment: `~/.codex/skills`
-- These standalone skills are optional conveniences and are not required by the PM orchestrator
+- Current Codex subagents docs support personal custom agents under `~/.codex/agents/`
+- These standalone agents are optional conveniences and are not required by the PM orchestrator
 - The PM public contract remains built-in generic subagent types plus role-labeled prompts
 
-Install them into your user-level Codex skills directory:
+Install them into your user-level Codex agents directory:
 
 ```bash
-/Users/d/product-orchestrator/scripts/install-user-codex-skills.sh
+/Users/d/product-orchestrator/scripts/install-user-codex-agents.sh
 ```
 
 Use `--dest` for a custom target or test fixture:
 
 ```bash
-/Users/d/product-orchestrator/scripts/install-user-codex-skills.sh \
-  --dest /tmp/codex-user-skills
+/Users/d/product-orchestrator/scripts/install-user-codex-agents.sh \
+  --dest /tmp/codex-user-agents
 ```
 
 ## What gets installed into the target repo

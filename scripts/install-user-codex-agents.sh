@@ -4,23 +4,23 @@ set -euo pipefail
 SCRIPT_NAME="$(basename "$0")"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SOURCE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-DEFAULT_DEST="${CODEX_HOME:-$HOME/.codex}/skills"
-SKILLS=(librarian researcher)
+DEFAULT_DEST="${CODEX_HOME:-$HOME/.codex}/agents"
+AGENTS=(librarian researcher)
 
 usage() {
   cat <<'EOF'
-Install optional standalone Codex user skills into the user skill directory.
+Install optional standalone Codex custom agents into the user agent directory.
 
 Usage:
-  install-user-codex-skills.sh [options]
+  install-user-codex-agents.sh [options]
 
 Options:
-  --dest PATH         Destination skill root (default: $CODEX_HOME/skills or ~/.codex/skills)
+  --dest PATH         Destination agent root (default: $CODEX_HOME/agents or ~/.codex/agents)
   --if-exists MODE    replace|skip (default: replace)
   --dry-run           Print actions only
   -h, --help          Show this help
 
-Installed skills:
+Installed agents:
   librarian researcher
 EOF
 }
@@ -78,38 +78,38 @@ case "$IF_EXISTS" in
 esac
 
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
-BACKUP_ROOT="$(dirname "$DEST")/skill-backups/$TIMESTAMP"
+BACKUP_ROOT="$(dirname "$DEST")/agent-backups/$TIMESTAMP"
 
-for skill in "${SKILLS[@]}"; do
-  [ -f "$SOURCE_ROOT/user-skills/$skill/SKILL.md" ] || err "Missing source skill: $SOURCE_ROOT/user-skills/$skill/SKILL.md"
+for agent in "${AGENTS[@]}"; do
+  [ -f "$SOURCE_ROOT/user-agents/$agent.toml" ] || err "Missing source agent: $SOURCE_ROOT/user-agents/$agent.toml"
 done
 
 run mkdir -p "$DEST"
 
-install_skill() {
-  local skill="$1"
-  local src="$SOURCE_ROOT/user-skills/$skill"
-  local dst="$DEST/$skill"
-  local backup="$BACKUP_ROOT/$skill"
+install_agent() {
+  local agent="$1"
+  local src="$SOURCE_ROOT/user-agents/$agent.toml"
+  local dst="$DEST/$agent.toml"
+  local backup="$BACKUP_ROOT/$agent.toml"
 
   if [ -e "$dst" ] || [ -L "$dst" ]; then
     if [ "$IF_EXISTS" = "skip" ]; then
-      log "Skipping existing skill: $dst"
+      log "Skipping existing agent: $dst"
       return
     fi
     run mkdir -p "$BACKUP_ROOT"
     run mv "$dst" "$backup"
-    log "Backed up existing skill: $dst -> $backup"
+    log "Backed up existing agent: $dst -> $backup"
   fi
 
-  run cp -R "$src" "$dst"
-  log "Installed skill: $dst"
+  run cp "$src" "$dst"
+  log "Installed agent: $dst"
 }
 
-for skill in "${SKILLS[@]}"; do
-  install_skill "$skill"
+for agent in "${AGENTS[@]}"; do
+  install_agent "$agent"
 done
 
 log "Completed successfully"
 echo
-echo "Restart Codex to pick up new skills."
+echo "Restart Codex to pick up new custom agents."

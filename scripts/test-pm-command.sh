@@ -152,14 +152,14 @@ assert_contains "$helper_path_contracts" './.codex/skills/pm/scripts/pm-command.
 assert_contains "$helper_path_contracts" './.claude/skills/pm/scripts/pm-command.sh'
 assert_not_contains "$helper_path_contracts" '.config/opencode/instructions/pm_workflow.md'
 
-echo "[test-pm-command] case: standalone Codex user skills are documented at the verified skills path"
-user_skill_contracts="$(
+echo "[test-pm-command] case: standalone Codex custom agents are documented at the verified agents path"
+user_agent_contracts="$(
   cat \
     "$ROOT_DIR/README.md" \
     "$ROOT_DIR/SETUP.md"
 )"
-assert_contains "$user_skill_contracts" '~/.codex/skills'
-assert_contains "$user_skill_contracts" 'install-user-codex-skills.sh'
+assert_contains "$user_agent_contracts" '~/.codex/agents'
+assert_contains "$user_agent_contracts" 'install-user-codex-agents.sh'
 
 echo "[test-pm-command] case: live PM contracts forbid degraded fallback after a blocked gate"
 live_contracts="$(

@@ -46,19 +46,19 @@ See `docs/MCP_PREREQUISITES.md` for the full role-to-model table.
 - See `docs/INSTALL_SUBMODULE_WORKFLOW.md`
 - Script: `scripts/install-workflow.sh`
 
-## Optional standalone user skills
+## Optional standalone custom agents
 
-This repo also ships optional standalone Codex user skills for `librarian` and `researcher`.
+This repo also ships optional standalone Codex custom agents for `librarian` and `researcher`.
 
-- Source templates live under `user-skills/`
-- User-level install target is `~/.codex/skills`
+- Source templates live under `user-agents/`
+- User-level install target is `~/.codex/agents`
 - Install them with:
 
 ```bash
-./scripts/install-user-codex-skills.sh
+./scripts/install-user-codex-agents.sh
 ```
 
-These standalone user skills are optional and are not part of the required PM runtime contract.
+These standalone custom agents are optional and are not part of the required PM runtime contract.
 
 ## Runtime reload
-After any install/update, restart the matching runtime session so skill indexes reload.
+After any install/update, restart the matching runtime session so Codex reloads the updated skills and custom agents.

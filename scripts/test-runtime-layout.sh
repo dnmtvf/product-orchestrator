@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 INJECTOR="$ROOT_DIR/scripts/inject-workflow.sh"
 INSTALLER="$ROOT_DIR/scripts/install-workflow.sh"
-USER_SKILL_INSTALLER="$ROOT_DIR/scripts/install-user-codex-skills.sh"
+USER_AGENT_INSTALLER="$ROOT_DIR/scripts/install-user-codex-agents.sh"
 
 fail() {
   echo "[test-runtime-layout] FAIL: $*" >&2
@@ -79,11 +79,11 @@ assert_file "$INSTALL_TARGET/.claude/skills/pm/references/internal-claude-wrappe
 assert_file "$INSTALL_TARGET/instructions/pm_workflow.md"
 assert_not_file "$INSTALL_TARGET/.config/opencode/instructions/pm_workflow.md"
 
-echo "[test-runtime-layout] case: user skill installer copies standalone Codex skills"
-USER_SKILL_TARGET="$TMPDIR/user-skill-target"
-"$USER_SKILL_INSTALLER" --dest "$USER_SKILL_TARGET" >/dev/null
+echo "[test-runtime-layout] case: user agent installer copies standalone Codex custom agents"
+USER_AGENT_TARGET="$TMPDIR/user-agent-target"
+"$USER_AGENT_INSTALLER" --dest "$USER_AGENT_TARGET" >/dev/null
 
-assert_file "$USER_SKILL_TARGET/librarian/SKILL.md"
-assert_file "$USER_SKILL_TARGET/researcher/SKILL.md"
+assert_file "$USER_AGENT_TARGET/librarian.toml"
+assert_file "$USER_AGENT_TARGET/researcher.toml"
 
 echo "[test-runtime-layout] PASS"
