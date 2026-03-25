@@ -59,7 +59,7 @@ description: Strict PM orchestration workflow for any repo. Trigger when user in
   - Selection precedence is explicit interactive selection or `--mode` override, then persisted execution-mode state for default suggestion or direct helper usage.
   - Outer runtime is inferred fresh on every invocation from the active Codex or Claude session.
   - Re-echo active mode and detected outer runtime at workflow start on every invocation.
-  - Main roles must follow selected execution mode plus detected outer runtime:
+- Main roles must follow selected execution mode plus detected outer runtime:
     - `project_manager`
     - `team_lead`
     - `pm_beads_plan_handoff`
@@ -82,6 +82,12 @@ description: Strict PM orchestration workflow for any repo. Trigger when user in
     - `codex mcp add claude-code -- claude mcp serve`
   - If `codex-worker` is actually missing for `dynamic-cross-runtime` in Claude, remediation is:
     - `claude mcp add codex-worker -- codex mcp-server`
+
+## Canonical Main/Handoff Prompt Sources
+- `project_manager` -> `references/project-manager.md`
+- `pm_beads_plan_handoff` -> `references/pm-beads-plan-handoff.md`
+- `pm_implement_handoff` -> `references/pm-implement-handoff.md`
+- Routed-role prompt coverage and inspiration mapping live in `docs/agent-role-contracts.md`
 - Help route:
   - Trigger: `/pm help` or `$pm help`
   - Behavior: print basic workflow invocations, required phase sequence, and exact approval gate token.
@@ -344,6 +350,7 @@ Discovery extension:
 - Wait for exact `approved`.
 - If user requests edits, update PRD and ask for approval again.
 - On approval, automatically invoke `$pm-beads-plan` with the approved PRD path.
+- Use `references/pm-beads-plan-handoff.md` as the canonical handoff contract when packaging the approved PRD for Beads planning.
 - Preferred orchestration path: if delegation is permitted, invoke via generic `default` `spawn_agent` with role-labeled context (`[Role: PM Beads Plan Handoff]`) and wait for completion; otherwise continue into Beads planning in the same interaction and report the skipped delegation as a warning with mitigation and status.
 
 ### 4) Beads Planning
@@ -364,6 +371,7 @@ Discovery extension:
 - Wait for exact `approved`.
 - If edits are requested, update beads plan and ask for approval again.
 - On approval, automatically create Team Lead agent and start team orchestration.
+- Use `references/pm-implement-handoff.md` as the canonical handoff contract when packaging the approved epic for implementation.
 - Preferred orchestration path:
   - if delegation is permitted, spawn Team Lead (`default`) agent first with role-labeled context (`[Role: Team Lead Agent]`)
   - if delegation is permitted, then invoke `$pm-implement` (Team Lead-supervised execution) via generic `default` `spawn_agent` with role-labeled context (`[Role: PM Implement Handoff]`) and wait for completion
