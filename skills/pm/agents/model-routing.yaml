@@ -99,6 +99,7 @@ execution_modes:
           team_lead: { class: main, runtime: codex-native, agent_type: default }
           pm_beads_plan_handoff: { class: main, runtime: codex-native, agent_type: default }
           pm_implement_handoff: { class: main, runtime: codex-native, agent_type: default }
+          tech_lead: { class: sub, runtime: claude-code-mcp, agent_type: default }
           senior_engineer: { class: sub, runtime: claude-code-mcp, agent_type: explorer }
           librarian: { class: sub, runtime: claude-code-mcp, agent_type: default }
           smoke_test_planner: { class: sub, runtime: claude-code-mcp, agent_type: default }
@@ -120,6 +121,7 @@ execution_modes:
           team_lead: { class: main, runtime: claude-native, agent_type: default }
           pm_beads_plan_handoff: { class: main, runtime: claude-native, agent_type: default }
           pm_implement_handoff: { class: main, runtime: claude-native, agent_type: default }
+          tech_lead: { class: sub, runtime: codex-worker-mcp, agent_type: default }
           senior_engineer: { class: sub, runtime: codex-worker-mcp, agent_type: explorer }
           librarian: { class: sub, runtime: claude-native, agent_type: default }
           smoke_test_planner: { class: sub, runtime: codex-worker-mcp, agent_type: default }
@@ -144,6 +146,7 @@ execution_modes:
           team_lead: { class: main, runtime: codex-native, agent_type: default }
           pm_beads_plan_handoff: { class: main, runtime: codex-native, agent_type: default }
           pm_implement_handoff: { class: main, runtime: codex-native, agent_type: default }
+          tech_lead: { class: sub, runtime: codex-native, agent_type: default }
           senior_engineer: { class: sub, runtime: codex-native, agent_type: explorer }
           librarian: { class: sub, runtime: codex-native, agent_type: default }
           smoke_test_planner: { class: sub, runtime: codex-native, agent_type: default }
@@ -164,6 +167,7 @@ execution_modes:
           team_lead: { class: main, runtime: claude-native, agent_type: default }
           pm_beads_plan_handoff: { class: main, runtime: claude-native, agent_type: default }
           pm_implement_handoff: { class: main, runtime: claude-native, agent_type: default }
+          tech_lead: { class: sub, runtime: claude-native, agent_type: default }
           senior_engineer: { class: sub, runtime: claude-native, agent_type: explorer }
           librarian: { class: sub, runtime: claude-native, agent_type: default }
           smoke_test_planner: { class: sub, runtime: claude-native, agent_type: default }

@@ -105,6 +105,146 @@ EOF
   } >"$prd_path"
 }
 
+write_fake_beads_binary() {
+  local binary_path="$1"
+  local version="$2"
+
+  mkdir -p "$(dirname "$binary_path")"
+  cat >"$binary_path" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+
+fake_version="$version"
+metadata_path="\$PWD/.beads/metadata.json"
+
+read_mode() {
+  if [ -f "\$metadata_path" ] && command -v jq >/dev/null 2>&1; then
+    jq -r '.dolt_mode // "embedded"' "\$metadata_path" 2>/dev/null || printf 'embedded'
+    return 0
+  fi
+  printf 'embedded'
+}
+
+case "\${1:-}" in
+  version|--version)
+    printf 'bd version %s (fake)\n' "\$fake_version"
+    ;;
+  context)
+    mode="\$(read_mode)"
+    cat <<JSON
+{"beads_dir":"\$PWD/.beads","repo_root":"\$PWD","cwd_repo_root":"\$PWD","is_redirected":false,"is_worktree":false,"backend":"dolt","dolt_mode":"\$mode","database":"fake","project_id":"fake-project","role":"maintainer","bd_version":"$version"}
+JSON
+    ;;
+  doctor)
+    mode="\$(read_mode)"
+    cat <<JSON
+{"path":"\$PWD","overall_ok":true,"summary":"fake doctor","diagnostics":[],"backend":"dolt","dolt_mode":"\$mode"}
+JSON
+    ;;
+  info)
+    mode="\$(read_mode)"
+    cat <<JSON
+{"backend":"dolt","dolt_mode":"\$mode","bd_version":"$version"}
+JSON
+    ;;
+  export)
+    if [ "\${FAKE_BEADS_EXPORT_FAIL:-0}" = "1" ]; then
+      printf 'fake export failure\n' >&2
+      exit 1
+    fi
+    out=""
+    shift || true
+    while [ \$# -gt 0 ]; do
+      case "\$1" in
+        -o|--output)
+          out="\${2:-}"
+          shift 2
+          ;;
+        *)
+          shift
+          ;;
+      esac
+    done
+    payload='{"id":"fake-1","title":"Recovered issue","status":"open","priority":1,"issue_type":"task","created_at":"2026-04-12T00:00:00Z","created_by":"test","updated_at":"2026-04-12T00:00:00Z","labels":["fake"],"dependencies":[],"dependency_count":0,"dependent_count":0,"comment_count":0}'
+    if [ -n "\$out" ]; then
+      printf '%s\n' "\$payload" >"\$out"
+      printf 'Exported 1 issues to %s\n' "\$out"
+    else
+      printf '%s\n' "\$payload"
+    fi
+    ;;
+  init)
+    prefix="fake"
+    shift || true
+    while [ \$# -gt 0 ]; do
+      case "\$1" in
+        -p)
+          prefix="\${2:-fake}"
+          shift 2
+          ;;
+        --destroy-token|--from-jsonl)
+          shift 2
+          ;;
+        *)
+          shift
+          ;;
+      esac
+    done
+    mkdir -p .beads/embeddeddolt
+    touch .beads/embeddeddolt/.lock
+    cat >.beads/metadata.json <<JSON
+{"database":"dolt","backend":"dolt","dolt_mode":"embedded","dolt_database":"\$prefix","project_id":"fake-project"}
+JSON
+    ;;
+  migrate)
+    printf 'Repository ID updated\n'
+    ;;
+  import)
+    shift || true
+    import_file="\${1:-}"
+    [ -n "\$import_file" ] && [ -f "\$import_file" ] || {
+      printf 'missing import file\n' >&2
+      exit 1
+    }
+    cp "\$import_file" .beads/imported.jsonl
+    printf 'Imported 1 issues from %s\n' "\$import_file"
+    ;;
+  count)
+    if [ -f .beads/imported.jsonl ] || [ -f .beads/issues.jsonl ]; then
+      printf '1\n'
+    else
+      printf '0\n'
+    fi
+    ;;
+  list)
+    printf '[{"id":"fake-1","title":"Recovered issue"}]\n'
+    ;;
+  *)
+    exit 0
+    ;;
+esac
+EOF
+  chmod +x "$binary_path"
+}
+
+write_fake_legacy_backup() {
+  local backup_dir="$1"
+
+  mkdir -p "$backup_dir"
+  cat >"$backup_dir/issues.jsonl" <<'EOF'
+{"id":"legacy-1","title":"Legacy issue","description":"Recovered from legacy backup.","acceptance_criteria":"","design":"","status":"open","priority":1,"issue_type":"task","assignee":"pm-test","owner":"","created_at":"2026-04-12T00:00:00Z","created_by":"pm-test","updated_at":"2026-04-12T00:00:00Z"}
+EOF
+  cat >"$backup_dir/dependencies.jsonl" <<'EOF'
+{"issue_id":"legacy-1","depends_on_id":"legacy-parent","type":"parent-child","created_at":"2026-04-12T00:00:00Z","created_by":"pm-test","metadata":"{}"}
+EOF
+  cat >"$backup_dir/labels.jsonl" <<'EOF'
+{"issue_id":"legacy-1","label":"legacy"}
+EOF
+  cat >"$backup_dir/comments.jsonl" <<'EOF'
+{"author":"pm-test","created_at":"2026-04-12T00:00:00Z","id":1,"issue_id":"legacy-1","text":"legacy comment"}
+EOF
+}
+
 require_tool git
 require_tool jq
 require_tool bash
@@ -169,6 +309,7 @@ helper_path_contracts="$(
     "$ROOT_DIR/.config/opencode/instructions/pm_workflow.md" \
     "$ROOT_DIR/skills/pm/SKILL.md" \
     "$ROOT_DIR/skills/pm-discovery/SKILL.md" \
+    "$ROOT_DIR/skills/pm-technical-planning/SKILL.md" \
     "$ROOT_DIR/skills/pm-implement/SKILL.md"
 )"
 assert_contains "$helper_path_contracts" '~/.codex/skills/pm/scripts/pm-command.sh'
@@ -186,6 +327,7 @@ live_contracts="$(
     "$ROOT_DIR/docs/MCP_PREREQUISITES.md" \
     "$ROOT_DIR/instructions/pm_workflow.md" \
     "$ROOT_DIR/skills/pm/SKILL.md" \
+    "$ROOT_DIR/skills/pm-technical-planning/SKILL.md" \
     "$ROOT_DIR/skills/pm-create-prd/SKILL.md" \
     "$ROOT_DIR/skills/pm-beads-plan/SKILL.md" \
     "$ROOT_DIR/skills/pm-discovery/SKILL.md" \
@@ -199,12 +341,20 @@ live_contracts="$(
     "$ROOT_DIR/skills/pm-implement/references/team-lead.md"
 )"
 assert_contains "$live_contracts" 'The helper gate output is authoritative. If it returns `PLAN_ROUTE_BLOCKED` or `discovery_can_start=0`, do not invoke Discovery or any downstream phase.'
+assert_contains "$live_contracts" 'Discovery -> Technical Planning -> PRD -> Awaiting PRD Approval -> Beads Planning -> Awaiting Beads Approval -> Team Lead Orchestration -> Implementation -> Post-Implementation Reviews -> Review Iteration -> Manual QA Smoke Tests -> Awaiting Final Review'
 assert_contains "$live_contracts" 'Discovery may start only if the preceding `plan gate` returned `PLAN_ROUTE_READY` and `discovery_can_start=1`.'
 assert_contains "$live_contracts" 'Interactive `/pm plan` and `/pm plan big feature` runs must ask this question on every new planning invocation before Discovery starts.'
 assert_contains "$live_contracts" 'Interactive PM orchestration must use persisted execution-mode state only as the default suggested choice, then pass the user’s explicit selection to the helper gate.'
 assert_contains "$live_contracts" 'Do not auto-fallback to `codex-native` inside Discovery. Treat this as a critical phase block and return control to PM.'
 assert_contains "$live_contracts" 'Do not auto-fallback to the main runtime inside `dynamic-cross-runtime`. Surface a critical phase block and return control to PM.'
 assert_contains "$live_contracts" 'Do not auto-fallback to `codex-native` inside implementation or review phases when a required Claude-routed role is unavailable.'
+assert_contains "$live_contracts" 'Start Technical Planning only after discovery clarifications are exhausted.'
+assert_contains "$live_contracts" 'If consensus is not reached, technical planning is not complete.'
+assert_contains "$live_contracts" 'Treat approval as blocked unless all are true:'
+assert_contains "$live_contracts" 'PRD includes both `Technical Implementation Plan` and `Smoke Test Plan`.'
+assert_contains "$live_contracts" 'if decomposition reveals a conflict with the approved plan, stop and return control for PRD/technical-plan correction'
+assert_contains "$live_contracts" 'consumes the approved PRD smoke-test plan generated after technical planning'
+assert_contains "$live_contracts" 'in_technical_planning'
 assert_contains "$live_contracts" 'must launch the required orchestrator subagents by default whenever the current runtime/tool policy permits delegation'
 assert_contains "$live_contracts" 'Launch discovery subagents by default whenever the current runtime/tool policy permits delegation.'
 assert_contains "$live_contracts" 'Required implementation, verification, review, and QA subagents are default behavior whenever the current runtime/tool policy permits delegation.'
@@ -351,6 +501,7 @@ assert_contains "$help_out" 'Filter non-pipeline changes and emit integration-pl
 assert_contains "$help_out" 'Execution-mode options are:'
 assert_contains "$help_out" 'Dynamic Cross-Runtime'
 assert_contains "$help_out" 'Main Runtime Only'
+assert_contains "$help_out" 'Discovery -> Technical Planning -> PRD -> Awaiting PRD Approval -> Beads Planning -> Awaiting Beads Approval -> Team Lead Orchestration -> Implementation -> Post-Implementation Reviews -> Review Iteration -> Manual QA Smoke Tests -> Awaiting Final Review'
 assert_contains "$help_out" 'Interactive `/pm` plan runs should ask for execution mode on every new planning invocation and pass an explicit `--mode` to the helper gate'
 assert_contains "$help_out" 'Selected execution mode persists in .codex; direct helper usage may reuse it by default when no `--mode` is supplied'
 assert_contains "$help_out" 'Outer runtime is inferred fresh from the running Codex or Claude session on every plan gate'
@@ -365,6 +516,140 @@ assert_contains "$help_out" 'claude-contract run-loop'
 assert_contains "$help_out" 'Codex secondary-runtime usage inside Claude is permitted only through codex-worker MCP'
 assert_not_contains "$help_out" 'workflow falls back to codex-native'
 assert_not_contains "$help_out" 'Claude-mapped roles fallback to codex-native'
+
+echo "[test-pm-command] case: beads route map exposes shared preflight policy"
+beads_route_map_out="$("$HELPER" beads route-map)"
+assert_contains "$beads_route_map_out" 'BEADS_ROUTE_POLICY|min_version=1.0.0|target_backend=dolt|target_mode=embedded|upgrade_managed=1|fallback_policy=hard_stop'
+assert_contains "$beads_route_map_out" 'BEADS_ROUTE_MAP|phase=beads-planning|preflight=pm-command.sh beads preflight --phase beads-planning'
+assert_contains "$beads_route_map_out" 'BEADS_ROUTE_MAP|phase=implementation|preflight=pm-command.sh beads preflight --phase implementation'
+assert_contains "$beads_route_map_out" 'BEADS_ROUTE_MAP|phase=review|preflight=pm-command.sh beads preflight --phase review'
+assert_contains "$beads_route_map_out" 'BEADS_ROUTE_MAP|phase=manual-qa|preflight=pm-command.sh beads preflight --phase manual-qa'
+
+FAKE_BEADS_OLD_BIN="$TMPDIR/fake-beads-old/bd"
+FAKE_BEADS_NEW_BIN="$TMPDIR/fake-beads-new/bd"
+write_fake_beads_binary "$FAKE_BEADS_OLD_BIN" "0.60.0"
+write_fake_beads_binary "$FAKE_BEADS_NEW_BIN" "1.0.0"
+
+echo "[test-pm-command] case: beads preflight upgrades outdated CLI and seeds embedded store"
+BEADS_UPGRADE_REPO="$TMPDIR/beads-upgrade-repo"
+mkdir -p "$BEADS_UPGRADE_REPO"
+git -C "$BEADS_UPGRADE_REPO" init -q
+git -C "$BEADS_UPGRADE_REPO" config user.name "pm-test"
+git -C "$BEADS_UPGRADE_REPO" config user.email "pm-test@example.com"
+printf 'seed\n' >"$BEADS_UPGRADE_REPO/README.md"
+git -C "$BEADS_UPGRADE_REPO" add README.md
+git -C "$BEADS_UPGRADE_REPO" commit -q -m "init"
+beads_upgrade_out="$(
+  cd "$BEADS_UPGRADE_REPO"
+  PM_BEADS_COMMAND_OVERRIDE="$FAKE_BEADS_OLD_BIN" \
+  PM_BEADS_INSTALL_COMMAND_OVERRIDE="cp '$FAKE_BEADS_NEW_BIN' '$FAKE_BEADS_OLD_BIN'" \
+  "$HELPER" beads preflight --phase beads-planning
+)"
+assert_contains "$beads_upgrade_out" 'BEADS_UPGRADE|status=needed|current_version=0.60.0|min_version=1.0.0'
+assert_contains "$beads_upgrade_out" 'BEADS_UPGRADE|status=completed|version=1.0.0'
+assert_contains "$beads_upgrade_out" 'BEADS_INIT|status=completed|mode=embedded'
+assert_contains "$beads_upgrade_out" 'BEADS_PREFLIGHT_READY|phase=beads-planning|'
+jq -e '.dolt_mode == "embedded"' "$BEADS_UPGRADE_REPO/.beads/metadata.json" >/dev/null || fail "beads preflight did not seed embedded metadata"
+
+echo "[test-pm-command] case: beads preflight migrates server mode to embedded from live export"
+BEADS_MIGRATE_REPO="$TMPDIR/beads-migrate-repo"
+mkdir -p "$BEADS_MIGRATE_REPO/.beads"
+git -C "$BEADS_MIGRATE_REPO" init -q
+git -C "$BEADS_MIGRATE_REPO" config user.name "pm-test"
+git -C "$BEADS_MIGRATE_REPO" config user.email "pm-test@example.com"
+printf 'seed\n' >"$BEADS_MIGRATE_REPO/README.md"
+git -C "$BEADS_MIGRATE_REPO" add README.md
+git -C "$BEADS_MIGRATE_REPO" commit -q -m "init"
+cat >"$BEADS_MIGRATE_REPO/.beads/metadata.json" <<'EOF'
+{"database":"dolt","backend":"dolt","dolt_mode":"server","dolt_database":"fake","project_id":"fake-project"}
+EOF
+beads_migrate_out="$(
+  cd "$BEADS_MIGRATE_REPO"
+  PM_BEADS_COMMAND_OVERRIDE="$FAKE_BEADS_NEW_BIN" \
+  "$HELPER" beads preflight --phase beads-planning
+)"
+assert_contains "$beads_migrate_out" 'BEADS_MIGRATION|status=needed|from_backend=dolt|from_mode=server|target_mode=embedded'
+assert_contains "$beads_migrate_out" 'BEADS_RECOVERY|status=portable_export_created|'
+assert_contains "$beads_migrate_out" 'BEADS_MIGRATION|status=completed|target_mode=embedded|recovery_source=live_export'
+assert_contains "$beads_migrate_out" 'BEADS_PREFLIGHT_READY|phase=beads-planning|'
+jq -e '.dolt_mode == "embedded"' "$BEADS_MIGRATE_REPO/.beads/metadata.json" >/dev/null || fail "beads migration did not land in embedded mode"
+
+echo "[test-pm-command] case: beads preflight can rebuild from legacy backup when live export is unavailable"
+BEADS_BACKUP_REPO="$TMPDIR/beads-backup-repo"
+mkdir -p "$BEADS_BACKUP_REPO/.beads"
+git -C "$BEADS_BACKUP_REPO" init -q
+git -C "$BEADS_BACKUP_REPO" config user.name "pm-test"
+git -C "$BEADS_BACKUP_REPO" config user.email "pm-test@example.com"
+printf 'seed\n' >"$BEADS_BACKUP_REPO/README.md"
+git -C "$BEADS_BACKUP_REPO" add README.md
+git -C "$BEADS_BACKUP_REPO" commit -q -m "init"
+cat >"$BEADS_BACKUP_REPO/.beads/metadata.json" <<'EOF'
+{"database":"dolt","backend":"dolt","dolt_mode":"server","dolt_database":"fake","project_id":"fake-project"}
+EOF
+write_fake_legacy_backup "$BEADS_BACKUP_REPO/.beads/backup"
+beads_backup_out="$(
+  cd "$BEADS_BACKUP_REPO"
+  FAKE_BEADS_EXPORT_FAIL=1 \
+  PM_BEADS_COMMAND_OVERRIDE="$FAKE_BEADS_NEW_BIN" \
+  "$HELPER" beads preflight --phase beads-planning
+)"
+assert_contains "$beads_backup_out" 'BEADS_RECOVERY|status=legacy_backup_transformed|'
+assert_contains "$beads_backup_out" 'BEADS_MIGRATION|status=completed|target_mode=embedded|recovery_source=legacy_backup_jsonl'
+assert_contains "$beads_backup_out" 'BEADS_PREFLIGHT_READY|phase=beads-planning|'
+jq -e '.dolt_mode == "embedded"' "$BEADS_BACKUP_REPO/.beads/metadata.json" >/dev/null || fail "legacy-backup rebuild did not land in embedded mode"
+[ -f "$BEADS_BACKUP_REPO/.beads/issues.jsonl" ] || fail "legacy-backup rebuild did not persist portable issues.jsonl"
+
+echo "[test-pm-command] case: beads preflight repairs empty embedded store from legacy backup"
+BEADS_EMPTY_EMBEDDED_REPO="$TMPDIR/beads-empty-embedded-repo"
+mkdir -p "$BEADS_EMPTY_EMBEDDED_REPO/.beads/embeddeddolt"
+git -C "$BEADS_EMPTY_EMBEDDED_REPO" init -q
+git -C "$BEADS_EMPTY_EMBEDDED_REPO" config user.name "pm-test"
+git -C "$BEADS_EMPTY_EMBEDDED_REPO" config user.email "pm-test@example.com"
+printf 'seed\n' >"$BEADS_EMPTY_EMBEDDED_REPO/README.md"
+git -C "$BEADS_EMPTY_EMBEDDED_REPO" add README.md
+git -C "$BEADS_EMPTY_EMBEDDED_REPO" commit -q -m "init"
+cat >"$BEADS_EMPTY_EMBEDDED_REPO/.beads/metadata.json" <<'EOF'
+{"database":"dolt","backend":"dolt","dolt_mode":"embedded","dolt_database":"fake","project_id":"fake-project"}
+EOF
+touch "$BEADS_EMPTY_EMBEDDED_REPO/.beads/embeddeddolt/.lock"
+write_fake_legacy_backup "$BEADS_EMPTY_EMBEDDED_REPO/.beads/backup"
+beads_empty_embedded_out="$(
+  cd "$BEADS_EMPTY_EMBEDDED_REPO"
+  PM_BEADS_COMMAND_OVERRIDE="$FAKE_BEADS_NEW_BIN" \
+  "$HELPER" beads preflight --phase beads-planning
+)"
+assert_contains "$beads_empty_embedded_out" 'BEADS_RECOVERY|status=embedded_store_empty_using_backup|issue_count=0|backup_issue_count=1'
+assert_contains "$beads_empty_embedded_out" 'BEADS_MIGRATION|status=completed|target_mode=embedded|recovery_source=legacy_backup_jsonl'
+assert_contains "$beads_empty_embedded_out" 'BEADS_PREFLIGHT_READY|phase=beads-planning|'
+[ -f "$BEADS_EMPTY_EMBEDDED_REPO/.beads/issues.jsonl" ] || fail "empty embedded recovery did not persist portable issues.jsonl"
+
+echo "[test-pm-command] case: beads preflight clears stale server metadata on healthy embedded store"
+BEADS_STALE_METADATA_REPO="$TMPDIR/beads-stale-metadata-repo"
+mkdir -p "$BEADS_STALE_METADATA_REPO/.beads/embeddeddolt"
+git -C "$BEADS_STALE_METADATA_REPO" init -q
+git -C "$BEADS_STALE_METADATA_REPO" config user.name "pm-test"
+git -C "$BEADS_STALE_METADATA_REPO" config user.email "pm-test@example.com"
+printf 'seed\n' >"$BEADS_STALE_METADATA_REPO/README.md"
+git -C "$BEADS_STALE_METADATA_REPO" add README.md
+git -C "$BEADS_STALE_METADATA_REPO" commit -q -m "init"
+cat >"$BEADS_STALE_METADATA_REPO/.beads/metadata.json" <<'EOF'
+{"database":"dolt","backend":"dolt","dolt_mode":"embedded","dolt_database":"fake","project_id":"fake-project"}
+EOF
+touch "$BEADS_STALE_METADATA_REPO/.beads/embeddeddolt/.lock"
+printf '%s\n' '{"id":"fake-1","title":"Recovered issue"}' >"$BEADS_STALE_METADATA_REPO/.beads/issues.jsonl"
+printf '999999\n' >"$BEADS_STALE_METADATA_REPO/.beads/dolt-server.pid"
+printf '59408\n' >"$BEADS_STALE_METADATA_REPO/.beads/dolt-server.port"
+touch "$BEADS_STALE_METADATA_REPO/.beads/dolt-server.lock"
+beads_stale_metadata_out="$(
+  cd "$BEADS_STALE_METADATA_REPO"
+  PM_BEADS_COMMAND_OVERRIDE="$FAKE_BEADS_NEW_BIN" \
+  "$HELPER" beads preflight --phase beads-planning
+)"
+assert_contains "$beads_stale_metadata_out" 'BEADS_RECOVERY|status=server_runtime_metadata_cleared|pid=999999|paths=dolt-server.pid,dolt-server.port,dolt-server.lock'
+assert_contains "$beads_stale_metadata_out" 'BEADS_PREFLIGHT_READY|phase=beads-planning|'
+[ ! -e "$BEADS_STALE_METADATA_REPO/.beads/dolt-server.pid" ] || fail "stale metadata cleanup left dolt-server.pid behind"
+[ ! -e "$BEADS_STALE_METADATA_REPO/.beads/dolt-server.port" ] || fail "stale metadata cleanup left dolt-server.port behind"
+[ ! -e "$BEADS_STALE_METADATA_REPO/.beads/dolt-server.lock" ] || fail "stale metadata cleanup left dolt-server.lock behind"
 
 echo "[test-pm-command] case: self-check fixtures catalog"
 self_check_fixtures_out="$("$HELPER" self-check fixtures)"

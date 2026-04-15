@@ -1,0 +1,4 @@
+interface:
+  display_name: "PM Technical Planning"
+  short_description: "Consensus technical plan + PRD handoff"
+  default_prompt: "Use $pm-technical-planning to produce a four-tech-lead consensus technical implementation plan, then auto-handoff to $pm-create-prd."

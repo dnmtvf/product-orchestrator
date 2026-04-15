@@ -47,6 +47,12 @@ YYYY-MM-DD
 ## Acceptance Criteria
 [Testable criteria that define completion]
 
+## Technical Implementation Plan
+[Authoritative technical implementation plan produced during Technical Planning.]
+
+## Smoke Test Plan
+[Generate this after the Technical Implementation Plan is complete. Cover happy path, unhappy path, regression, and post-implementation QA execution notes.]
+
 ## Success Metrics
 [Measurable indicators of success]
 

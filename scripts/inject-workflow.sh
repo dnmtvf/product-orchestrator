@@ -28,7 +28,7 @@ Options:
   -h, --help                     Show this help
 
 Managed skills injected:
-  pm pm-discovery pm-create-prd pm-beads-plan pm-implement agent-browser
+  pm pm-discovery pm-technical-planning pm-create-prd pm-beads-plan pm-implement agent-browser
 
 Examples:
   inject-workflow.sh --repo ~/my-app
@@ -113,7 +113,7 @@ if ! git -C "$REPO_PATH" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   err "Not a git repository: $REPO_PATH"
 fi
 
-SKILLS=(pm pm-discovery pm-create-prd pm-beads-plan pm-implement agent-browser)
+SKILLS=(pm pm-discovery pm-technical-planning pm-create-prd pm-beads-plan pm-implement agent-browser)
 
 [ -d "$SOURCE_ROOT/skills" ] || err "Missing source directory: $SOURCE_ROOT/skills"
 for s in "${SKILLS[@]}"; do
@@ -245,7 +245,7 @@ if [ "$DRY_RUN" -eq 0 ]; then
   "source_commit": "$SOURCE_COMMIT",
   "source_remote": "$SOURCE_REMOTE",
   "source_dirty": "$SOURCE_DIRTY",
-  "managed_skills": ["pm", "pm-discovery", "pm-create-prd", "pm-beads-plan", "pm-implement", "agent-browser"],
+  "managed_skills": ["pm", "pm-discovery", "pm-technical-planning", "pm-create-prd", "pm-beads-plan", "pm-implement", "agent-browser"],
   "runtime_mode": "dual",
   "managed_runtime_roots": [".codex/skills", ".claude/skills"],
   "managed_claude_agents_dir": ".claude/agents",

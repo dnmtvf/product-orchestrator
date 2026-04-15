@@ -3,16 +3,18 @@
 This workflow is the source of truth for PM orchestration in this repo. Installed target repos receive the same file at both `instructions/pm_workflow.md` and `.config/opencode/instructions/pm_workflow.md`.
 
 ## Required Phase Order
-`Discovery -> PRD -> Awaiting PRD Approval -> Beads Planning -> Awaiting Beads Approval -> Team Lead Orchestration -> Implementation -> Post-Implementation Reviews -> Review Iteration -> Manual QA Smoke Tests -> Awaiting Final Review`
+`Discovery -> Technical Planning -> PRD -> Awaiting PRD Approval -> Beads Planning -> Awaiting Beads Approval -> Team Lead Orchestration -> Implementation -> Post-Implementation Reviews -> Review Iteration -> Manual QA Smoke Tests -> Awaiting Final Review`
 
 ## Hard Rules
 - No assumptions.
 - Discovery must ask numbered clarification questions with `Why it matters:` until ambiguity is removed.
+- Technical Planning must not start until discovery clarifications are exhausted.
 - Two human gates require the exact reply `approved`:
   - PRD approval gate
   - Beads approval gate
 - Do not start implementation without approved PRD + approved Beads plan.
 - PRD must exist at `docs/prd/<slug>.md`.
+- PRD approval is blocked until both `Technical Implementation Plan` and `Smoke Test Plan` exist in the PRD.
 - PRD `Open Questions` must be empty before execution.
 - Beads (`bd`) is the execution source of truth and `.beads/` must stay in git.
 - No silent failures: when any issue/error appears at a step, report it explicitly to the user immediately.
@@ -41,6 +43,10 @@ This workflow is the source of truth for PM orchestration in this repo. Installe
   - installed target repo from Claude (compatibility path): `./.claude/skills/pm/scripts/pm-command.sh`
 - Both plan routes must execute the helper gate before Discovery:
   - `<pm-helper> plan gate --route default|big-feature [--mode dynamic-cross-runtime|main-runtime-only]`
+- Any PM/helper phase that invokes `bd` must run the shared Beads preflight before the first `bd` command in that phase:
+  - `<pm-helper> beads preflight --phase beads-planning|implementation|review|manual-qa`
+- Beads preflight is the only supported place for `bd` upgrades, runtime recovery, backup-based rebuilds, and embedded-mode migration.
+- Do not fall back to `bd --no-db` or ad hoc `bd init` logic inside PM orchestration.
 - Before Discovery for both plan routes, run a mandatory execution-mode selection gate with exactly two options:
   - `Dynamic Cross-Runtime`
   - `Main Runtime Only`
@@ -51,6 +57,7 @@ This workflow is the source of truth for PM orchestration in this repo. Installe
 - Outer runtime must be inferred fresh on every plan gate run from the active Codex or Claude session.
 - Selected execution mode plus the inferred outer runtime must drive runtime/model for:
   - `project_manager`
+  - `tech_lead`
   - `team_lead`
   - `pm_beads_plan_handoff`
   - `pm_implement_handoff`
@@ -112,10 +119,44 @@ This workflow is the source of truth for PM orchestration in this repo. Installe
   - `worktree-isolated`
 - If mode is missing in the initial request, discovery must ask for it before decomposition.
 
+## Discovery Contract
+- Discovery remains PM-owned and clarification-first.
+- Discovery must use:
+  - four parallel `project_manager`-role agents that help and challenge each other
+  - two `tech_lead` agents for bounded implementable-option challenge
+  - Senior Engineer and Librarian coverage by default
+  - Researcher support for complex questions
+  - Alternative PM coverage on every discovery step
+- Discovery tech leads may challenge feasibility assumptions, surface bounded implementation options, and highlight integration/migration risks.
+- Discovery tech leads must not produce the final technical implementation plan.
+- Discovery must not produce the final smoke-test artifact.
+- Discovery output must include:
+  - `Discovery Summary`
+  - `Discovery Technical Handoff Notes`
+- Discovery handoff goes to `Technical Planning`, not directly to PRD creation.
+
+## Technical Planning Contract
+- Technical Planning is a first-class phase between Discovery and PRD creation.
+- Technical Planning must use four `tech_lead` agents.
+- Decision rule is consensus across the four tech leads.
+- Librarian and Researcher may be consulted when technical planning needs external documentation, standards coverage, or deeper investigation.
+- Technical Planning output is one authoritative technical implementation plan.
+- Technical Planning must not hand off to PRD creation until one consensus plan exists.
+- The final smoke-test artifact must not be generated before the technical implementation plan is complete.
+
+## PRD Contract
+- PRD creation starts only after Technical Planning is complete.
+- Every PRD created under this workflow must include:
+  - `Technical Implementation Plan`
+  - `Smoke Test Plan`
+- Smoke-test planning happens after the technical implementation plan is completed and written into the PRD.
+- For big-feature workflows, dual-mode regression coverage for `conflict-aware` and `worktree-isolated` must be generated in the later smoke-planning step, not during Discovery.
+- Beads planning must treat the approved technical implementation plan as binding input.
+
 ## Queue Manifest And Idempotency
 - Persist big-feature queue state at `docs/prd/_queue/<feature-slug>.json`.
 - Per-PRD states must include at least:
-  - `pending`, `in_discovery`, `awaiting_prd_approval`, `awaiting_beads_approval`, `approved`, `queued`, `queue_failed`.
+  - `pending`, `in_discovery`, `in_technical_planning`, `awaiting_prd_approval`, `awaiting_beads_approval`, `approved`, `queued`, `queue_failed`.
 - Canonical runnable queue handle is Beads epic ID.
 - Idempotency key format: `<prd_slug>:<approval_version>`.
 - Duplicate prevention invariants:
@@ -188,10 +229,16 @@ This workflow is the source of truth for PM orchestration in this repo. Installe
   - `<pm-helper> claude-contract run-loop --context-file <json> --response-file <txt> [--response-file <txt> ...] --session-id <id> --role <role>`
 - If handshake parser/wrapper returns `status=context_needed` or `status=awaiting_context`, orchestrator must gather requested context and continue in the same Claude session.
 - Required discovery support coverage:
+  - Project Manager swarm (`default`, 4 instances, or equivalent local discovery partitioning)
+  - Discovery Tech Lead pair (`default`, 2 instances, or equivalent local feasibility/option analysis)
   - Senior Engineer (`explorer` by default when delegation is permitted; otherwise local codebase analysis)
   - Librarian (`default` by default when delegation is permitted; otherwise local official-doc research)
-  - Smoke Test Planner (`default` by default when delegation is permitted; otherwise local smoke planning)
+  - Researcher (`default` by default for complex questions when delegation is permitted; otherwise local deep research)
   - Alternative PM (`default` by default when delegation is permitted; otherwise local alternatives analysis)
+- Required technical-planning support coverage:
+  - Tech Lead swarm (`default`, 4 instances, or equivalent local consensus planning)
+  - Librarian when documentation or standards constraints need verification
+  - Researcher when deeper investigation is required before consensus
 - Implementation must run through Team Lead (`default`), which delegates coding to:
   - Backend Engineer (`worker`)
   - Frontend Engineer (`worker`)
@@ -201,7 +248,7 @@ This workflow is the source of truth for PM orchestration in this repo. Installe
   - Jazz Reviewer (`default`, then runtime-routed per profile)
 
 ## Dual-Mode Smoke Coverage
-- For big-feature workflows, smoke planning and QA must cover both planning modes:
+- For big-feature workflows, late smoke planning and downstream QA must cover both planning modes:
   - `conflict-aware`
   - `worktree-isolated`
 - Required categories:

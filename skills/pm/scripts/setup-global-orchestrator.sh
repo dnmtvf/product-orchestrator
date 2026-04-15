@@ -13,6 +13,7 @@ BOOTSTRAP_MANIFEST_PATH="$CODEX_HOME_DIR/pm-orchestrator-bootstrap.json"
 REQUIRED_SKILLS=(
   pm
   pm-discovery
+  pm-technical-planning
   pm-create-prd
   pm-beads-plan
   pm-implement

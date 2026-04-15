@@ -2,7 +2,7 @@
 
 ## Overview
 
-This is the **PM Orchestrator** source repo. It provides a strict Discovery -> PRD -> Beads Planning -> Implementation -> Review -> QA workflow with mandatory approval gates and paired support coverage, using subagents when runtime policy permits and equivalent local work otherwise.
+This is the **PM Orchestrator** source repo. It provides a strict Discovery -> Technical Planning -> PRD -> Beads Planning -> Implementation -> Review -> QA workflow with mandatory approval gates and paired support coverage, using subagents when runtime policy permits and equivalent local work otherwise.
 
 ## Architecture
 
@@ -21,6 +21,7 @@ This is the **PM Orchestrator** source repo. It provides a strict Discovery -> P
 - `skills/` — Claude Code skill definitions (SKILL.md + references + agents)
   - `pm/` — Main orchestrator
   - `pm-discovery/` — Discovery phase
+  - `pm-technical-planning/` — Technical Planning phase
   - `pm-create-prd/` — PRD creation
   - `pm-beads-plan/` — Beads task planning
   - `pm-implement/` — Team Lead orchestration and implementation
@@ -35,6 +36,7 @@ This is the **PM Orchestrator** source repo. It provides a strict Discovery -> P
 Only these skills are available:
 - `/pm` — Main PM workflow orchestrator
 - `/pm-discovery` — Discovery phase
+- `/pm-technical-planning` — Technical Planning phase
 - `/pm-create-prd` — PRD creation
 - `/pm-beads-plan` — Beads planning
 - `/pm-implement` — Implementation and review

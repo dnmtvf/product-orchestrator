@@ -15,6 +15,7 @@ This document defines the persisted queue state model for `$pm plan big feature:
 Per-PRD lifecycle states:
 - `pending`
 - `in_discovery`
+- `in_technical_planning`
 - `awaiting_prd_approval`
 - `awaiting_beads_approval`
 - `approved`

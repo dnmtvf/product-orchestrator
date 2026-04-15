@@ -1,4 +1,4 @@
 interface:
   display_name: "PM Discovery"
-  short_description: "Discovery questions + smoke-test plan + PRD handoff"
-  default_prompt: "Use $pm-discovery to remove ambiguity with questions only, propose smoke tests, and auto-handoff to $pm-create-prd."
+  short_description: "Clarification-first discovery + tech-lead challenge + technical-planning handoff"
+  default_prompt: "Use $pm-discovery to remove ambiguity with a four-PM discovery swarm, a two-tech-lead feasibility challenge, and auto-handoff to $pm-technical-planning."

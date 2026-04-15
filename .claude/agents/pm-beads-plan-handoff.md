@@ -12,12 +12,13 @@ Primary goal:
 
 Working mode:
 1. Validate that the PRD path exists, PRD approval is explicit, and `Open Questions` is empty.
-2. Package the planning inputs: scope, acceptance criteria, smoke-test expectations, risks, and external constraints.
+2. Package the planning inputs: scope, acceptance criteria, approved technical implementation plan, smoke-test expectations, risks, and external constraints.
 3. Highlight the minimum dependency and sequencing facts Beads planning must preserve.
 4. Hand off cleanly to the Beads-planning phase without adding unapproved scope.
 
 Focus on:
 - PRD approval and readiness state
+- the approved technical implementation plan as binding input
 - atomic decomposition boundaries
 - sequencing and dependency-sensitive work
 - smoke-test coverage that must survive into QA

@@ -1,6 +1,6 @@
 ---
 name: pm
-description: Strict PM orchestration workflow for any repo. Trigger when user invokes /pm; orchestrates discovery, PRD, approvals, beads planning, team-lead execution orchestration, implementation, automated reviews, manual QA smoke tests, and iteration while gathering specialized support coverage through subagents when policy permits or equivalent local work otherwise.
+description: Strict PM orchestration workflow for any repo. Trigger when user invokes /pm; orchestrates discovery, technical planning, PRD, approvals, beads planning, team-lead execution orchestration, implementation, automated reviews, manual QA smoke tests, and iteration while gathering specialized support coverage through subagents when policy permits or equivalent local work otherwise.
 ---
 
 # PM Skill (Strict Orchestrator)
@@ -8,7 +8,7 @@ description: Strict PM orchestration workflow for any repo. Trigger when user in
 ## Contract
 - No assumptions. If anything is ambiguous, ask clarifying questions.
 - Mandatory order:
-  `Discovery -> PRD -> Awaiting PRD Approval -> Beads Planning -> Awaiting Beads Approval -> Team Lead Orchestration -> Implementation -> Post-Implementation Reviews -> Review Iteration -> Manual QA Smoke Tests -> Awaiting Final Review`.
+  `Discovery -> Technical Planning -> PRD -> Awaiting PRD Approval -> Beads Planning -> Awaiting Beads Approval -> Team Lead Orchestration -> Implementation -> Post-Implementation Reviews -> Review Iteration -> Manual QA Smoke Tests -> Awaiting Final Review`.
 - Two hard human gates must use exact response: `approved`.
 - Do not jump phases unless prerequisites are satisfied.
 - Use Beads (`bd`) as the execution source of truth; keep `.beads/` tracked in git.
@@ -146,7 +146,7 @@ description: Strict PM orchestration workflow for any repo. Trigger when user in
 ## Queue Manifest Contract (mandatory for big-feature route)
 - Persist queue state at `docs/prd/_queue/<feature-slug>.json`.
 - Maintain per-PRD lifecycle states:
-  - `pending`, `in_discovery`, `awaiting_prd_approval`, `awaiting_beads_approval`, `approved`, `queued`, `queue_failed`.
+  - `pending`, `in_discovery`, `in_technical_planning`, `awaiting_prd_approval`, `awaiting_beads_approval`, `approved`, `queued`, `queue_failed`.
 - Canonical runnable queue unit is Beads epic ID.
 - Idempotency key format must be `<prd_slug>:<approval_version>`.
 - Duplicate prevention invariants:
@@ -190,9 +190,9 @@ description: Strict PM orchestration workflow for any repo. Trigger when user in
 - PM must not depend on custom named launcher types being available.
 - Recommended launcher mapping:
   - `explorer`: Senior Engineer and codebase read/analyze subagents.
-  - `default`: Librarian, Smoke Test Planner, Researcher, Alternative PM, Team Lead, AGENTS compliance reviewer, Jazz reviewer, and Manual QA.
+  - `default`: Project Manager swarm, Tech Lead, Librarian, Smoke Test Planner, Researcher, Alternative PM, Team Lead, AGENTS compliance reviewer, Jazz reviewer, and Manual QA.
   - `worker`: Backend/Frontend/Security implementation subagents.
-- For Smoke Test Planner, Researcher, Alternative PM, and Jazz Reviewer roles when active execution mode maps runtime to `claude-code-mcp`:
+- For Tech Lead, Smoke Test Planner, Researcher, Alternative PM, and Jazz Reviewer roles when active execution mode maps runtime to `claude-code-mcp`:
   - spawn a generic `default` subagent first
   - then invoke `claude-code` MCP from that subagent per the Claude MCP Contract
   - do not treat `claude-code` as a launcher type
@@ -250,26 +250,33 @@ For every phase, gather Senior Engineer and Librarian coverage before asking use
 
 PM should merge both outputs and only ask the user for information that cannot be inferred from codebase or authoritative external sources.
 
-## Discovery Smoke Test Planner Agent (mandatory)
-During Discovery, run an additional agent:
+## Discovery Project Manager Swarm (mandatory)
+During Discovery, run an additional PM swarm:
 
-3. **Smoke Test Planner Agent**
-   - Load prompt from `references/smoke-test-planner.md`.
-   - Purpose: propose smoke tests for happy path, unhappy path, and regression.
-   - Launcher type: spawn as generic `default` with role-labeled prompt context (`[Role: Smoke Test Planner Agent]`).
+3. **Project Manager Swarm**
+   - Load prompt from `references/project-manager.md`.
+   - Purpose: use four parallel PM-role agents to sharpen clarification quality, partition the discovery space, and reduce avoidable user loops.
+   - Launcher type: spawn four generic `default` subagents with role-labeled prompt context (`[Role: Project Manager Agent]`).
+   - Working rule: each PM agent should cover a distinct slice of discovery so they help and challenge each other instead of duplicating work.
+
+## Discovery Tech Lead Agents (mandatory)
+During Discovery, run a bounded technical-feasibility pair:
+
+4. **Tech Lead Agent**
+   - Load prompt from `references/tech-lead.md`.
+   - Purpose: challenge feasibility assumptions and surface bounded implementation options that could actually be built.
+   - Launcher type: spawn two generic `default` subagents with role-labeled prompt context (`[Role: Tech Lead Agent]`).
    - Runner: use active execution-mode routing from `model-routing.yaml`:
      - `main-runtime-only`: run on the detected outer runtime.
      - `dynamic-cross-runtime` with Codex outer runtime: invoke via `claude-code` MCP using the Claude MCP Contract.
      - `dynamic-cross-runtime` with Claude outer runtime: invoke via `codex-worker` MCP in the Claude runtime.
-   - Mandatory key phrase: start prompt with `use agent swarm for smoke test planning: <feature objective + constraints>`.
-   - Output: a post-implementation smoke-test execution plan, including browser-based checks when relevant.
-
-The smoke-test plan must be attached to Discovery Summary and carried into PRD planning.
+   - Output: bounded implementation-option notes, feasibility constraints, and technical risks for the next phase.
+   - Constraint: discovery tech leads do not produce the final technical implementation plan.
 
 ## Discovery Researcher Agent (mandatory for complex questions)
 During Discovery, run an additional agent for non-obvious or research-heavy questions:
 
-4. **Researcher Agent**
+5. **Researcher Agent**
    - Load prompt from `references/researcher.md`.
    - Purpose: answer complex questions that do not have a straight answer and require deeper investigation/synthesis.
    - Launcher type: spawn as generic `default` with role-labeled prompt context (`[Role: Researcher Agent]`).
@@ -283,7 +290,7 @@ During Discovery, run an additional agent for non-obvious or research-heavy ques
 ## Discovery Alternative PM Agent (mandatory every discovery step)
 During Discovery, run an additional second-PM agent to challenge solution framing:
 
-5. **Alternative PM Agent**
+6. **Alternative PM Agent**
    - Load prompt from `references/alternative-pm.md`.
    - Purpose: provide alternative solution paths and critical reasoning for how the problem could be solved differently.
    - Launcher type: spawn as generic `default` with role-labeled prompt context (`[Role: Alternative PM Agent]`).
@@ -293,6 +300,30 @@ During Discovery, run an additional second-PM agent to challenge solution framin
      - `dynamic-cross-runtime` with Claude outer runtime: invoke via `codex-worker` MCP in the Claude runtime.
    - Mandatory key phrase: start prompt with `use agent swarm for <problem statement and constraints>`.
    - Output: alternatives matrix with options, tradeoffs, risks, assumptions, and recommendation.
+
+## Technical Planning Tech Lead Swarm (mandatory)
+After Discovery is complete, run a dedicated technical-planning swarm:
+
+7. **Tech Lead Swarm**
+   - Prompt source: `$pm-technical-planning` with `references/tech-lead.md`.
+   - Purpose: produce one consensus technical implementation plan before PRD creation.
+   - Launcher type: spawn four generic `default` subagents with role-labeled prompt context (`[Role: Tech Lead Agent]`).
+   - Working rule: all four tech leads help each other, challenge each other, and must converge on one consensus plan.
+   - Support: Librarian and Researcher may be consulted when technical planning needs documentation or deeper investigation support.
+
+## PRD Smoke Test Planner Agent (mandatory after technical planning)
+After the technical implementation plan is completed, run smoke-test planning during PRD generation:
+
+8. **Smoke Test Planner Agent**
+   - Load prompt from `references/smoke-test-planner.md`.
+   - Purpose: generate the final smoke-test artifact only after the technical implementation plan is ready to be written into the PRD.
+   - Launcher type: spawn as generic `default` with role-labeled prompt context (`[Role: Smoke Test Planner Agent]`).
+   - Runner: use active execution-mode routing from `model-routing.yaml`:
+     - `main-runtime-only`: run on the detected outer runtime.
+     - `dynamic-cross-runtime` with Codex outer runtime: invoke via `claude-code` MCP using the Claude MCP Contract.
+     - `dynamic-cross-runtime` with Claude outer runtime: invoke via `codex-worker` MCP in the Claude runtime.
+   - Mandatory key phrase: start prompt with `use agent swarm for smoke test planning: <technical implementation plan + constraints>`.
+   - Output: a post-implementation smoke-test execution plan, including browser-based checks when relevant.
 
 ## Implementation Team Lead Agent (mandatory after beads approval)
 After user approves implementation handoff at the Beads approval gate, create:
@@ -323,45 +354,59 @@ At each phase transition and whenever ambiguity appears:
 6. Ask user only unresolved product decisions.
 
 Discovery extension:
-1. If delegation is permitted, spawn Smoke Test Planner (`default`) in parallel with Senior Engineer and Librarian, then route it using the active execution mode from `model-routing.yaml`; otherwise produce the same smoke-planning artifacts locally and report the skipped delegation as a warning with mitigation and status.
+1. If delegation is permitted, spawn four Project Manager swarm agents (`default`) plus two Tech Lead agents (`default`) alongside Senior Engineer and Librarian; otherwise produce the same clarification framing and bounded technical-option analysis locally and report the skipped delegation as a warning with mitigation and status.
 2. If delegation is permitted, spawn Researcher (`default`) for complex/no-straight-answer discovery questions; otherwise do the same research locally and report the skipped delegation as a warning with mitigation and status.
 3. For deep investigations, use Researcher advanced mode with `use agent swarm for ...` when delegation is permitted; otherwise complete the same investigation locally with the same evidence standard.
 4. If delegation is permitted, spawn Alternative PM (`default`) on every discovery step using the active execution-mode routing + `use agent swarm for ...`; otherwise produce the same alternatives analysis locally and report the skipped delegation as a warning with mitigation and status.
-5. Merge smoke-test proposals, research findings, and alternatives analysis into Discovery Summary and PRD test plan.
+5. Merge discovery findings, bounded implementable-option notes, research findings, and alternatives analysis into Discovery Summary and Technical Planning handoff notes.
+
+Technical Planning extension:
+1. If delegation is permitted, spawn four Tech Lead agents (`default`) and require consensus on one technical plan; otherwise produce the same consensus-seeking planning artifacts locally and report the skipped delegation as a warning with mitigation and status.
+2. If technical planning needs deeper investigation or standards coverage, invoke Researcher and Librarian under the same routing/fallback rules.
+3. Hand the consensus Technical Planning Summary into PRD creation; do not create the final smoke-test artifact before the technical plan is complete.
 
 ## Phase Rules
 
 ### 1) Discovery
 - Enter Discovery automatically unless user explicitly says: `I already answered Discovery`.
-- Before asking user clarifications, gather Senior Engineer, Librarian, Smoke Test Planner, Researcher (for complex questions), and Alternative PM (every discovery step) coverage to eliminate resolvable ambiguities. Use subagents when policy permits; otherwise do the equivalent work locally and report the skipped delegations as warnings with mitigation and status.
+- Before asking user clarifications, gather four Project Manager swarm agents, two Tech Lead agents, Senior Engineer, Librarian, Researcher (for complex questions), and Alternative PM (every discovery step) coverage to eliminate resolvable ambiguities. Use subagents when policy permits; otherwise do the equivalent work locally and report the skipped delegations as warnings with mitigation and status.
 - Ask numbered clarification questions only.
 - Include `Why it matters:` for each question.
-- Do not provide solutions/code/PRD/tasks in this phase.
-- When complete, produce a structured Discovery Summary (including smoke-test matrix, research findings for complex questions, alternatives matrix, and post-implementation QA plan) and auto-handoff to `$pm-create-prd`.
+- Use the Tech Lead pair only for bounded implementation-option challenge; do not produce the final technical implementation plan in this phase.
+- Do not provide final technical plans, code, PRD drafts, or Beads tasks in this phase.
+- When complete, produce a structured Discovery Summary plus Technical Planning handoff notes and auto-handoff to `$pm-technical-planning`.
 
-### 2) PRD
+### 2) Technical Planning
+- Start Technical Planning only after discovery clarifications are exhausted.
+- Use four Tech Lead agents to produce one consensus technical implementation plan.
+- Consult Librarian and Researcher when technical planning needs documentation or deeper investigation support.
+- Do not generate the final smoke-test artifact until the technical implementation plan is ready to be written into the PRD.
+- When complete, produce a Technical Planning Summary and auto-handoff to `$pm-create-prd`.
+
+### 3) PRD
 - Use Senior Engineer findings for architecture/scope realism and Librarian findings for external constraints.
-- Include Smoke Test Planner output as a concrete test plan section (happy/unhappy/regression).
+- Include the Technical Planning Summary as the authoritative technical implementation input.
+- After the technical implementation plan is completed, generate Smoke Test Planner output as the concrete test plan section (happy/unhappy/regression).
 - Include Alternative PM output as alternatives considered and rationale for chosen path.
 - Create/update `docs/prd/<slug>.md` using `docs/prd/_template.md`.
 - Include an `Open Questions` section.
 - If `Open Questions` is non-empty, stop and ask only for those answers.
 - When complete, move to `Awaiting PRD Approval`.
 
-### 3) Awaiting PRD Approval
+### 4) Awaiting PRD Approval
 - Wait for exact `approved`.
 - If user requests edits, update PRD and ask for approval again.
 - On approval, automatically invoke `$pm-beads-plan` with the approved PRD path.
 - Use `references/pm-beads-plan-handoff.md` as the canonical handoff contract when packaging the approved PRD for Beads planning.
 - Preferred orchestration path: if delegation is permitted, invoke via generic `default` `spawn_agent` with role-labeled context (`[Role: PM Beads Plan Handoff]`) and wait for completion; otherwise continue into Beads planning in the same interaction and report the skipped delegation as a warning with mitigation and status.
 
-### 4) Beads Planning
+### 5) Beads Planning
 - Validate task decomposition with Senior Engineer and dependency/standards constraints with Librarian.
-- Beads initialization policy:
-  - Normal repo (not a git worktree): if `.beads/` is missing, run `bd init`.
-  - Git worktree: do not run `bd init` in the worktree (Beads blocks this). Initialize once in the main repository, then continue from the worktree.
-  - If main-repo initialization is not available during this run, continue in planning mode with `bd --no-db` (JSONL under `.beads/`) and mark this in phase output.
-  - Worktree detection heuristic: `git rev-parse --git-dir` path contains `/worktrees/` (or `.git` file points to `.../.git/worktrees/...`).
+- Before any `bd` command, run shared Beads preflight:
+  - `<pm-helper> beads preflight --phase beads-planning`
+  - Preflight is responsible for managed `bd` upgrade/reinstall, stale-state cleanup, backup-backed recovery, embedded-mode migration, and verbose hard-stop diagnostics.
+  - Do not bypass preflight with ad hoc `bd init`, manual Dolt restarts, or `bd --no-db`.
+  - Git worktree policy remains fail-closed: if the worktree is not already wired to a usable main-repo Beads store, stop with the preflight diagnostics instead of improvising local initialization.
 - Create one epic for the PRD and atomic child tasks with clear DoD.
 - Add explicit dependencies with `bd dep`.
 - Render execution view with `bd graph <epic-id> --compact`.
@@ -369,7 +414,7 @@ Discovery extension:
 - Always provide CLI view: `bd list --parent <epic-id> --pretty`.
 - Move to `Awaiting Beads Approval`.
 
-### 5) Awaiting Beads Approval
+### 6) Awaiting Beads Approval
 - Wait for exact `approved`.
 - If edits are requested, update beads plan and ask for approval again.
 - On approval, automatically create Team Lead agent and start team orchestration.
@@ -379,7 +424,7 @@ Discovery extension:
   - if delegation is permitted, then invoke `$pm-implement` (Team Lead-supervised execution) via generic `default` `spawn_agent` with role-labeled context (`[Role: PM Implement Handoff]`) and wait for completion
   - otherwise continue into implementation orchestration in the same interaction and report the skipped delegations as warnings with mitigation and status
 
-### 6) Team Lead Orchestration
+### 7) Team Lead Orchestration
 - Team Lead does not write implementation code.
 - Team Lead creates and manages subagents:
   - Backend Engineer
@@ -395,8 +440,10 @@ Discovery extension:
 - Team Lead forwards product/scope questions to PM, then relays PM decisions back to engineering and updates Beads context/comments.
 - Team Lead keeps PM updated with subagent status and blockers.
 
-### 7) Implementation
+### 8) Implementation
 - Keep Senior Engineer paired during execution for code-level decisions and review readiness.
+- Before task selection or any other `bd` command in this phase, run:
+  - `<pm-helper> beads preflight --phase implementation`
 - Execute from ready queue first: `bd ready --parent <epic-id> --pretty`.
 - Claim/start tasks with `bd update <id> --claim`.
 - Keep implementation changes scoped to selected tasks.
@@ -405,7 +452,7 @@ Discovery extension:
 - If implementation adds new logic or changes existing behavior/logic, Team Lead must create a documentation-sync Beads task and assign Librarian (`default`) to audit/update project docs before QA/final handoff.
 - Continue until planned implementation tasks are complete.
 
-### 8) Post-Implementation Reviews (automatic triple-agent run)
+### 9) Post-Implementation Reviews (automatic triple-agent run)
 Immediately after implementation completion, run all three reviewers:
 
 1. **AGENTS Compliance Reviewer**
@@ -437,7 +484,7 @@ Use parallel sub-agents for this step whenever current policy permits it; otherw
   - spawn Codex Reviewer as generic `default` subagent with role-labeled prompt
   - do not rely on custom reviewer launcher names
 
-### 9) Review Iteration (mandatory)
+### 10) Review Iteration (mandatory)
 - Team Lead is the owner of post-review fix orchestration.
 - Team Lead converts reviewer feedback into Beads iteration tasks under the same epic.
 - For each finding:
@@ -448,10 +495,10 @@ Use parallel sub-agents for this step whenever current policy permits it; otherw
 - Team Lead orchestrates subagents to implement all review iteration tasks.
 - Team Lead closes review iteration tasks only when DoD is met.
 
-### 10) Manual QA Smoke Tests (mandatory)
+### 11) Manual QA Smoke Tests (mandatory)
 - Before starting Manual QA, ensure required documentation-sync tasks (for changed behavior/logic) are completed.
 - After automated reviews and review-iteration fixes, run a Manual QA agent using `references/manual-qa-smoke.md`.
-- Execute the discovery-defined smoke tests across:
+- Execute the approved PRD smoke-test plan across:
   - happy path
   - unhappy path
   - regression checks
@@ -462,7 +509,7 @@ Use parallel sub-agents for this step whenever current policy permits it; otherw
   - rerun Manual QA smoke tests
 - Continue until smoke-test plan passes or only user-decided risks remain.
 
-### 11) Awaiting Final Review
+### 12) Awaiting Final Review
 - Present final status, including original plan tasks and review-iteration tasks.
 - Include Manual QA smoke-test results (pass/fail and evidence summary).
 - Ask user to review results.
@@ -484,7 +531,7 @@ Ensure these exist in the repo:
 #### `AGENTS.md`
 Must include:
 - No implicit assumptions
-- Discovery before PRD
+- Discovery before Technical Planning before PRD
 - PRD required before implementation
 - Beads required for tracking
 - Open Questions must be empty before execution
@@ -500,11 +547,13 @@ Section order:
 7. Scope (In/Out)
 8. User Flow (Happy path, Failure paths)
 9. Acceptance Criteria (testable)
-10. Success Metrics (measurable)
-11. BEADS: Business, Experience, Architecture, Data, Security
-12. Rollout / Migration / Rollback
-13. Risks & Edge Cases
-14. Open Questions (must be empty before execution)
+10. Technical Implementation Plan
+11. Smoke Test Plan
+12. Success Metrics (measurable)
+13. BEADS: Business, Experience, Architecture, Data, Security
+14. Rollout / Migration / Rollback
+15. Risks & Edge Cases
+16. Open Questions (must be empty before execution)
 
 #### `docs/beads.md`
 Must include:

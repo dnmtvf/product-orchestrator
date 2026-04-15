@@ -3,7 +3,7 @@
 `product-orchestrator` is a strict PM workflow package for Codex workspaces.
 It installs PM skills plus a workflow policy file into target repositories so feature delivery follows fixed gates:
 
-- Discovery before PRD
+- Discovery before Technical Planning before PRD
 - PRD approval before implementation
 - Beads-based execution tracking
 - Beads approval before implementation handoff
@@ -19,6 +19,7 @@ The workflow source of truth in this repo is:
 - Skills:
   - `skills/pm`
   - `skills/pm-discovery`
+  - `skills/pm-technical-planning`
   - `skills/pm-create-prd`
   - `skills/pm-beads-plan`
   - `skills/pm-implement`
@@ -110,8 +111,8 @@ git -C /path/to/target-repo submodule update --init --recursive .orchestrator
 
 ## Machine-level bootstrap outputs
 
-- `~/.codex/skills/{pm,pm-discovery,pm-create-prd,pm-beads-plan,pm-implement,agent-browser}`
-- `~/.claude/skills/{pm,pm-discovery,pm-create-prd,pm-beads-plan,pm-implement,agent-browser}`
+- `~/.codex/skills/{pm,pm-discovery,pm-technical-planning,pm-create-prd,pm-beads-plan,pm-implement,agent-browser}`
+- `~/.claude/skills/{pm,pm-discovery,pm-technical-planning,pm-create-prd,pm-beads-plan,pm-implement,agent-browser}`
 - user-level `codex mcp` registration for `claude-code` pointing to `~/.codex/skills/pm/scripts/claude-code-mcp`
 - user-level `claude mcp` registration for `codex-worker`
 - `~/.codex/pm-orchestrator-bootstrap.json`
@@ -121,8 +122,8 @@ git -C /path/to/target-repo submodule update --init --recursive .orchestrator
 
 If you choose the injection or submodule-copy flows above, they additionally write these managed assets into the target repo:
 
-- `.codex/skills/{pm,pm-discovery,pm-create-prd,pm-beads-plan,pm-implement,agent-browser}`
-- `.claude/skills/{pm,pm-discovery,pm-create-prd,pm-beads-plan,pm-implement,agent-browser}`
+- `.codex/skills/{pm,pm-discovery,pm-technical-planning,pm-create-prd,pm-beads-plan,pm-implement,agent-browser}`
+- `.claude/skills/{pm,pm-discovery,pm-technical-planning,pm-create-prd,pm-beads-plan,pm-implement,agent-browser}`
 - generated Claude project agents under `.claude/agents/pm-*.md`
 - `instructions/pm_workflow.md`
 - `.config/opencode/instructions/pm_workflow.md`
@@ -229,7 +230,7 @@ Manual self-check mode:
 
 ## Fixed phase order
 
-`Discovery -> PRD -> Awaiting PRD Approval -> Beads Planning -> Awaiting Beads Approval -> Team Lead Orchestration -> Implementation -> Post-Implementation Reviews -> Review Iteration -> Manual QA Smoke Tests -> Awaiting Final Review`
+`Discovery -> Technical Planning -> PRD -> Awaiting PRD Approval -> Beads Planning -> Awaiting Beads Approval -> Team Lead Orchestration -> Implementation -> Post-Implementation Reviews -> Review Iteration -> Manual QA Smoke Tests -> Awaiting Final Review`
 
 ## Beads as source of truth
 
@@ -258,6 +259,7 @@ Smoke evidence for dual planning modes is tracked in `docs/smoke/2026-02-26-big-
 Common commands:
 
 ```bash
+./skills/pm/scripts/pm-command.sh beads preflight --phase beads-planning
 bd ready --parent <epic-id> --pretty
 bd list --parent <epic-id> --pretty
 bd graph <epic-id> --compact
@@ -278,7 +280,8 @@ Claude agent sync helpers:
 - Workflow blocks on missing tooling:
   - run `codex mcp list` and confirm required MCP servers are enabled
 - Beads planning issues in worktrees:
-  - initialize Beads in main repo first, then continue in worktree
+  - run `./skills/pm/scripts/pm-command.sh beads preflight --phase beads-planning`
+  - if preflight blocks on worktree wiring or runtime recovery, repair the main repo Beads store first
 
 ## Notes
 

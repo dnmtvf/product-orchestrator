@@ -165,6 +165,8 @@ Whenever Team Lead invokes any external Claude agent, the prompt must include su
 - For big-feature queue execution:
   - respect async enqueue worker cap (`worker_cap=2`) when dispatching parallel PRD streams
   - do not bypass queue states manually to start blocked PRDs
+- Before task selection or any other `bd` command in this phase, run:
+  - `<pm-helper> beads preflight --phase implementation`
 - Execute tasks from ready queue first:
   - `bd ready --parent <epic-id> --pretty`
 - Claim/start work:
@@ -239,7 +241,7 @@ For every actionable review finding, Team Lead must:
 ## Manual QA Smoke Tests (mandatory after automated reviews)
 - After automated reviews and review-iteration fixes, run Manual QA smoke execution:
   - load prompt from `references/manual-qa-smoke.md`
-  - execute discovery/PRD smoke tests for happy, unhappy, and regression coverage
+  - execute the approved PRD smoke-test plan for happy, unhappy, and regression coverage
   - run browser-based smoke checks when required by the test plan
 - Preferred orchestration call:
   - spawn Manual QA agent as generic `default` with role-labeled context (`[Role: Manual QA Smoke Agent]`) and wait for completion before final handoff

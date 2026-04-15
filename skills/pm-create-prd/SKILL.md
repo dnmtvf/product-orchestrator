@@ -1,6 +1,6 @@
 ---
 name: pm-create-prd
-description: Create or update a PRD from a completed Discovery Summary, run the PRD approval gate, and automatically hand off approved PRDs to $pm-beads-plan.
+description: Create or update a PRD from completed Discovery and Technical Planning outputs, run the PRD approval gate, and automatically hand off approved PRDs to $pm-beads-plan.
 ---
 
 # PM Create PRD (Strict)
@@ -9,7 +9,7 @@ description: Create or update a PRD from a completed Discovery Summary, run the 
 - **PRD** (then **AWAITING PRD APPROVAL**)
 
 ## Purpose
-Turn a completed Discovery Summary into a production-ready PRD with zero ambiguity and a hard approval gate.
+Turn completed Discovery and Technical Planning outputs into a production-ready PRD with zero ambiguity and a hard approval gate.
 
 ## Subagent Launcher Compatibility (mandatory)
 - Spawn only supported generic launcher types: `default`, `explorer`, `worker`.
@@ -23,26 +23,36 @@ Turn a completed Discovery Summary into a production-ready PRD with zero ambigui
 Before finalizing PRD content, proactively consult:
 1. **Senior Engineer** (`explorer`) for codebase/architecture feasibility checks.
 2. **Librarian** (`default`) for external documentation and platform constraints.
-3. **Smoke Test Planner** output from discovery for testability and QA execution readiness.
+3. **Smoke Test Planner** (`default`) for final smoke-plan generation after the technical implementation plan is complete.
 
 Use their findings to reduce avoidable user clarification loops. When the current runtime/tool policy permits delegation, these support agents should be launched by default; if delegation is blocked, do the equivalent work locally and report the skipped delegation as a warning with mitigation and status.
 
 ## Inputs (required)
 - Discovery Summary (structured and complete)
+- Discovery Technical Handoff Notes
+- Technical Planning Summary (structured and complete)
 - Intended scope for this PRD
 - For big-feature conflict-aware mode: PRD conflict-boundary notes (ownership/file/dependency constraints)
 
-If Discovery Summary is incomplete, stop and ask only targeted clarification questions.
+If Discovery Summary or Technical Planning Summary is incomplete, stop and ask only targeted clarification questions.
 
 ## PRD Creation Rules
 1. Propose slug format: `YYYY-MM-DD--kebab-slug`.
 2. Create/update `docs/prd/<slug>.md` using `docs/prd/_template.md`.
-3. Ensure all required sections are filled.
+3. Ensure all required sections are filled, including:
+   - `Technical Implementation Plan`
+   - `Smoke Test Plan`
 4. Include `Open Questions`.
 5. Do not request approval until `Open Questions` is empty.
-6. Include a smoke-test subsection covering happy path, unhappy path, regression, and post-implementation QA execution notes.
+6. Use the Technical Planning Summary as the authoritative source for the `Technical Implementation Plan` section.
+7. Generate the `Smoke Test Plan` only after the technical implementation plan is complete.
+8. Include a smoke-test subsection covering happy path, unhappy path, regression, and post-implementation QA execution notes.
    - For big-feature route, include dual-mode regression criteria for `conflict-aware` and `worktree-isolated`.
-7. For big-feature conflict-aware mode, include explicit PRD-level anti-conflict constraints in scope/risks (ownership, file touch boundaries, dependency contracts).
+9. For big-feature conflict-aware mode, include explicit PRD-level anti-conflict constraints in scope/risks (ownership, file touch boundaries, dependency contracts).
+10. Treat approval as blocked unless all are true:
+   - `Technical Implementation Plan` exists
+   - `Smoke Test Plan` exists
+   - `Open Questions` is empty
 
 ## Approval Gate
 - Move to `Current phase: AWAITING PRD APPROVAL`.
@@ -76,9 +86,11 @@ Always include:
 1. `Current phase: PRD` or `Current phase: AWAITING PRD APPROVAL`
 2. `PRD slug`
 3. `PRD path`
-4. `Open Questions status` (must be empty before approval request)
-5. `What I need from you next`
-6. `Phase Error Summary` (`none` or issue list with status)
+4. `Technical Implementation Plan status`
+5. `Smoke Test Plan status`
+6. `Open Questions status` (must be empty before approval request)
+7. `What I need from you next`
+8. `Phase Error Summary` (`none` or issue list with status)
 
 Issue reporting rules:
 - Report step issues explicitly when they happen (severity, impact, next action).
@@ -87,4 +99,4 @@ Issue reporting rules:
 
 ## Invocation
 - Trigger strongly on `$pm-create-prd ...`.
-- Also trigger on automatic handoff from `$pm-discovery`.
+- Also trigger on automatic handoff from `$pm-technical-planning`.

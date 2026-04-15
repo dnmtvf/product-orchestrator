@@ -175,6 +175,7 @@ echo "[test-global-bootstrap] case: machine-level bootstrap creates global skill
 
 assert_symlink_target "$HOME/.codex/skills/pm" "$ROOT_DIR/skills/pm"
 assert_symlink_target "$HOME/.codex/skills/pm-discovery" "$ROOT_DIR/skills/pm-discovery"
+assert_symlink_target "$HOME/.codex/skills/pm-technical-planning" "$ROOT_DIR/skills/pm-technical-planning"
 assert_symlink_target "$HOME/.codex/skills/pm-create-prd" "$ROOT_DIR/skills/pm-create-prd"
 assert_symlink_target "$HOME/.codex/skills/pm-beads-plan" "$ROOT_DIR/skills/pm-beads-plan"
 assert_symlink_target "$HOME/.codex/skills/pm-implement" "$ROOT_DIR/skills/pm-implement"

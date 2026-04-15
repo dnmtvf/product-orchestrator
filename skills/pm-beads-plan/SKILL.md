@@ -27,7 +27,7 @@ Convert an **APPROVED** PRD into an executable Beads graph:
 Before locking the task graph, proactively consult:
 1. **Senior Engineer** (`explorer`) for dependency correctness and implementation sequencing.
 2. **Librarian** (`default`) for external constraints (API quotas, platform requirements, compliance notes).
-3. **Smoke Test Planner output** from discovery/PRD for QA task coverage.
+3. **Approved PRD smoke-test plan** for QA task coverage.
 
 When the current runtime/tool policy permits delegation, these support agents should be launched by default; if delegation is blocked, do the equivalent sequencing/constraints review locally and report the skipped delegation as a warning with mitigation and status.
 
@@ -36,6 +36,7 @@ Before planning, verify all of the following:
 1. PRD path is provided and file exists.
 2. User explicitly confirms PRD is approved.
 3. PRD `Open Questions` section is empty.
+4. PRD includes both `Technical Implementation Plan` and `Smoke Test Plan`.
 
 If any precondition fails:
 - **STOP**.
@@ -45,15 +46,19 @@ If any precondition fails:
 
 ## Planning Rules
 When preconditions pass:
-- Beads initialization policy:
-  - Normal repo (not a git worktree): if `.beads/` is missing, run `bd init`.
-  - Git worktree: do not run `bd init` in the worktree (Beads blocks this). Initialize once in the main repository, then continue from the worktree.
-  - If main-repo initialization is not available during this run, continue in planning mode with `bd --no-db` (JSONL under `.beads/`) and explicitly note this in output.
-  - Worktree detection heuristic: `git rev-parse --git-dir` path contains `/worktrees/` (or `.git` file points to `.../.git/worktrees/...`).
+- Before any `bd` command, run shared Beads preflight:
+  - `<pm-helper> beads preflight --phase beads-planning`
+  - Preflight owns `bd` upgrades, runtime recovery, backup-based rebuilds, embedded-mode migration, and verbose hard-stop diagnostics.
+  - Do not fall back to `bd --no-db` or ad hoc `bd init` logic inside this phase.
+  - Worktree check remains fail-closed through preflight diagnostics rather than manual local initialization.
 - Big-feature worktree-isolated mode:
   - Add per-PRD task notes for isolated worktree execution boundaries.
   - Record integration/merge sequencing tasks where cross-PRD touch points exist.
   - Prefer Ralph-native worktree assumptions; external worktree tools are optional helpers only.
+- Treat the approved `Technical Implementation Plan` as binding input:
+  - follow it verbatim
+  - do not redesign it during Beads planning
+  - if decomposition reveals a conflict with the approved plan, stop and return control for PRD/technical-plan correction
 - Epic title format:
   - `<slug> (PRD: <path>)`
 - Generate atomic tasks only:
@@ -65,7 +70,7 @@ When preconditions pass:
 - Dependencies must be explicit:
   - define `blocks` / `blocked-by` relationships with `bd dep`
 - Include a dedicated `Manual QA Smoke Tests` task in the epic:
-  - consumes the discovery/PRD smoke-test plan
+  - consumes the approved PRD smoke-test plan generated after technical planning
   - runs happy/unhappy/regression checks
   - includes browser-based smoke checks when needed
   - for big-feature route, includes dual-mode regression checks for `conflict-aware` and `worktree-isolated`

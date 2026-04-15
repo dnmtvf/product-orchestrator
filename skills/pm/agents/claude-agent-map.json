@@ -10,6 +10,11 @@
     "prompt_path": "pm-implement/references/team-lead.md"
   },
   {
+    "role": "tech_lead",
+    "agent_name": "pm-tech-lead",
+    "prompt_path": "pm/references/tech-lead.md"
+  },
+  {
     "role": "pm_beads_plan_handoff",
     "agent_name": "pm-beads-plan-handoff",
     "prompt_path": "pm/references/pm-beads-plan-handoff.md"

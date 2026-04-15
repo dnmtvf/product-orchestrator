@@ -8,6 +8,9 @@ DEFAULT_CHANGELOG_URL="https://developers.openai.com/codex/changelog/"
 DEFAULT_RELEASE_URL="https://github.com/openai/codex/releases/latest"
 DEFAULT_NPM_TAGS_URL="https://registry.npmjs.org/-/package/@openai/codex/dist-tags"
 DEFAULT_PLAN_TRIGGER="/pm plan: Inspect latest Codex changes and align orchestrator behavior with orchestration-mode runtime policy."
+BEADS_MIN_SUPPORTED_VERSION_DEFAULT="1.0.0"
+BEADS_INSTALL_URL_DEFAULT="https://raw.githubusercontent.com/steveyegge/beads/main/scripts/install.sh"
+BEADS_RECOVERY_ROOT_RELATIVE_PATH=".codex/beads-recovery"
 STATE_RELATIVE_PATH=".codex/pm-self-update-state.json"
 SELF_CHECK_ARTIFACTS_RELATIVE_PATH=".codex/self-check-runs"
 LEAD_MODEL_STATE_RELATIVE_PATH=".codex/pm-lead-model-state.json"
@@ -51,6 +54,12 @@ CODEX_RUNTIME_LAST_COMMAND=""
 CODEX_RUNTIME_LAST_COMMAND_SOURCE=""
 CODEX_RUNTIME_LAST_PATH_OVERRIDE=""
 CODEX_RUNTIME_LAST_PATH_OVERRIDE_SOURCE=""
+BEADS_LAST_COMMAND=""
+BEADS_LAST_COMMAND_SOURCE=""
+BEADS_LAST_PATH_OVERRIDE=""
+BEADS_LAST_PATH_OVERRIDE_SOURCE=""
+BEADS_LAST_VERSION=""
+BEADS_RUN_ROOT=""
 CLAUDE_WRAPPER_RUNTIME="claude-code-mcp"
 CLAUDE_WRAPPER_TEMPLATE_RELATIVE_PATH="../references/internal-claude-wrapper.md"
 CLAUDE_MCP_CLIENT_SCRIPT_NAME="claude_mcp_client.py"
@@ -86,6 +95,8 @@ Usage:
   pm-command.sh execution-mode reset [--state-file PATH]
   pm-command.sh lead-model show|set|reset ...   # legacy alias for execution-mode
   pm-command.sh plan gate --route default|big-feature [--mode dynamic-cross-runtime|main-runtime-only] [--state-file PATH]
+  pm-command.sh beads route-map
+  pm-command.sh beads preflight [--phase PHASE]
   pm-command.sh claude-contract validate-context --context-file PATH [--role ROLE]
   pm-command.sh claude-contract evaluate-response --response-file PATH [--session-id ID] [--role ROLE]
   pm-command.sh claude-contract run-loop --context-file PATH [--response-file PATH ...] [--session-id ID] [--role ROLE] [--max-rounds N]
@@ -107,6 +118,7 @@ Commands:
   execution-mode Read/update persistent provider-neutral orchestration mode state.
   lead-model    Legacy alias for execution-mode.
   plan          Run plan-route runtime detection, orchestration mode gate, and routing preflight.
+  beads         Shared Beads route-map and runtime preflight/recovery entrypoint.
   claude-contract Enforce Claude context-pack and missing-context handshake.
   claude-wrapper Internal-only adapter for Claude-routed prompt generation and result normalization.
   telemetry     Persist/query PM step telemetry in PostgreSQL.
@@ -3347,6 +3359,741 @@ compute_pending_versions() {
   done <<<"$versions"
 }
 
+default_beads_recovery_root() {
+  local root
+  root="$(repo_root)"
+  printf '%s/%s' "$root" "$BEADS_RECOVERY_ROOT_RELATIVE_PATH"
+}
+
+beads_phase_slug() {
+  local phase="${1:-general}"
+  local slug
+
+  slug="$(printf '%s' "$phase" | tr -cs 'A-Za-z0-9' '-' | sed -E 's/^-+//; s/-+$//')"
+  if [ -z "$slug" ]; then
+    slug="general"
+  fi
+  printf '%s' "$slug"
+}
+
+ensure_beads_run_root() {
+  local phase="${1:-general}"
+  local base slug stamp
+
+  if [ -n "$BEADS_RUN_ROOT" ]; then
+    printf '%s' "$BEADS_RUN_ROOT"
+    return 0
+  fi
+
+  base="$(default_beads_recovery_root)"
+  slug="$(beads_phase_slug "$phase")"
+  stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+  BEADS_RUN_ROOT="$base/beads-${stamp}-${slug}-$$"
+  mkdir -p "$BEADS_RUN_ROOT"
+  printf '%s' "$BEADS_RUN_ROOT"
+}
+
+beads_dir_path() {
+  printf '%s/.beads' "$(repo_root)"
+}
+
+beads_metadata_path() {
+  printf '%s/metadata.json' "$(beads_dir_path)"
+}
+
+beads_backup_dir_path() {
+  printf '%s/backup' "$(beads_dir_path)"
+}
+
+beads_backup_issue_count() {
+  local issues_file
+
+  issues_file="$(beads_backup_dir_path)/issues.jsonl"
+  if [ ! -f "$issues_file" ]; then
+    printf '0'
+    return 0
+  fi
+
+  wc -l <"$issues_file" | tr -d '[:space:]'
+}
+
+beads_min_supported_version() {
+  printf '%s' "${PM_BEADS_MIN_SUPPORTED_VERSION:-$BEADS_MIN_SUPPORTED_VERSION_DEFAULT}"
+}
+
+beads_install_url() {
+  printf '%s' "${PM_BEADS_INSTALL_URL:-$BEADS_INSTALL_URL_DEFAULT}"
+}
+
+beads_install_command() {
+  local install_url
+
+  if [ -n "${PM_BEADS_INSTALL_COMMAND_OVERRIDE:-}" ]; then
+    printf '%s' "$PM_BEADS_INSTALL_COMMAND_OVERRIDE"
+    return 0
+  fi
+
+  install_url="$(beads_install_url)"
+  printf 'curl -fsSL "%s" | bash' "$install_url"
+}
+
+beads_issue_prefix() {
+  local root
+  root="$(repo_root)"
+  basename "$root"
+}
+
+beads_current_role() {
+  local role=""
+  local context_json metadata_path
+
+  if context_json="$(beads_context_json "$1" 2>/dev/null)" && [ -n "$context_json" ]; then
+    role="$(printf '%s' "$context_json" | jq -r '.role // empty' 2>/dev/null || true)"
+  fi
+
+  if [ -n "$role" ]; then
+    printf '%s' "$role"
+    return 0
+  fi
+
+  metadata_path="$(beads_metadata_path)"
+  if [ -f "$metadata_path" ]; then
+    role="$(git config --local --get beads.role 2>/dev/null || true)"
+  fi
+
+  if [ -n "$role" ]; then
+    printf '%s' "$role"
+    return 0
+  fi
+
+  printf '%s' "maintainer"
+}
+
+beads_is_worktree() {
+  local git_dir common_dir
+
+  if ! git_dir="$(git rev-parse --git-dir 2>/dev/null)"; then
+    return 1
+  fi
+  if ! common_dir="$(git rev-parse --git-common-dir 2>/dev/null)"; then
+    return 1
+  fi
+
+  case "$git_dir" in
+    *"/worktrees/"*)
+      return 0
+      ;;
+  esac
+
+  [ "$git_dir" != "$common_dir" ]
+}
+
+beads_load_configured_command() {
+  BEADS_LAST_COMMAND="${PM_BEADS_COMMAND_OVERRIDE:-bd}"
+  BEADS_LAST_COMMAND_SOURCE="${PM_BEADS_COMMAND_OVERRIDE:+env:PM_BEADS_COMMAND_OVERRIDE}"
+  if [ -z "$BEADS_LAST_COMMAND_SOURCE" ]; then
+    BEADS_LAST_COMMAND_SOURCE="default(command=bd)"
+  fi
+}
+
+beads_load_effective_path_override() {
+  BEADS_LAST_PATH_OVERRIDE="${PM_BEADS_PATH_OVERRIDE:-}"
+  BEADS_LAST_PATH_OVERRIDE_SOURCE=""
+  if [ -n "$BEADS_LAST_PATH_OVERRIDE" ]; then
+    BEADS_LAST_PATH_OVERRIDE_SOURCE="env:PM_BEADS_PATH_OVERRIDE"
+    return 0
+  fi
+  return 1
+}
+
+beads_version_from_output() {
+  local output="$1"
+  printf '%s' "$output" | grep -Eo "$SEMVER_PATTERN" | head -n1 | sed 's/^v//'
+}
+
+beads_current_version_from_command() {
+  local command_path="$1"
+  local output version
+
+  [ -n "$command_path" ] || return 1
+  output="$("$command_path" version 2>&1 || "$command_path" --version 2>&1 || true)"
+  version="$(beads_version_from_output "$output" || true)"
+  [ -n "$version" ] || return 1
+  printf '%s' "$version"
+}
+
+beads_best_candidate() {
+  local min_version="${1:-}"
+  local current_path path source version cmp
+  local best_path="" best_source="" best_version=""
+  local entry
+  local -a candidates=()
+  local -a seen=()
+
+  current_path="$(command -v bd 2>/dev/null || true)"
+  if [ -n "$current_path" ]; then
+    candidates+=("$current_path|path(command=bd)")
+  fi
+  [ -x "/opt/homebrew/bin/bd" ] && candidates+=("/opt/homebrew/bin/bd|install-path:/opt/homebrew/bin/bd")
+  [ -x "/usr/local/bin/bd" ] && candidates+=("/usr/local/bin/bd|install-path:/usr/local/bin/bd")
+  [ -x "$HOME/.local/bin/bd" ] && candidates+=("$HOME/.local/bin/bd|install-path:$HOME/.local/bin/bd")
+
+  for entry in "${candidates[@]-}"; do
+    path="${entry%%|*}"
+    source="${entry#*|}"
+    [ -x "$path" ] || continue
+
+    cmp=0
+    for current_path in "${seen[@]-}"; do
+      if [ "$current_path" = "$path" ]; then
+        cmp=1
+        break
+      fi
+    done
+    [ "$cmp" -eq 1 ] && continue
+    seen+=("$path")
+
+    version="$(beads_current_version_from_command "$path" || true)"
+    if [ -n "$min_version" ]; then
+      if [ -z "$version" ] || ! semver_validate "$version"; then
+        continue
+      fi
+      cmp="$(semver_compare "$version" "$min_version")"
+      if [ "$cmp" -lt 0 ]; then
+        continue
+      fi
+    fi
+
+    if [ -z "$best_path" ]; then
+      best_path="$path"
+      best_source="$source"
+      best_version="$version"
+      continue
+    fi
+
+    if [ -n "$version" ] && [ -n "$best_version" ]; then
+      cmp="$(semver_compare "$version" "$best_version")"
+      if [ "$cmp" -gt 0 ]; then
+        best_path="$path"
+        best_source="$source"
+        best_version="$version"
+      fi
+    elif [ -n "$version" ] && [ -z "$best_version" ]; then
+      best_path="$path"
+      best_source="$source"
+      best_version="$version"
+    fi
+  done
+
+  if [ -n "$best_path" ]; then
+    printf '%s|%s|%s' "$best_path" "$best_source" "$best_version"
+    return 0
+  fi
+
+  return 1
+}
+
+beads_resolve_command() {
+  local resolved candidate candidate_path candidate_source candidate_version
+
+  BEADS_LAST_COMMAND=""
+  BEADS_LAST_COMMAND_SOURCE=""
+  BEADS_LAST_PATH_OVERRIDE=""
+  BEADS_LAST_PATH_OVERRIDE_SOURCE=""
+  BEADS_LAST_VERSION=""
+
+  beads_load_effective_path_override || true
+
+  if [ -n "${PM_BEADS_COMMAND_OVERRIDE:-}" ]; then
+    beads_load_configured_command
+    resolved="$(resolve_runtime_executable "$BEADS_LAST_COMMAND" "$BEADS_LAST_PATH_OVERRIDE" || true)"
+    [ -n "$resolved" ] || return 1
+    BEADS_LAST_COMMAND="$resolved"
+    BEADS_LAST_VERSION="$(beads_current_version_from_command "$resolved" || true)"
+    return 0
+  fi
+
+  if candidate="$(beads_best_candidate)"; then
+    candidate_path="${candidate%%|*}"
+    candidate_source="${candidate#*|}"
+    candidate_source="${candidate_source%%|*}"
+    candidate_version="${candidate##*|}"
+    BEADS_LAST_COMMAND="$candidate_path"
+    BEADS_LAST_COMMAND_SOURCE="$candidate_source"
+    BEADS_LAST_VERSION="$candidate_version"
+    return 0
+  fi
+
+  beads_load_configured_command
+  resolved="$(resolve_runtime_executable "$BEADS_LAST_COMMAND" "$BEADS_LAST_PATH_OVERRIDE" || true)"
+  [ -n "$resolved" ] || return 1
+  BEADS_LAST_COMMAND="$resolved"
+  BEADS_LAST_VERSION="$(beads_current_version_from_command "$resolved" || true)"
+  return 0
+}
+
+beads_context_json() {
+  local command_path="$1"
+  local root
+
+  root="$(repo_root)"
+  (
+    cd "$root"
+    "$command_path" context --json
+  )
+}
+
+beads_issue_count() {
+  local command_path="$1"
+  local raw_count
+
+  raw_count="$(
+    cd "$(repo_root)"
+    "$command_path" count 2>/dev/null | tr -d '[:space:]'
+  )"
+  if [[ "$raw_count" =~ ^[0-9]+$ ]]; then
+    printf '%s' "$raw_count"
+    return 0
+  fi
+  return 1
+}
+
+beads_clear_server_runtime_metadata() {
+  local beads_path="${1:-$(beads_dir_path)}"
+  local pid_file port_file lock_file pid="" command_line="" removed_joined=""
+  local path
+  local -a removed=()
+
+  pid_file="$beads_path/dolt-server.pid"
+  port_file="$beads_path/dolt-server.port"
+  lock_file="$beads_path/dolt-server.lock"
+
+  if [ -f "$pid_file" ]; then
+    pid="$(tr -d '[:space:]' <"$pid_file" 2>/dev/null || true)"
+    if [[ "$pid" =~ ^[0-9]+$ ]]; then
+      command_line="$(ps -p "$pid" -o command= 2>/dev/null || true)"
+      case "$command_line" in
+        *"dolt sql-server"*)
+          kill "$pid" 2>/dev/null || true
+          sleep 1
+          if ps -p "$pid" >/dev/null 2>&1; then
+            kill -9 "$pid" 2>/dev/null || true
+          fi
+          ;;
+      esac
+    fi
+  fi
+
+  for path in "$pid_file" "$port_file" "$lock_file"; do
+    if [ -e "$path" ]; then
+      rm -f "$path"
+      removed+=("$(basename "$path")")
+    fi
+  done
+
+  if [ "${#removed[@]}" -gt 0 ]; then
+    removed_joined="$(IFS=,; echo "${removed[*]}")"
+    echo "BEADS_RECOVERY|status=server_runtime_metadata_cleared|pid=${pid:-none}|paths=$removed_joined"
+  fi
+}
+
+beads_capture_command_output() {
+  local command_path="$1"
+  local output_path="$2"
+  shift 2
+
+  (
+    cd "$(repo_root)"
+    "$command_path" "$@"
+  ) >"$output_path" 2>&1
+}
+
+beads_write_snapshot_artifacts() {
+  local command_path="$1"
+  local phase="$2"
+  local run_root context_out doctor_out info_out
+
+  run_root="$(ensure_beads_run_root "$phase")"
+  context_out="$run_root/context.json"
+  doctor_out="$run_root/doctor-agent.json"
+  info_out="$run_root/info.json"
+
+  beads_capture_command_output "$command_path" "$context_out" context --json || true
+  beads_capture_command_output "$command_path" "$doctor_out" doctor --agent --json || true
+  beads_capture_command_output "$command_path" "$info_out" info --json || true
+}
+
+beads_build_portable_export_from_backup() {
+  local backup_dir="$1"
+  local output_file="$2"
+  local issues_file deps_file labels_file comments_file tmp_files=()
+
+  issues_file="$backup_dir/issues.jsonl"
+  [ -f "$issues_file" ] || return 1
+
+  deps_file="$backup_dir/dependencies.jsonl"
+  labels_file="$backup_dir/labels.jsonl"
+  comments_file="$backup_dir/comments.jsonl"
+
+  if [ ! -f "$deps_file" ]; then
+    deps_file="$(mktemp)"
+    tmp_files+=("$deps_file")
+  fi
+  if [ ! -f "$labels_file" ]; then
+    labels_file="$(mktemp)"
+    tmp_files+=("$labels_file")
+  fi
+  if [ ! -f "$comments_file" ]; then
+    comments_file="$(mktemp)"
+    tmp_files+=("$comments_file")
+  fi
+
+  if ! jq -n -c \
+    --slurpfile issues "$issues_file" \
+    --slurpfile deps "$deps_file" \
+    --slurpfile labels "$labels_file" \
+    --slurpfile comments "$comments_file" \
+    '
+      $issues[] as $issue |
+      (
+        {
+        id: $issue.id,
+        title: ($issue.title // ""),
+        description: ($issue.description // ""),
+        acceptance_criteria: ($issue.acceptance_criteria // ""),
+        design: ($issue.design // ""),
+        status: ($issue.status // "open"),
+        priority: ($issue.priority // 2),
+        issue_type: ($issue.issue_type // "task"),
+        created_at: ($issue.created_at // ""),
+        created_by: ($issue.created_by // ""),
+        updated_at: ($issue.updated_at // ($issue.created_at // "")),
+        labels: ($labels | map(select(.issue_id == $issue.id) | .label)),
+        dependencies: (
+          $deps
+          | map(
+              select(.issue_id == $issue.id)
+              | {
+                  issue_id,
+                  depends_on_id,
+                  type,
+                  created_at,
+                  created_by,
+                  metadata: (.metadata // "{}")
+                }
+            )
+        ),
+        dependency_count: ($deps | map(select(.issue_id == $issue.id)) | length),
+        dependent_count: ($deps | map(select(.depends_on_id == $issue.id)) | length),
+        comment_count: ($comments | map(select(.issue_id == $issue.id)) | length)
+        }
+        + (
+          if ($issue.assignee // null) == null or ($issue.assignee | tostring) == ""
+          then {}
+          else { assignee: ($issue.assignee | tostring) }
+          end
+        )
+        + (
+          if ($issue.owner // "") == ""
+          then {}
+          else { owner: ($issue.owner | tostring) }
+          end
+        )
+      )
+    ' >"$output_file"; then
+    rm -f "${tmp_files[@]-}"
+    return 1
+  fi
+
+  rm -f "${tmp_files[@]-}"
+  [ -s "$output_file" ]
+}
+
+beads_seed_embedded_store() {
+  local command_path="$1"
+  local prefix="$2"
+  local role="$3"
+  local phase="$4"
+  local run_root seed_root init_log target_beads
+
+  run_root="$(ensure_beads_run_root "$phase")"
+  seed_root="$(mktemp -d "${TMPDIR:-/tmp}/pm-beads-seed.XXXXXX")"
+  init_log="$run_root/seed-init.log"
+  target_beads="$(beads_dir_path)"
+
+  (
+    cd "$seed_root"
+    "$command_path" init -p "$prefix" --non-interactive --skip-agents --skip-hooks
+  ) >"$init_log" 2>&1 || {
+    rm -rf "$seed_root"
+    return 1
+  }
+
+  [ -d "$seed_root/.beads" ] || {
+    rm -rf "$seed_root"
+    return 1
+  }
+
+  mv "$seed_root/.beads" "$target_beads"
+  rm -rf "$seed_root"
+
+  git config --local beads.role "$role" >/dev/null 2>&1 || true
+  (
+    cd "$(repo_root)"
+    "$command_path" migrate --update-repo-id --yes
+  ) >"$run_root/update-repo-id.log" 2>&1 || true
+  return 0
+}
+
+beads_verify_mode() {
+  local command_path="$1"
+  local expected_mode="$2"
+  local context_json mode backend
+
+  if ! context_json="$(beads_context_json "$command_path" 2>/dev/null)"; then
+    return 1
+  fi
+  if ! printf '%s' "$context_json" | jq -e . >/dev/null 2>&1; then
+    return 1
+  fi
+
+  backend="$(printf '%s' "$context_json" | jq -r '.backend // empty')"
+  mode="$(printf '%s' "$context_json" | jq -r '.dolt_mode // empty')"
+  [ "$backend" = "dolt" ] || return 1
+  [ "$mode" = "$expected_mode" ] || return 1
+
+  (
+    cd "$(repo_root)"
+    "$command_path" count >/dev/null 2>&1
+  )
+}
+
+beads_prefight_blocked() {
+  local phase="$1"
+  local reason="$2"
+  local detail="$3"
+  local remediation="$4"
+  local run_root="${5:-}"
+
+  echo "BEADS_PREFLIGHT_BLOCKED|phase=$phase|reason=$reason|detail=$(sanitize_single_line "$detail")|remediation=$(sanitize_single_line "$remediation")|command=${BEADS_LAST_COMMAND:-}|command_source=${BEADS_LAST_COMMAND_SOURCE:-}|version=${BEADS_LAST_VERSION:-}|recovery_root=$(display_path "${run_root:-}")"
+  return 1
+}
+
+run_beads_route_map() {
+  local helper_name="$SCRIPT_NAME"
+  local min_version
+
+  min_version="$(beads_min_supported_version)"
+  echo "BEADS_ROUTE_POLICY|min_version=$min_version|target_backend=dolt|target_mode=embedded|upgrade_managed=1|fallback_policy=hard_stop"
+  echo "BEADS_ROUTE_MAP|phase=beads-planning|preflight=$helper_name beads preflight --phase beads-planning"
+  echo "BEADS_ROUTE_MAP|phase=implementation|preflight=$helper_name beads preflight --phase implementation"
+  echo "BEADS_ROUTE_MAP|phase=review|preflight=$helper_name beads preflight --phase review"
+  echo "BEADS_ROUTE_MAP|phase=manual-qa|preflight=$helper_name beads preflight --phase manual-qa"
+}
+
+run_beads_preflight() {
+  local phase="general"
+  local min_version current_version current_mode current_backend current_role
+  local reason detail remediation run_root install_log install_command install_source
+  local portable_export_path quarantine_path backup_dir prefix command_path context_json
+  local candidate candidate_path candidate_source candidate_version recovery_source="none"
+  local backup_issue_count current_issue_count suspect_empty_embedded=0
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --phase)
+        phase="${2:-}"
+        shift 2
+        ;;
+      -h|--help)
+        usage
+        exit 0
+        ;;
+      *)
+        die "Unknown beads preflight argument: $1"
+        ;;
+    esac
+  done
+
+  min_version="$(beads_min_supported_version)"
+  semver_validate "$(normalize_version "$min_version")" || die "Invalid minimum Beads version: $min_version"
+
+  if ! beads_resolve_command; then
+    echo "BEADS_COMMAND|status=missing|command=${BEADS_LAST_COMMAND:-bd}|command_source=${BEADS_LAST_COMMAND_SOURCE:-default(command=bd)}|path_override_source=${BEADS_LAST_PATH_OVERRIDE_SOURCE:-<none>}"
+  fi
+
+  current_version="${BEADS_LAST_VERSION:-}"
+  if [ -n "$current_version" ] && semver_validate "$current_version"; then
+    echo "BEADS_COMMAND|status=resolved|command=$BEADS_LAST_COMMAND|command_source=$BEADS_LAST_COMMAND_SOURCE|path_override_source=${BEADS_LAST_PATH_OVERRIDE_SOURCE:-<none>}|version=$current_version"
+  fi
+
+  if [ -z "${BEADS_LAST_COMMAND:-}" ] || [ -z "$current_version" ] || ! semver_validate "$current_version" || [ "$(semver_compare "$current_version" "$min_version")" -lt 0 ]; then
+    run_root="$(ensure_beads_run_root "$phase")"
+    install_log="$run_root/install.log"
+    install_command="$(beads_install_command)"
+    install_source="default(install.sh)"
+    if [ -n "${PM_BEADS_INSTALL_COMMAND_OVERRIDE:-}" ]; then
+      install_source="env:PM_BEADS_INSTALL_COMMAND_OVERRIDE"
+    fi
+    echo "BEADS_UPGRADE|status=needed|current_version=${current_version:-missing}|min_version=$min_version|install_source=$install_source|recovery_root=$(display_path "$run_root")"
+
+    if ! bash -lc "$install_command" >"$install_log" 2>&1; then
+      beads_prefight_blocked "$phase" "beads_upgrade_failed" "Managed Beads upgrade failed. See $(display_path "$install_log")." "Fix the installer command or install beads v$min_version manually, then rerun the PM flow." "$run_root"
+      return 1
+    fi
+
+    beads_resolve_command || true
+    current_version="${BEADS_LAST_VERSION:-}"
+    if [ -n "$current_version" ] && semver_validate "$current_version" && [ "$(semver_compare "$current_version" "$min_version")" -ge 0 ]; then
+      echo "BEADS_UPGRADE|status=completed|version=$current_version|command=$BEADS_LAST_COMMAND|command_source=$BEADS_LAST_COMMAND_SOURCE|install_log=$(display_path "$install_log")"
+    elif candidate="$(beads_best_candidate "$min_version")"; then
+      candidate_path="${candidate%%|*}"
+      candidate_source="${candidate#*|}"
+      candidate_source="${candidate_source%%|*}"
+      candidate_version="${candidate##*|}"
+      BEADS_LAST_COMMAND="$candidate_path"
+      BEADS_LAST_COMMAND_SOURCE="$candidate_source"
+      BEADS_LAST_VERSION="$candidate_version"
+      current_version="$candidate_version"
+      echo "BEADS_UPGRADE|status=completed|version=$current_version|command=$BEADS_LAST_COMMAND|command_source=$BEADS_LAST_COMMAND_SOURCE|install_log=$(display_path "$install_log")"
+    else
+      beads_prefight_blocked "$phase" "beads_upgrade_unresolved" "Beads installer completed, but no executable bd >= $min_version was found." "Update PATH so the newly installed bd is reachable, or set PM_BEADS_COMMAND_OVERRIDE to the new binary path before rerunning." "$run_root"
+      return 1
+    fi
+  fi
+
+  command_path="$BEADS_LAST_COMMAND"
+  current_role="$(beads_current_role "$command_path")"
+
+  if [ ! -d "$(beads_dir_path)" ]; then
+    if beads_is_worktree; then
+      beads_prefight_blocked "$phase" "beads_missing_in_worktree" "No .beads directory exists in this worktree checkout." "Initialize Beads in the main repository first, or provide a worktree redirect before rerunning PM." ""
+      return 1
+    fi
+
+    run_root="$(ensure_beads_run_root "$phase")"
+    prefix="$(beads_issue_prefix)"
+    if ! beads_seed_embedded_store "$command_path" "$prefix" "$current_role" "$phase"; then
+      beads_prefight_blocked "$phase" "beads_seed_init_failed" "Failed to seed a fresh embedded Beads store. See $(display_path "$run_root/seed-init.log")." "Fix the Beads runtime or repo permissions, then rerun PM." "$run_root"
+      return 1
+    fi
+
+    echo "BEADS_INIT|status=completed|mode=embedded|recovery_root=$(display_path "$run_root")"
+    if ! beads_verify_mode "$command_path" "embedded"; then
+      beads_prefight_blocked "$phase" "beads_init_verification_failed" "Fresh embedded initialization completed, but the resulting store did not verify cleanly." "Inspect the recovery artifacts and repair the local Beads runtime before rerunning PM." "$run_root"
+      return 1
+    fi
+
+    echo "BEADS_PREFLIGHT_READY|phase=$phase|command=$command_path|version=$current_version|backend=dolt|dolt_mode=embedded|recovery_source=fresh_init|recovery_root=$(display_path "$run_root")"
+    return 0
+  fi
+
+  beads_write_snapshot_artifacts "$command_path" "$phase"
+
+  context_json="$(beads_context_json "$command_path" 2>/dev/null || true)"
+  if [ -n "$context_json" ] && printf '%s' "$context_json" | jq -e . >/dev/null 2>&1; then
+    current_backend="$(printf '%s' "$context_json" | jq -r '.backend // empty')"
+    current_mode="$(printf '%s' "$context_json" | jq -r '.dolt_mode // empty')"
+  else
+    if [ -f "$(beads_metadata_path)" ]; then
+      current_backend="$(jq -r '.backend // empty' "$(beads_metadata_path)" 2>/dev/null || true)"
+      current_mode="$(jq -r '.dolt_mode // empty' "$(beads_metadata_path)" 2>/dev/null || true)"
+    else
+      current_backend=""
+      current_mode=""
+    fi
+  fi
+
+  backup_issue_count="$(beads_backup_issue_count)"
+  current_issue_count=""
+
+  if [ "$current_backend" = "dolt" ] && [ "$current_mode" = "embedded" ] && beads_verify_mode "$command_path" "embedded"; then
+    current_issue_count="$(beads_issue_count "$command_path" || true)"
+    if [ "$backup_issue_count" -gt 0 ] && [ "$current_issue_count" = "0" ]; then
+      suspect_empty_embedded=1
+    else
+      beads_clear_server_runtime_metadata "$(beads_dir_path)"
+      echo "BEADS_PREFLIGHT_READY|phase=$phase|command=$command_path|version=$current_version|backend=$current_backend|dolt_mode=$current_mode|recovery_source=none|recovery_root="
+      return 0
+    fi
+  fi
+
+  run_root="$(ensure_beads_run_root "$phase")"
+  portable_export_path="$run_root/portable-issues.jsonl"
+  backup_dir="$(beads_backup_dir_path)"
+  prefix="$(beads_issue_prefix)"
+  echo "BEADS_MIGRATION|status=needed|from_backend=${current_backend:-unknown}|from_mode=${current_mode:-unknown}|target_mode=embedded|recovery_root=$(display_path "$run_root")"
+
+  if [ "$suspect_empty_embedded" = "1" ]; then
+    echo "BEADS_RECOVERY|status=embedded_store_empty_using_backup|issue_count=0|backup_issue_count=$backup_issue_count|detail=Embedded store is empty while legacy backup still has issues; skipping live export."
+    if [ -d "$backup_dir" ] && beads_build_portable_export_from_backup "$backup_dir" "$portable_export_path"; then
+      recovery_source="legacy_backup_jsonl"
+      echo "BEADS_RECOVERY|status=legacy_backup_transformed|path=$(display_path "$portable_export_path")"
+    else
+      beads_prefight_blocked "$phase" "beads_embedded_empty_without_recoverable_backup" "Embedded Beads store is empty after upgrade, and the legacy backup could not be transformed for recovery." "Inspect .beads/backup and recovery artifacts, then rerun PM." "$run_root"
+      return 1
+    fi
+  elif beads_capture_command_output "$command_path" "$run_root/export.log" export -o "$portable_export_path"; then
+    recovery_source="live_export"
+    echo "BEADS_RECOVERY|status=portable_export_created|path=$(display_path "$portable_export_path")"
+  elif [ -d "$backup_dir" ] && beads_build_portable_export_from_backup "$backup_dir" "$portable_export_path"; then
+    recovery_source="legacy_backup_jsonl"
+    echo "BEADS_RECOVERY|status=legacy_backup_transformed|path=$(display_path "$portable_export_path")"
+  else
+    beads_prefight_blocked "$phase" "beads_recovery_source_missing" "Unable to export live Beads data and no transformable legacy backup JSONL was found." "Restore .beads/backup/*.jsonl or repair the old database long enough to run bd export, then rerun PM." "$run_root"
+    return 1
+  fi
+
+  beads_clear_server_runtime_metadata "$(beads_dir_path)"
+
+  quarantine_path="$run_root/quarantine/.beads"
+  mkdir -p "$(dirname "$quarantine_path")"
+  mv "$(beads_dir_path)" "$quarantine_path"
+  echo "BEADS_RECOVERY|status=quarantined|path=$(display_path "$quarantine_path")"
+
+  if ! beads_seed_embedded_store "$command_path" "$prefix" "$current_role" "$phase"; then
+    rm -rf "$(beads_dir_path)"
+    mv "$quarantine_path" "$(beads_dir_path)"
+    beads_prefight_blocked "$phase" "beads_reseed_failed" "Failed to create the replacement embedded Beads store. The original .beads directory was restored." "Inspect the seed-init log and local Beads installation, then rerun PM." "$run_root"
+    return 1
+  fi
+
+  cp "$portable_export_path" "$(beads_dir_path)/issues.jsonl"
+  if ! beads_capture_command_output "$command_path" "$run_root/import.log" import "$portable_export_path"; then
+    rm -rf "$(beads_dir_path)"
+    mv "$quarantine_path" "$(beads_dir_path)"
+    beads_prefight_blocked "$phase" "beads_import_failed" "Embedded store creation succeeded, but importing recovered issues failed. The original .beads directory was restored." "Inspect the import log and recovery export, then rerun PM." "$run_root"
+    return 1
+  fi
+
+  if ! beads_verify_mode "$command_path" "embedded"; then
+    rm -rf "$(beads_dir_path)"
+    mv "$quarantine_path" "$(beads_dir_path)"
+    beads_prefight_blocked "$phase" "beads_embedded_verification_failed" "Migration finished, but the rebuilt store did not verify as embedded and healthy. The original .beads directory was restored." "Inspect the recovery artifacts, fix the embedded Beads runtime, and rerun PM." "$run_root"
+    return 1
+  fi
+
+  echo "BEADS_MIGRATION|status=completed|target_mode=embedded|recovery_source=$recovery_source|recovery_root=$(display_path "$run_root")"
+  echo "BEADS_PREFLIGHT_READY|phase=$phase|command=$command_path|version=$current_version|backend=dolt|dolt_mode=embedded|recovery_source=$recovery_source|recovery_root=$(display_path "$run_root")"
+}
+
+run_beads() {
+  local subcommand="${1:-route-map}"
+  shift || true
+
+  case "$subcommand" in
+    route-map)
+      run_beads_route_map "$@"
+      ;;
+    preflight)
+      run_beads_preflight "$@"
+      ;;
+    *)
+      die "Unknown beads subcommand: $subcommand"
+      ;;
+  esac
+}
+
 json_array_from_newlines() {
   awk 'NF { print }' | jq -R . | jq -s .
 }
@@ -3907,6 +4654,7 @@ $pm help
 Supported invocations:
 - $pm plan: <feature request>
 - $pm plan big feature: <feature request>
+- $pm beads route-map|preflight
 - $pm self-check
 - $pm execution-mode show|set|reset
 - $pm claude-contract validate-context|evaluate-response|run-loop
@@ -3915,7 +4663,7 @@ Supported invocations:
 - $pm help
 
 Required PM phase order:
-Discovery -> PRD -> Awaiting PRD Approval -> Beads Planning -> Awaiting Beads Approval -> Team Lead Orchestration -> Implementation -> Post-Implementation Reviews -> Review Iteration -> Manual QA Smoke Tests -> Awaiting Final Review
+Discovery -> Technical Planning -> PRD -> Awaiting PRD Approval -> Beads Planning -> Awaiting Beads Approval -> Team Lead Orchestration -> Implementation -> Post-Implementation Reviews -> Review Iteration -> Manual QA Smoke Tests -> Awaiting Final Review
 
 Approval gates:
 - PRD approval reply must be exactly: approved
@@ -3951,6 +4699,8 @@ Self-check policy:
 
 Runtime policy:
 - Provider-neutral execution modes with runtime-inferred routing
+- Beads-dependent PM/helper paths must run `pm-command.sh beads preflight --phase <phase>` before any `bd` command
+- Beads preflight manages CLI upgrades, legacy server-mode recovery, embedded-mode migration, and hard-stop diagnostics
 - Claude usage is permitted only through claude-code MCP
 - Codex secondary-runtime usage inside Claude is permitted only through codex-worker MCP
 - Blocked routed-runtime modes or phases must not continue in degraded fallback
@@ -5723,6 +6473,9 @@ main() {
       ;;
     plan)
       run_plan "$@"
+      ;;
+    beads)
+      run_beads "$@"
       ;;
     claude-contract)
       run_claude_contract "$@"

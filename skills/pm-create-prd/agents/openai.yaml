@@ -1,4 +1,4 @@
 interface:
   display_name: "PM Create PRD"
-  short_description: "Create PRD from discovery and run PRD approval gate"
-  default_prompt: "Use $pm-create-prd to build a PRD from the discovery summary and gate it on explicit approval."
+  short_description: "Create PRD from discovery plus technical planning and run PRD approval gate"
+  default_prompt: "Use $pm-create-prd to build a PRD from the discovery summary plus technical planning summary, generate the late smoke plan, and gate approval explicitly."

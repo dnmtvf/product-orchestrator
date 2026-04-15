@@ -14,6 +14,7 @@ This document is the canonical routed-role map for the PM orchestrator.
 |---|---|---|---|
 | `project_manager` | [skills/pm/references/project-manager.md](/Users/d/product-orchestrator/skills/pm/references/project-manager.md) | `default` | `project-manager`, `product-manager` |
 | `team_lead` | [skills/pm-implement/references/team-lead.md](/Users/d/product-orchestrator/skills/pm-implement/references/team-lead.md) | `default` | `multi-agent-coordinator`, `task-distributor`, `context-manager` |
+| `tech_lead` | [skills/pm/references/tech-lead.md](/Users/d/product-orchestrator/skills/pm/references/tech-lead.md) | `default` | `architect-reviewer`, `code-mapper`, `solution-critic` |
 | `pm_beads_plan_handoff` | [skills/pm/references/pm-beads-plan-handoff.md](/Users/d/product-orchestrator/skills/pm/references/pm-beads-plan-handoff.md) | `default` | `workflow-orchestrator`, `task-distributor`, `context-manager` |
 | `pm_implement_handoff` | [skills/pm/references/pm-implement-handoff.md](/Users/d/product-orchestrator/skills/pm/references/pm-implement-handoff.md) | `default` | `workflow-orchestrator`, `multi-agent-coordinator`, `agent-organizer` |
 | `senior_engineer` | [skills/pm/references/senior-engineer.md](/Users/d/product-orchestrator/skills/pm/references/senior-engineer.md) | `explorer` | `code-mapper`, `architect-reviewer` |
@@ -38,7 +39,7 @@ This document is the canonical routed-role map for the PM orchestrator.
 Use these commands from repo root when checking routed-role coverage and stale runtime headers:
 
 ```bash
-rg -n 'project_manager|team_lead|pm_beads_plan_handoff|pm_implement_handoff|senior_engineer|librarian|smoke_test_planner|alternative_pm|researcher|backend_engineer|frontend_engineer|security_engineer|agents_compliance_reviewer|jazz_reviewer|codex_reviewer|manual_qa|task_verification' skills/pm/agents/model-routing.yaml
+rg -n 'project_manager|team_lead|tech_lead|pm_beads_plan_handoff|pm_implement_handoff|senior_engineer|librarian|smoke_test_planner|alternative_pm|researcher|backend_engineer|frontend_engineer|security_engineer|agents_compliance_reviewer|jazz_reviewer|codex_reviewer|manual_qa|task_verification' skills/pm/agents/model-routing.yaml
 
 rg -n '^\*\*Runtime profile:\*\*|^\*\*Recommended launcher:\*\*' skills/pm/references skills/pm-implement/references
 

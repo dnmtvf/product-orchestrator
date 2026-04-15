@@ -77,6 +77,7 @@ check_global_skills() {
   local required_skills=(
     "pm"
     "pm-discovery"
+    "pm-technical-planning"
     "pm-create-prd"
     "pm-beads-plan"
     "pm-implement"

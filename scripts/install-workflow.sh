@@ -99,7 +99,7 @@ if [ "$SYNC_ONLY" -eq 0 ] && [ -z "$ORCHESTRATOR_URL" ]; then
   err "--orchestrator-url is required unless --sync-only is used"
 fi
 
-SKILLS=(pm pm-discovery pm-create-prd pm-beads-plan pm-implement agent-browser)
+SKILLS=(pm pm-discovery pm-technical-planning pm-create-prd pm-beads-plan pm-implement agent-browser)
 
 if [ "$SYNC_ONLY" -eq 0 ]; then
   SUBMODULE_GIT_PATH="$REPO_PATH/$SUBMODULE_PATH/.git"
