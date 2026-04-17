@@ -43,7 +43,7 @@ Only these skills are available:
 
 ## Key Conventions
 
-- Two hard approval gates require the exact reply `approved`: PRD approval and Beads approval
+- One hard approval gate requires the exact reply `approved`: PRD approval
 - PRD `Open Questions` must be empty before execution starts
 - Beads (`bd`) is the execution source of truth
 - Spawn only generic launcher types: `default`, `explorer`, `worker`

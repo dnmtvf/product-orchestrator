@@ -3,16 +3,15 @@
 This workflow is the source of truth for PM orchestration in this repo. Installed target repos receive the same file at both `instructions/pm_workflow.md` and `.config/opencode/instructions/pm_workflow.md`.
 
 ## Required Phase Order
-`Discovery -> Technical Planning -> PRD -> Awaiting PRD Approval -> Beads Planning -> Awaiting Beads Approval -> Team Lead Orchestration -> Implementation -> Post-Implementation Reviews -> Review Iteration -> Manual QA Smoke Tests -> Awaiting Final Review`
+`Discovery -> Technical Planning -> PRD -> Awaiting PRD Approval -> Beads Planning -> Team Lead Orchestration -> Implementation -> Post-Implementation Reviews -> Review Iteration -> Manual QA Smoke Tests -> Awaiting Final Review`
 
 ## Hard Rules
 - No assumptions.
 - Discovery must ask numbered clarification questions with `Why it matters:` until ambiguity is removed.
 - Technical Planning must not start until discovery clarifications are exhausted.
-- Two human gates require the exact reply `approved`:
+- One human gate requires the exact reply `approved`:
   - PRD approval gate
-  - Beads approval gate
-- Do not start implementation without approved PRD + approved Beads plan.
+- Do not start implementation without approved PRD + successful Beads planning.
 - PRD must exist at `docs/prd/<slug>.md`.
 - PRD approval is blocked until both `Technical Implementation Plan` and `Smoke Test Plan` exist in the PRD.
 - PRD `Open Questions` must be empty before execution.
@@ -112,7 +111,7 @@ This workflow is the source of truth for PM orchestration in this repo. Installe
   - installed target repo from Codex (compatibility path): `./.codex/skills/pm/scripts/pm-command.sh`
   - installed target repo from Claude (compatibility path): `./.claude/skills/pm/scripts/pm-command.sh`
 - Self-update completion gate is explicit and manual:
-  - `<pm-helper> self-update complete --approval approved --prd-approval approved --beads-approval approved --prd-path docs/prd/<approved-prd>.md`
+  - `<pm-helper> self-update complete --approval approved --prd-approval approved --prd-path docs/prd/<approved-prd>.md`
   - completion requires PRD coverage evidence for all pending batch versions and empty `Open Questions`
 - Big-feature planning must require explicit mode selection:
   - `conflict-aware`
@@ -156,7 +155,7 @@ This workflow is the source of truth for PM orchestration in this repo. Installe
 ## Queue Manifest And Idempotency
 - Persist big-feature queue state at `docs/prd/_queue/<feature-slug>.json`.
 - Per-PRD states must include at least:
-  - `pending`, `in_discovery`, `in_technical_planning`, `awaiting_prd_approval`, `awaiting_beads_approval`, `approved`, `queued`, `queue_failed`.
+  - `pending`, `in_discovery`, `in_technical_planning`, `awaiting_prd_approval`, `approved`, `queued`, `queue_failed`.
 - Canonical runnable queue handle is Beads epic ID.
 - Idempotency key format: `<prd_slug>:<approval_version>`.
 - Duplicate prevention invariants:
@@ -168,11 +167,11 @@ This workflow is the source of truth for PM orchestration in this repo. Installe
 ## Runnable Promotion Gate
 - Promotion to `queued` is allowed only when all are true:
   - PRD approval gate exact reply is `approved`
-  - Beads approval gate exact reply is `approved`
+  - Beads planning completed successfully and produced the canonical epic
   - PRD `Open Questions` is empty
 - If any condition fails, block promotion and keep explicit non-runnable state:
   - missing PRD approval -> `awaiting_prd_approval`
-  - missing Beads approval -> `awaiting_beads_approval`
+  - Beads planning incomplete -> `approved` with `blocked_reason=beads_planning_incomplete`
   - open questions remaining -> `approved` with `blocked_reason=open_questions`
 
 ## Async Enqueue Worker

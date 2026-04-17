@@ -6,7 +6,7 @@ It installs PM skills plus a workflow policy file into target repositories so fe
 - Discovery before Technical Planning before PRD
 - PRD approval before implementation
 - Beads-based execution tracking
-- Beads approval before implementation handoff
+- Autonomous Beads planning and implementation after PRD approval
 - PRD `Open Questions` must be empty before execution
 
 The workflow source of truth in this repo is:
@@ -156,8 +156,7 @@ Use the PM helper path that matches where you are running:
    - Persisted execution-mode state should be used only as the default suggested choice for the interactive prompt.
 4. Respond to discovery clarification questions.
 5. Approve PRD by replying exactly `approved`.
-6. Review Beads plan and approve by replying exactly `approved`.
-7. Let implementation, review iteration, and manual QA complete.
+6. Let Beads planning, implementation, review iteration, and manual QA complete autonomously.
 
 Example:
 
@@ -204,7 +203,7 @@ Big-feature mode selector:
 - If not provided in the request, PM asks for mode selection during discovery.
 - Execution-mode gate still runs before Discovery and applies to both plan routes.
 - Worktree note: Ralph already uses worktrees for parallel execution; external tools (for example Worktrunk) are optional helpers.
-- Queue behavior: each PRD enters async enqueue only after both approvals and empty `Open Questions`; worker cap is 2 with single auto-retry.
+- Queue behavior: each PRD enters async enqueue after PRD approval, successful Beads planning, and empty `Open Questions`; worker cap is 2 with single auto-retry.
 
 Manual self-update mode:
 - Check latest Codex changes and stage pending version:
@@ -215,7 +214,7 @@ Manual self-update mode:
 - The command outputs a required planning trigger in this format:
   - `/pm plan: Inspect latest Codex changes and align orchestrator behavior with runtime-inferred execution-mode policy.`
 - After full PM completion gate succeeds, finalize processed version checkpoint:
-  - `./skills/pm/scripts/pm-command.sh self-update complete --approval approved --prd-approval approved --beads-approval approved --prd-path docs/prd/<approved-prd>.md`
+  - `./skills/pm/scripts/pm-command.sh self-update complete --approval approved --prd-approval approved --prd-path docs/prd/<approved-prd>.md`
 
 Manual self-check mode:
 - List built-in fixtures:
@@ -230,7 +229,7 @@ Manual self-check mode:
 
 ## Fixed phase order
 
-`Discovery -> Technical Planning -> PRD -> Awaiting PRD Approval -> Beads Planning -> Awaiting Beads Approval -> Team Lead Orchestration -> Implementation -> Post-Implementation Reviews -> Review Iteration -> Manual QA Smoke Tests -> Awaiting Final Review`
+`Discovery -> Technical Planning -> PRD -> Awaiting PRD Approval -> Beads Planning -> Team Lead Orchestration -> Implementation -> Post-Implementation Reviews -> Review Iteration -> Manual QA Smoke Tests -> Awaiting Final Review`
 
 ## Beads as source of truth
 

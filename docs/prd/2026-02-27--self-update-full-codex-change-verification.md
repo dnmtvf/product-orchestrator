@@ -95,7 +95,6 @@ Chosen direction:
 6. `self-update complete` requires:
    - `--approval approved`
    - `--prd-approval approved`
-   - `--beads-approval approved`
    - PRD path whose Open Questions section is empty
    - PRD evidence that all pending entries in the batch were reviewed
 7. State is not advanced if PRD coverage is incomplete or mismatch rules fail.

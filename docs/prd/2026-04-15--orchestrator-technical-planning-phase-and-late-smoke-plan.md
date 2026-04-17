@@ -17,12 +17,12 @@ The current PM orchestrator pushes too much solution-shaping pressure into Disco
 - Smoke-test planning is currently produced during Discovery, even though the user wants that artifact to depend on a completed technical implementation plan.
 - The current role map has no `tech_lead` role, so the requested multi-tech-lead planning pattern cannot be represented cleanly.
 
-This makes the orchestrator weaker at separating product clarification from technical planning, and it prevents the final PRD and Beads plan from being anchored to one approved technical implementation plan.
+This makes the orchestrator weaker at separating product clarification from technical planning, and it prevents the final PRD and Beads plan from being anchored to one approved technical implementation plan. It also leaves an unnecessary human stop after PRD approval even when Beads decomposition is mechanically derived from the approved PRD.
 
 ## Context / Current State
 Today the canonical phase order is:
 
-`Discovery -> PRD -> Awaiting PRD Approval -> Beads Planning -> Awaiting Beads Approval -> Team Lead Orchestration -> Implementation -> Post-Implementation Reviews -> Review Iteration -> Manual QA Smoke Tests -> Awaiting Final Review`
+`Discovery -> Technical Planning -> PRD -> Awaiting PRD Approval -> Beads Planning -> Team Lead Orchestration -> Implementation -> Post-Implementation Reviews -> Review Iteration -> Manual QA Smoke Tests -> Awaiting Final Review`
 
 Current behavior also hard-codes these constraints:
 - Discovery is questions-only and does not allow solution proposals.
@@ -35,6 +35,7 @@ Discovery decisions captured for this feature:
 - execution mode default for this planning run: `Dynamic Cross-Runtime`
 - new canonical phase order should begin `Discovery -> Technical Planning -> PRD`
 - PRD approval must be blocked until both the `Technical Implementation Plan` and `Smoke Test Plan` are written into the PRD
+- PRD approval should be the last required human gate for the normal implementation flow
 - Technical Planning should not start until discovery has exhausted open questions
 - four parallel PM agents should reuse the existing `project_manager` role contract for now
 - two discovery `tech_lead` agents may propose bounded implementation options
@@ -61,6 +62,7 @@ Discovery decisions captured for this feature:
 - Require the PRD to include both `Technical Implementation Plan` and `Smoke Test Plan` before PRD approval.
 - Require Beads planning to follow the approved technical plan verbatim.
 - Move big-feature dual-mode regression planning (`conflict-aware`, `worktree-isolated`) into the later smoke-planning step.
+- Remove the separate Beads approval gate so implementation proceeds autonomously after PRD approval and successful Beads planning.
 
 ## Non-Goals
 - Changing the exact human approval token away from `approved`.
@@ -73,7 +75,7 @@ Discovery decisions captured for this feature:
 
 ### In-Scope
 - Rewrite the canonical phase order in workflow source files to:
-  - `Discovery -> Technical Planning -> PRD -> Awaiting PRD Approval -> Beads Planning -> Awaiting Beads Approval -> Team Lead Orchestration -> Implementation -> Post-Implementation Reviews -> Review Iteration -> Manual QA Smoke Tests -> Awaiting Final Review`
+  - `Discovery -> Technical Planning -> PRD -> Awaiting PRD Approval -> Beads Planning -> Team Lead Orchestration -> Implementation -> Post-Implementation Reviews -> Review Iteration -> Manual QA Smoke Tests -> Awaiting Final Review`
 - Update discovery rules so that:
   - Discovery remains PM-owned
   - four `project_manager`-role agents collaborate during Discovery
@@ -91,11 +93,12 @@ Discovery decisions captured for this feature:
   - the smoke-test artifact is generated after the technical plan is completed and is saved into the PRD
   - PRD approval is blocked until both sections exist
 - Update Beads planning rules so the approved technical implementation plan is treated as binding input
+- Remove the separate Beads approval gate and make bdui review informational only
 - Update big-feature planning rules so dual-mode regression coverage is generated in the later smoke-planning step instead of Discovery
 - Add new role-contract, routing, and prompt-source support for `tech_lead`
 
 ### Out-of-Scope
-- Changing the downstream implementation/review/manual-QA phase order after Beads approval
+- Changing the downstream implementation/review/manual-QA phase order after Beads planning
 - Replacing consensus with majority vote or a tie-break owner for technical planning
 - Allowing Technical Planning to proceed while discovery ambiguity remains unresolved
 - Preserving current smoke-test-plan placement in Discovery for compatibility
@@ -114,7 +117,7 @@ Discovery decisions captured for this feature:
 9. The workflow creates the PRD, including a dedicated `Technical Implementation Plan` section populated from the approved technical plan.
 10. After the technical plan is complete, the workflow generates the `Smoke Test Plan` and writes it into the PRD.
 11. PRD approval is requested only after both sections are present and `Open Questions` are empty.
-12. After approval, Beads planning consumes the approved PRD and follows the technical plan verbatim.
+12. After approval, Beads planning consumes the approved PRD, follows the technical plan verbatim, and hands off directly into implementation.
 
 ### Failure Paths
 - If Discovery still has unresolved questions, Technical Planning cannot start.
@@ -137,8 +140,9 @@ Discovery decisions captured for this feature:
 11. The workflow generates the `Smoke Test Plan` only after the technical implementation plan is complete.
 12. PRD approval is blocked until both `Technical Implementation Plan` and `Smoke Test Plan` are present in the PRD.
 13. Beads planning treats the approved technical plan as binding input and follows it verbatim.
-14. Big-feature workflows move dual-mode regression coverage generation from Discovery to the later smoke-planning step.
-15. Discovery-, PRD-, Beads-, implementation-, and helper-text contracts are updated so they no longer reference discovery-owned smoke-test planning.
+14. Beads planning no longer waits for a separate Beads approval reply before implementation starts.
+15. Big-feature workflows move dual-mode regression coverage generation from Discovery to the later smoke-planning step.
+16. Discovery-, PRD-, Beads-, implementation-, and helper-text contracts are updated so they no longer reference discovery-owned smoke-test planning.
 
 ### Smoke Test Plan
 - Happy path:
@@ -155,8 +159,8 @@ Discovery decisions captured for this feature:
   - Verify Beads planning blocks when its proposed graph conflicts with the approved technical plan.
   - Verify lack of consensus among the four `tech_lead` agents blocks Technical Planning.
 - Regression:
-  - Verify existing `approved` approval-token semantics remain unchanged.
-  - Verify `team_lead` remains the implementation-orchestration role after Beads approval.
+  - Verify existing `approved` approval-token semantics remain unchanged for PRD approval.
+  - Verify `team_lead` remains the implementation-orchestration role after Beads planning.
   - Verify big-feature `conflict-aware` and `worktree-isolated` coverage now appears in the later smoke-planning step rather than Discovery.
   - Verify manual QA still executes the approved smoke-test plan after implementation.
 

@@ -17,7 +17,6 @@ Per-PRD lifecycle states:
 - `in_discovery`
 - `in_technical_planning`
 - `awaiting_prd_approval`
-- `awaiting_beads_approval`
 - `approved`
 - `queued`
 - `queue_failed`
@@ -25,11 +24,11 @@ Per-PRD lifecycle states:
 ## Runnable Promotion Rule
 - PRD can be promoted to `queued` only after:
   - PRD approval gate = exact `approved`
-  - Beads approval gate = exact `approved`
+  - Beads planning completed successfully and produced the canonical epic
   - PRD `Open Questions` is empty
 - If promotion is blocked, keep explicit non-runnable state:
   - missing PRD approval -> `awaiting_prd_approval`
-  - missing Beads approval -> `awaiting_beads_approval`
+  - Beads planning incomplete -> `approved` with `blocked_reason=beads_planning_incomplete`
   - open questions remaining -> `approved` with `blocked_reason=open_questions`
 
 ## Idempotency Contract

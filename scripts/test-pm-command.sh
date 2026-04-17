@@ -341,7 +341,7 @@ live_contracts="$(
     "$ROOT_DIR/skills/pm-implement/references/team-lead.md"
 )"
 assert_contains "$live_contracts" 'The helper gate output is authoritative. If it returns `PLAN_ROUTE_BLOCKED` or `discovery_can_start=0`, do not invoke Discovery or any downstream phase.'
-assert_contains "$live_contracts" 'Discovery -> Technical Planning -> PRD -> Awaiting PRD Approval -> Beads Planning -> Awaiting Beads Approval -> Team Lead Orchestration -> Implementation -> Post-Implementation Reviews -> Review Iteration -> Manual QA Smoke Tests -> Awaiting Final Review'
+assert_contains "$live_contracts" 'Discovery -> Technical Planning -> PRD -> Awaiting PRD Approval -> Beads Planning -> Team Lead Orchestration -> Implementation -> Post-Implementation Reviews -> Review Iteration -> Manual QA Smoke Tests -> Awaiting Final Review'
 assert_contains "$live_contracts" 'Discovery may start only if the preceding `plan gate` returned `PLAN_ROUTE_READY` and `discovery_can_start=1`.'
 assert_contains "$live_contracts" 'Interactive `/pm plan` and `/pm plan big feature` runs must ask this question on every new planning invocation before Discovery starts.'
 assert_contains "$live_contracts" 'Interactive PM orchestration must use persisted execution-mode state only as the default suggested choice, then pass the user’s explicit selection to the helper gate.'
@@ -501,7 +501,8 @@ assert_contains "$help_out" 'Filter non-pipeline changes and emit integration-pl
 assert_contains "$help_out" 'Execution-mode options are:'
 assert_contains "$help_out" 'Dynamic Cross-Runtime'
 assert_contains "$help_out" 'Main Runtime Only'
-assert_contains "$help_out" 'Discovery -> Technical Planning -> PRD -> Awaiting PRD Approval -> Beads Planning -> Awaiting Beads Approval -> Team Lead Orchestration -> Implementation -> Post-Implementation Reviews -> Review Iteration -> Manual QA Smoke Tests -> Awaiting Final Review'
+assert_contains "$help_out" 'Discovery -> Technical Planning -> PRD -> Awaiting PRD Approval -> Beads Planning -> Team Lead Orchestration -> Implementation -> Post-Implementation Reviews -> Review Iteration -> Manual QA Smoke Tests -> Awaiting Final Review'
+assert_not_contains "$help_out" 'Beads approval reply must be exactly: approved'
 assert_contains "$help_out" 'Interactive `/pm` plan runs should ask for execution mode on every new planning invocation and pass an explicit `--mode` to the helper gate'
 assert_contains "$help_out" 'Selected execution mode persists in .codex; direct helper usage may reuse it by default when no `--mode` is supplied'
 assert_contains "$help_out" 'Outer runtime is inferred fresh from the running Codex or Claude session on every plan gate'
@@ -1213,7 +1214,7 @@ assert_contains "$bootstrap_check" 'UPDATE_AVAILABLE|'
 assert_contains "$bootstrap_check" 'latest_version=0.104.0'
 
 write_prd "$PRD_PATH" '0.104.0'
-"$HELPER" self-update complete --approval approved --prd-approval approved --beads-approval approved --prd-path "$PRD_PATH" >/dev/null
+"$HELPER" self-update complete --approval approved --prd-approval approved --prd-path "$PRD_PATH" >/dev/null
 jq -e '.latest_processed_codex_version == "0.104.0"' "$STATE_FILE" >/dev/null || fail "bootstrap processed version not written"
 
 DUAL_CHANGELOG=$'Codex CLI 0.105.0
@@ -1314,19 +1315,19 @@ jq -e '.pending_codex_versions == ["0.105.0","0.106.0-alpha.1","0.106.0-alpha.2"
 
 echo "[test-pm-command] case: complete rejects incomplete PRD evidence"
 write_prd "$PRD_PATH" '0.105.0' '0.106.0-alpha.2'
-if "$HELPER" self-update complete --approval approved --prd-approval approved --beads-approval approved --prd-path "$PRD_PATH" >/dev/null 2>&1; then
+if "$HELPER" self-update complete --approval approved --prd-approval approved --prd-path "$PRD_PATH" >/dev/null 2>&1; then
   fail "complete unexpectedly succeeded with incomplete PRD coverage"
 fi
 
 echo "[test-pm-command] case: complete rejects invalid approval token"
-if "$HELPER" self-update complete --approval nope --prd-approval approved --beads-approval approved --prd-path "$PRD_PATH" >/dev/null 2>&1; then
+if "$HELPER" self-update complete --approval nope --prd-approval approved --prd-path "$PRD_PATH" >/dev/null 2>&1; then
   fail "complete unexpectedly succeeded with invalid approval token"
 fi
 
 write_prd "$PRD_PATH" '0.105.0' '0.106.0-alpha.1' '0.106.0-alpha.2'
 
 echo "[test-pm-command] case: dry-run does not mutate state"
-dry_run_out="$("$HELPER" self-update complete --approval approved --prd-approval approved --beads-approval approved --prd-path "$PRD_PATH" --dry-run)"
+dry_run_out="$("$HELPER" self-update complete --approval approved --prd-approval approved --prd-path "$PRD_PATH" --dry-run)"
 assert_contains "$dry_run_out" 'CHECKPOINT_DRY_RUN|'
 jq -e '.latest_processed_codex_version == "0.104.0"' "$STATE_FILE" >/dev/null || fail "dry-run mutated processed version"
 jq -e '.pending_codex_versions == ["0.105.0","0.106.0-alpha.1","0.106.0-alpha.2"]' "$STATE_FILE" >/dev/null || fail "dry-run mutated pending batch"
@@ -1335,7 +1336,7 @@ echo "[test-pm-command] case: complete updates state and creates checkpoint comm
 printf 'keep-staged\n' > "$TMPDIR/unrelated.txt"
 git add "$TMPDIR/unrelated.txt"
 
-complete_out="$("$HELPER" self-update complete --approval approved --prd-approval approved --beads-approval approved --prd-path "$PRD_PATH")"
+complete_out="$("$HELPER" self-update complete --approval approved --prd-approval approved --prd-path "$PRD_PATH")"
 assert_contains "$complete_out" 'CHECKPOINT_CREATED|'
 assert_contains "$complete_out" 'COMPLETE|latest_processed_codex_version=0.106.0-alpha.2|pending_count=3'
 

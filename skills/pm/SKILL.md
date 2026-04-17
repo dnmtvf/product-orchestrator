@@ -8,8 +8,8 @@ description: Strict PM orchestration workflow for any repo. Trigger when user in
 ## Contract
 - No assumptions. If anything is ambiguous, ask clarifying questions.
 - Mandatory order:
-  `Discovery -> Technical Planning -> PRD -> Awaiting PRD Approval -> Beads Planning -> Awaiting Beads Approval -> Team Lead Orchestration -> Implementation -> Post-Implementation Reviews -> Review Iteration -> Manual QA Smoke Tests -> Awaiting Final Review`.
-- Two hard human gates must use exact response: `approved`.
+  `Discovery -> Technical Planning -> PRD -> Awaiting PRD Approval -> Beads Planning -> Team Lead Orchestration -> Implementation -> Post-Implementation Reviews -> Review Iteration -> Manual QA Smoke Tests -> Awaiting Final Review`.
+- One hard human gate must use exact response: `approved`.
 - Do not jump phases unless prerequisites are satisfied.
 - Use Beads (`bd`) as the execution source of truth; keep `.beads/` tracked in git.
 - Invocation guard: when this skill is available, it must be invoked via the Skill tool before any PM-phase actions. Do not manually read this file and proceed.
@@ -111,7 +111,7 @@ description: Strict PM orchestration workflow for any repo. Trigger when user in
     6. If helper exits nonzero or does not emit `SELF_CHECK_HEALER_READY`, stop and report the blocked reason instead of continuing.
     7. If helper emits `SELF_CHECK_HEALER_READY`, spawn a generic `default` outer healer with role-labeled prompt/context from the generated artifacts.
     8. The outer healer may summarize a clean run as no repair needed, or package repair work through the normal PM flow when issues were detected.
-    9. `SELF_CHECK_REPAIR_BUNDLE` is approval-gated repair packaging guidance only; the outer healer must not bypass PRD approval, Beads approval, or any other existing PM gate.
+    9. `SELF_CHECK_REPAIR_BUNDLE` is approval-gated repair packaging guidance only; the outer healer must not bypass PRD approval or any other existing PM gate.
 - Self-update route (manual only):
   - Trigger: `/pm self-update` or `$pm self-update`
   - Behavior:
@@ -129,7 +129,7 @@ description: Strict PM orchestration workflow for any repo. Trigger when user in
     3. If update is available, immediately trigger default planning route:
        - `/pm plan: Inspect latest Codex changes and align orchestrator behavior with runtime-inferred execution-mode policy.`
     4. After full PM flow completion gate, advance processed version with:
-       - `<pm-helper> self-update complete --approval approved --prd-approval approved --beads-approval approved --prd-path docs/prd/<approved-prd>.md`
+       - `<pm-helper> self-update complete --approval approved --prd-approval approved --prd-path docs/prd/<approved-prd>.md`
        - completion requires PRD evidence covering all pending batch versions and empty `Open Questions`
   - Do not run in background/scheduled mode.
 - Backward-compatibility rule:
@@ -146,23 +146,23 @@ description: Strict PM orchestration workflow for any repo. Trigger when user in
 ## Queue Manifest Contract (mandatory for big-feature route)
 - Persist queue state at `docs/prd/_queue/<feature-slug>.json`.
 - Maintain per-PRD lifecycle states:
-  - `pending`, `in_discovery`, `in_technical_planning`, `awaiting_prd_approval`, `awaiting_beads_approval`, `approved`, `queued`, `queue_failed`.
+  - `pending`, `in_discovery`, `in_technical_planning`, `awaiting_prd_approval`, `approved`, `queued`, `queue_failed`.
 - Canonical runnable queue unit is Beads epic ID.
 - Idempotency key format must be `<prd_slug>:<approval_version>`.
 - Duplicate prevention invariants:
   - reject enqueue if idempotency key already exists
   - reject enqueue if PRD already has an active runnable queue entry
 - Allow only one automatic retry for enqueue failures; then set `queue_failed` and require manual intervention.
-- Promote PRD to `queued` only when both approvals are exact `approved` and PRD `Open Questions` is empty.
+- Promote PRD to `queued` only when PRD approval is exact `approved`, Beads planning completed successfully, and PRD `Open Questions` is empty.
 
 ## Runnable Promotion Gate (mandatory for big-feature route)
 - Gate conditions for enqueue promotion:
   - PRD approval gate exact reply `approved`
-  - Beads approval gate exact reply `approved`
+  - Beads planning completed successfully and produced the canonical epic
   - PRD `Open Questions` empty
 - On gate violation, do not enqueue and keep explicit status:
   - PRD gate missing -> `awaiting_prd_approval`
-  - Beads gate missing -> `awaiting_beads_approval`
+  - Beads planning incomplete -> `approved` with `blocked_reason=beads_planning_incomplete`
   - Open questions not empty -> `approved` with `blocked_reason=open_questions`
 
 ## Async Enqueue Worker (mandatory for big-feature route)
@@ -325,8 +325,8 @@ After the technical implementation plan is completed, run smoke-test planning du
    - Mandatory key phrase: start prompt with `use agent swarm for smoke test planning: <technical implementation plan + constraints>`.
    - Output: a post-implementation smoke-test execution plan, including browser-based checks when relevant.
 
-## Implementation Team Lead Agent (mandatory after beads approval)
-After user approves implementation handoff at the Beads approval gate, create:
+## Implementation Team Lead Agent (mandatory after beads planning)
+After Beads planning succeeds and the epic is ready, create:
 
 6. **Team Lead Agent**
    - Prompt source: `$pm-implement` references (`team-lead.md`, `backend-engineer.md`, `frontend-engineer.md`, `security-engineer.md`).
@@ -412,19 +412,15 @@ Technical Planning extension:
 - Render execution view with `bd graph <epic-id> --compact`.
 - Present tasks in [bdui](https://github.com/assimelha/bdui) if available.
 - Always provide CLI view: `bd list --parent <epic-id> --pretty`.
-- Move to `Awaiting Beads Approval`.
-
-### 6) Awaiting Beads Approval
-- Wait for exact `approved`.
-- If edits are requested, update beads plan and ask for approval again.
-- On approval, automatically create Team Lead agent and start team orchestration.
+- bdui review is informative only and must not block autonomous continuation after PRD approval.
+- Automatically create Team Lead agent and start team orchestration when Beads planning succeeds.
 - Use `references/pm-implement-handoff.md` as the canonical handoff contract when packaging the approved epic for implementation.
 - Preferred orchestration path:
   - if delegation is permitted, spawn Team Lead (`default`) agent first with role-labeled context (`[Role: Team Lead Agent]`)
   - if delegation is permitted, then invoke `$pm-implement` (Team Lead-supervised execution) via generic `default` `spawn_agent` with role-labeled context (`[Role: PM Implement Handoff]`) and wait for completion
   - otherwise continue into implementation orchestration in the same interaction and report the skipped delegations as warnings with mitigation and status
 
-### 7) Team Lead Orchestration
+### 6) Team Lead Orchestration
 - Team Lead does not write implementation code.
 - Team Lead creates and manages subagents:
   - Backend Engineer
@@ -440,7 +436,7 @@ Technical Planning extension:
 - Team Lead forwards product/scope questions to PM, then relays PM decisions back to engineering and updates Beads context/comments.
 - Team Lead keeps PM updated with subagent status and blockers.
 
-### 8) Implementation
+### 7) Implementation
 - Keep Senior Engineer paired during execution for code-level decisions and review readiness.
 - Before task selection or any other `bd` command in this phase, run:
   - `<pm-helper> beads preflight --phase implementation`
@@ -452,7 +448,7 @@ Technical Planning extension:
 - If implementation adds new logic or changes existing behavior/logic, Team Lead must create a documentation-sync Beads task and assign Librarian (`default`) to audit/update project docs before QA/final handoff.
 - Continue until planned implementation tasks are complete.
 
-### 9) Post-Implementation Reviews (automatic triple-agent run)
+### 8) Post-Implementation Reviews (automatic triple-agent run)
 Immediately after implementation completion, run all three reviewers:
 
 1. **AGENTS Compliance Reviewer**
@@ -484,7 +480,7 @@ Use parallel sub-agents for this step whenever current policy permits it; otherw
   - spawn Codex Reviewer as generic `default` subagent with role-labeled prompt
   - do not rely on custom reviewer launcher names
 
-### 10) Review Iteration (mandatory)
+### 9) Review Iteration (mandatory)
 - Team Lead is the owner of post-review fix orchestration.
 - Team Lead converts reviewer feedback into Beads iteration tasks under the same epic.
 - For each finding:
@@ -495,7 +491,7 @@ Use parallel sub-agents for this step whenever current policy permits it; otherw
 - Team Lead orchestrates subagents to implement all review iteration tasks.
 - Team Lead closes review iteration tasks only when DoD is met.
 
-### 11) Manual QA Smoke Tests (mandatory)
+### 10) Manual QA Smoke Tests (mandatory)
 - Before starting Manual QA, ensure required documentation-sync tasks (for changed behavior/logic) are completed.
 - After automated reviews and review-iteration fixes, run a Manual QA agent using `references/manual-qa-smoke.md`.
 - Execute the approved PRD smoke-test plan across:

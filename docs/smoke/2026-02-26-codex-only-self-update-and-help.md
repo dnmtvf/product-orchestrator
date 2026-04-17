@@ -7,7 +7,7 @@ Scope: Codex-only runtime enforcement, manual self-update flow, `$pm help` comma
 - PASS: `$pm help` output contains default planning invocation, big-feature invocation, and ordered phase guidance.
 - PASS: `self-update check` detects newer Codex version from both official sources and emits `PLAN_TRIGGER|/pm plan:`.
 - PASS: `self-update check` uses deterministic trigger string matching documented PM command routing.
-- PASS: `self-update complete --approval approved --prd-approval approved --beads-approval approved --prd-path ... --dry-run` passes completion gate and emits checkpoint action preview.
+- PASS: `self-update complete --approval approved --prd-approval approved --prd-path ... --dry-run` passes completion gate and emits checkpoint action preview.
 
 ## Unhappy Path
 - PASS: Unknown command fails with explicit error (`Unknown command`).

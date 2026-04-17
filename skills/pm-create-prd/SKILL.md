@@ -65,7 +65,7 @@ If Discovery Summary or Technical Planning Summary is incomplete, stop and ask o
   - set state to `approved`
   - set or increment `approval_version`
   - recompute `idempotency_key=<prd_slug>:<approval_version>`
-- Do not promote to `queued` in this phase. Queue promotion is blocked until Beads approval gate passes and `Open Questions` remains empty.
+- Do not promote to `queued` in this phase. Queue promotion happens after Beads planning succeeds and `Open Questions` remains empty.
 
 ## Automatic Handoff to Beads Planning
 When PRD is approved:

@@ -77,7 +77,7 @@ Ralph execution is tracker-native (`run --epic` for Beads family, `run --prd` fo
 5. Delta discovery runs per generated PRD.
 6. In `conflict-aware` mode, each PRD includes explicit anti-conflict constraints captured during discovery.
 7. In `worktree-isolated` mode, each PRD is assigned isolated worktree execution context compatible with Ralph parallel worktrees.
-8. Each PRD must pass PRD approval gate and Beads approval gate before runnable queue promotion.
+8. Each PRD must pass PRD approval and successful Beads planning before runnable queue promotion.
 9. Queue unit for runnable work is Beads epic ID.
 10. Queue preparation executes asynchronously with max workers set to `2`.
 11. Queue-ready status requires: enqueued + selectable tasks + passing preflight (`doctor`) checks.

@@ -1,19 +1,19 @@
 ---
 name: pm-beads-plan
-description: Convert an approved PRD into an unambiguous Beads tracking graph, then run a second approval gate with bdui task review before implementation handoff.
+description: Convert an approved PRD into an unambiguous Beads tracking graph and hand it directly to implementation.
 ---
 
 # PM Beads Plan (Strict)
 
 ## Current Phase
-- **BEADS PLANNING** (and then **AWAITING BEADS APPROVAL**)
+- **BEADS PLANNING**
 
 ## Purpose
 Convert an **APPROVED** PRD into an executable Beads graph:
 - 1 Epic per PRD
 - Atomic child tasks with Definition of Done (DoD)
 - Explicit dependencies (`blocks` / `blocked-by`)
-- Human review gate before implementation starts
+- Informational review output before automatic implementation handoff
 
 ## Subagent Launcher Compatibility (mandatory)
 - Spawn only supported generic launcher types: `default`, `explorer`, `worker`.
@@ -75,28 +75,27 @@ When preconditions pass:
   - includes browser-based smoke checks when needed
   - for big-feature route, includes dual-mode regression checks for `conflict-aware` and `worktree-isolated`
 
-## bdui Review Gate (required)
+## bdui Review Output (required)
 After task graph is generated:
 - Present [bdui](https://github.com/assimelha/bdui) as the primary visual review.
 - If `bdui` is available, instruct to launch it from repo root.
 - Always provide fallback list view:
   - `bd list --parent <epic-id> --pretty`
   - `bd graph <epic-id> --compact`
-- Require explicit user response `approved` before implementation.
+- Do not wait for explicit user approval before implementation.
 
 ## Runnable Promotion Gate (mandatory for big-feature route)
-- While waiting for Beads approval, manifest state must be `awaiting_beads_approval`.
 - Promotion to `queued` is allowed only if all are true:
   - PRD approval gate exact reply is `approved`
-  - Beads approval gate exact reply is `approved`
+  - Beads planning completed successfully and produced the canonical epic
   - PRD `Open Questions` remains empty
 - On gate violation, do not enqueue and keep explicit blocked state:
-  - missing Beads approval -> `awaiting_beads_approval`
+  - missing Beads planning -> `approved` with `blocked_reason=beads_planning_incomplete`
   - open questions reintroduced -> `approved` with `blocked_reason=open_questions`
 - Promotion attempts must enforce idempotency key uniqueness (`<prd_slug>:<approval_version>`).
 
 ## Handoff to Implementation
-When user responds `approved` at this gate:
+When Beads planning succeeds:
 - Automatically invoke `$pm-implement` with PRD path and epic ID.
 - Do not ask the user to manually run the next command.
 - Preferred orchestration path: invoke via generic `default` subagent with role-labeled context (`[Role: PM Implement Handoff]`) and wait for completion whenever delegation is permitted; otherwise continue directly and report the skipped delegation as a warning with mitigation and status.
@@ -111,14 +110,14 @@ When user responds `approved` at this gate:
 
 ## Output Requirements (every run)
 Always include these sections, in order:
-1. `Current phase: BEADS PLANNING` or `Current phase: AWAITING BEADS APPROVAL`
+1. `Current phase: BEADS PLANNING`
 2. `PRD path`
 3. `Epic name`
 4. `Task list (with DoD)`
 5. `Dependency list`
 6. `Human-readable task graph`
 7. `bdui review` (with repo link + fallback commands)
-8. `What I need from you next`
+8. `Automatic handoff`
 9. `Phase Error Summary` (`none` or issue list with status)
 
 Issue reporting rules:

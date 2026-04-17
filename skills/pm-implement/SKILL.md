@@ -11,7 +11,7 @@ description: Execute approved Beads tasks through a Team Lead orchestration mode
 ## Preconditions (hard gate)
 Before implementation starts, verify:
 1. PRD is approved.
-2. Beads task graph is approved.
+2. Beads task graph is generated and ready to execute.
 3. Epic ID is known and exists.
 4. Team Lead orchestration is initialized.
 

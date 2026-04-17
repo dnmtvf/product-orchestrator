@@ -59,7 +59,7 @@ Selected rationale:
 - Implement `$pm help` route/response that includes:
   - supported invocations (`$pm plan: ...`, `$pm plan big feature: ...`),
   - required phase order,
-  - approval gate reminder (`approved` for PRD and Beads).
+  - approval gate reminder (`approved` for PRD).
 - Update docs in this repository for:
   - runtime policy and installation behavior,
   - command routing including `$pm help`,
@@ -69,7 +69,7 @@ Selected rationale:
 ### Out of Scope
 - Background daemon for update monitoring.
 - Multi-provider runtime support.
-- Non-PM shortcut path that bypasses PRD/Beads approval gates.
+- Non-PM shortcut path that bypasses PRD approval or autonomous Beads planning.
 
 ## 8. User Flow
 ### Happy Path
@@ -77,7 +77,7 @@ Selected rationale:
 2. System reads official Codex changelog and Codex GitHub latest release.
 3. System compares discovered version(s) with persisted `latest_processed_codex_version`.
 4. If newer changes exist, system triggers full `pm plan:` workflow with task to inspect latest Codex changes and assess orchestrator alignment opportunities.
-5. Standard PM process runs (Discovery -> PRD approval -> Beads approval -> implementation/review/QA).
+5. Standard PM process runs (Discovery -> Technical Planning -> PRD approval -> autonomous Beads planning -> implementation/review/QA).
 6. On successful completion gate (same as existing PM plan flow), system updates stored processed Codex version and creates a commit checkpoint.
 7. Maintainer runs `$pm help` and receives concise command invocations plus ordered phase steps.
 

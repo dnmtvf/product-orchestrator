@@ -56,7 +56,7 @@ fi
 - [x] `/pm plan:` remains default single-PRD route.
 - [x] `/pm plan big feature:` routes to multi-PRD planning.
 - [x] Discovery includes both `conflict-aware` and `worktree-isolated` decomposition rules.
-- [x] Queue promotion is blocked unless both approvals are exact `approved` and Open Questions are empty.
+- [x] Queue promotion is blocked unless PRD approval is exact `approved`, Beads planning succeeds, and Open Questions are empty.
 - [x] Queue idempotency key format is defined as `<prd_slug>:<approval_version>`.
 - [x] Async enqueue is bounded (`worker_cap=2`) with one automatic retry.
 - [x] Queue reconciliation contract includes discovered/approved/queued/queue_failed counts.

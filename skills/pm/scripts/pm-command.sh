@@ -111,7 +111,7 @@ Usage:
   pm-command.sh self-check fixtures
   pm-command.sh self-check run [--fixture-case CASE] [--artifacts-dir PATH] [--mode dynamic-cross-runtime|main-runtime-only] [--prompt-file PATH] [--context-file PATH]
   pm-command.sh self-update [check] [--state-file PATH] [--changelog-url URL] [--release-url URL] [--npm-tags-url URL]
-  pm-command.sh self-update complete --approval approved --prd-approval approved --beads-approval approved --prd-path PATH [--state-file PATH] [--dry-run]
+  pm-command.sh self-update complete --approval approved --prd-approval approved --prd-path PATH [--state-file PATH] [--dry-run]
 
 Commands:
   help          Print deterministic $pm help output.
@@ -4663,11 +4663,10 @@ Supported invocations:
 - $pm help
 
 Required PM phase order:
-Discovery -> Technical Planning -> PRD -> Awaiting PRD Approval -> Beads Planning -> Awaiting Beads Approval -> Team Lead Orchestration -> Implementation -> Post-Implementation Reviews -> Review Iteration -> Manual QA Smoke Tests -> Awaiting Final Review
+Discovery -> Technical Planning -> PRD -> Awaiting PRD Approval -> Beads Planning -> Team Lead Orchestration -> Implementation -> Post-Implementation Reviews -> Review Iteration -> Manual QA Smoke Tests -> Awaiting Final Review
 
 Approval gates:
 - PRD approval reply must be exactly: approved
-- Beads approval reply must be exactly: approved
 - Execution-mode gate runs before Discovery on both plan routes
 - Execution-mode options are:
   - Dynamic Cross-Runtime
@@ -6087,7 +6086,7 @@ run_self_update_check() {
     fi
     echo "PLAN_TRIGGER|$DEFAULT_PLAN_TRIGGER"
     echo "PLAN_CONTEXT|detected_version=$to_version|pending_count=$pending_count|relevant_count=$relevance_relevant|ignored_count=$relevance_ignored|batch_id=$batch_id"
-    echo "GATE_REQUIRED|After PM flow completion, run: $SCRIPT_NAME self-update complete --approval approved --prd-approval approved --beads-approval approved --prd-path <approved-prd-path>"
+    echo "GATE_REQUIRED|After PM flow completion, run: $SCRIPT_NAME self-update complete --approval approved --prd-approval approved --prd-path <approved-prd-path>"
     return 0
   fi
 
@@ -6167,9 +6166,8 @@ run_self_update_complete() {
   local state_file="$1"
   local approval="$2"
   local prd_approval="$3"
-  local beads_approval="$4"
-  local prd_path="$5"
-  local dry_run="$6"
+  local prd_path="$4"
+  local dry_run="$5"
 
   local pending_versions pending_fallback sorted_pending target_version pending_count
   local now backup
@@ -6178,7 +6176,6 @@ run_self_update_complete() {
 
   [ "$approval" = "$APPROVAL_TOKEN" ] || die "Completion gate failed. Expected --approval $APPROVAL_TOKEN"
   [ "$prd_approval" = "$APPROVAL_TOKEN" ] || die "Completion gate failed. Expected --prd-approval $APPROVAL_TOKEN"
-  [ "$beads_approval" = "$APPROVAL_TOKEN" ] || die "Completion gate failed. Expected --beads-approval $APPROVAL_TOKEN"
 
   assert_open_questions_empty "$prd_path"
 
@@ -6273,7 +6270,6 @@ run_self_update() {
   local state_file=""
   local approval=""
   local prd_approval=""
-  local beads_approval=""
   local prd_path=""
   local dry_run=0
   local changelog_url="$DEFAULT_CHANGELOG_URL"
@@ -6297,10 +6293,6 @@ run_self_update() {
         ;;
       --prd-approval)
         prd_approval="${2:-}"
-        shift 2
-        ;;
-      --beads-approval)
-        beads_approval="${2:-}"
         shift 2
         ;;
       --prd-path)
@@ -6342,9 +6334,8 @@ run_self_update() {
     complete)
       [ -n "$approval" ] || die "--approval is required for self-update complete"
       [ -n "$prd_approval" ] || die "--prd-approval is required for self-update complete"
-      [ -n "$beads_approval" ] || die "--beads-approval is required for self-update complete"
       [ -n "$prd_path" ] || die "--prd-path is required for self-update complete"
-      run_self_update_complete "$state_file" "$approval" "$prd_approval" "$beads_approval" "$prd_path" "$dry_run"
+      run_self_update_complete "$state_file" "$approval" "$prd_approval" "$prd_path" "$dry_run"
       ;;
     *)
       die "Unknown self-update mode: $mode"
