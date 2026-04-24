@@ -29,8 +29,10 @@ LEAD_MODEL_PROFILE_CODEX_LEGACY="codex-first"
 LEAD_MODEL_PROFILE_CLAUDE_LEGACY="claude-first"
 CODEX_PINNED_MODEL="gpt-5.5"
 CODEX_PINNED_REASONING_EFFORT="xhigh"
+CODEX_PINNED_CONTEXT_WINDOW="421053"
 UNPINNED_MODEL_VALUE="<unpinned>"
 UNPINNED_REASONING_VALUE="<unpinned>"
+UNPINNED_CONTEXT_WINDOW_VALUE="<unpinned>"
 GLOBAL_CODEX_PM_SCRIPT_DIR="${CODEX_HOME:-$HOME/.codex}/skills/pm/scripts"
 CLAUDE_MCP_INSTALL_COMMAND="codex mcp add claude-code -- $GLOBAL_CODEX_PM_SCRIPT_DIR/claude-code-mcp"
 CLAUDE_MCP_REMEDIATION_MISSING="$GLOBAL_CODEX_PM_SCRIPT_DIR/setup-global-orchestrator.sh"
@@ -94,6 +96,8 @@ Usage:
   pm-command.sh execution-mode set --mode dynamic-cross-runtime|main-runtime-only [--state-file PATH]
   pm-command.sh execution-mode reset [--state-file PATH]
   pm-command.sh lead-model show|set|reset ...   # legacy alias for execution-mode
+  pm-command.sh context-window show
+  pm-command.sh context-window check --estimated-tokens N
   pm-command.sh plan gate --route default|big-feature [--mode dynamic-cross-runtime|main-runtime-only] [--state-file PATH]
   pm-command.sh beads route-map
   pm-command.sh beads preflight [--phase PHASE]
@@ -117,6 +121,7 @@ Commands:
   help          Print deterministic $pm help output.
   execution-mode Read/update persistent provider-neutral orchestration mode state.
   lead-model    Legacy alias for execution-mode.
+  context-window Show/check the configured Codex model context window.
   plan          Run plan-route runtime detection, orchestration mode gate, and routing preflight.
   beads         Shared Beads route-map and runtime preflight/recovery entrypoint.
   claude-contract Enforce Claude context-pack and missing-context handshake.
@@ -283,6 +288,40 @@ toml_top_level_string_value() {
   return 1
 }
 
+toml_top_level_scalar_value() {
+  local file="$1"
+  local key="$2"
+  local line value
+
+  [ -f "$file" ] || return 1
+
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line%%#*}"
+    if [[ "$line" =~ ^[[:space:]]*$ ]]; then
+      continue
+    fi
+    if [[ "$line" =~ ^[[:space:]]*\[ ]]; then
+      break
+    fi
+    if [[ "$line" =~ ^[[:space:]]*$key[[:space:]]*=[[:space:]]*\"([^\"]*)\" ]]; then
+      printf '%s' "${BASH_REMATCH[1]}"
+      return 0
+    fi
+    if [[ "$line" =~ ^[[:space:]]*$key[[:space:]]*=[[:space:]]*\'([^\']*)\' ]]; then
+      printf '%s' "${BASH_REMATCH[1]}"
+      return 0
+    fi
+    if [[ "$line" =~ ^[[:space:]]*$key[[:space:]]*=[[:space:]]*([^[:space:]]+) ]]; then
+      value="${BASH_REMATCH[1]}"
+      value="${value%,}"
+      printf '%s' "$value"
+      return 0
+    fi
+  done < "$file"
+
+  return 1
+}
+
 toml_section_string_value() {
   local file="$1"
   local section="$2"
@@ -417,6 +456,28 @@ codex_config_value() {
   return 1
 }
 
+codex_config_scalar_value() {
+  local key="$1"
+  local project_file global_file value
+
+  project_file="$(project_codex_config_file)"
+  global_file="$(global_codex_config_file)"
+
+  value="$(toml_top_level_scalar_value "$project_file" "$key" || true)"
+  if [ -n "$value" ]; then
+    printf '%s' "$value"
+    return 0
+  fi
+
+  value="$(toml_top_level_scalar_value "$global_file" "$key" || true)"
+  if [ -n "$value" ]; then
+    printf '%s' "$value"
+    return 0
+  fi
+
+  return 1
+}
+
 resolved_codex_model() {
   local configured
   configured="$(codex_config_value "model" || true)"
@@ -435,6 +496,18 @@ resolved_codex_reasoning_effort() {
     return 0
   fi
   printf '%s' "$CODEX_PINNED_REASONING_EFFORT"
+}
+
+resolved_codex_context_window() {
+  local configured
+  configured="$(codex_config_scalar_value "model_context_window" || true)"
+  if [ -n "$configured" ]; then
+    [[ "$configured" =~ ^[0-9]+$ ]] || die "model_context_window must be a positive integer: $configured"
+    [ "$configured" -gt 0 ] || die "model_context_window must be greater than zero"
+    printf '%s' "$configured"
+    return 0
+  fi
+  printf '%s' "$CODEX_PINNED_CONTEXT_WINDOW"
 }
 
 json_top_level_string_value() {
@@ -3032,20 +3105,25 @@ emit_routing_role() {
   local reasoning_effort="${4:-<unpinned>}"
   local agent_type="$5"
   local role_class="$6"
+  local context_window="${7:-$UNPINNED_CONTEXT_WINDOW_VALUE}"
 
-  echo "ROUTING_ROLE|role=$role|class=$role_class|runtime=$runtime|model=$model|reasoning_effort=$reasoning_effort|agent_type=$agent_type"
+  echo "ROUTING_ROLE|role=$role|class=$role_class|runtime=$runtime|model=$model|reasoning_effort=$reasoning_effort|agent_type=$agent_type|context_window=$context_window"
 }
 
 emit_routing_matrix_for_mode() {
   local outer_runtime="$1"
   local execution_mode="$2"
   local codex_model codex_reasoning_effort claude_model claude_reasoning_effort
+  local codex_context_window claude_context_window
   local main_runtime main_model main_reasoning opposite_runtime opposite_model opposite_reasoning
+  local main_context_window opposite_context_window
 
   codex_model="$(resolved_codex_model)"
   codex_reasoning_effort="$(resolved_codex_reasoning_effort)"
+  codex_context_window="$(resolved_codex_context_window)"
   claude_model="$(resolved_claude_model)"
   claude_reasoning_effort="$(resolved_claude_reasoning_effort)"
+  claude_context_window="$UNPINNED_CONTEXT_WINDOW_VALUE"
   execution_mode="$(canonical_execution_mode "$execution_mode")" || die "Unknown execution mode: $execution_mode"
 
   case "$outer_runtime" in
@@ -3053,75 +3131,79 @@ emit_routing_matrix_for_mode() {
       main_runtime="codex-native"
       main_model="$codex_model"
       main_reasoning="$codex_reasoning_effort"
+      main_context_window="$codex_context_window"
       opposite_runtime="claude-code-mcp"
       opposite_model="$claude_model"
       opposite_reasoning="$claude_reasoning_effort"
+      opposite_context_window="$claude_context_window"
       ;;
     "$RUNTIME_PROVIDER_CLAUDE")
       main_runtime="claude-native"
       main_model="$claude_model"
       main_reasoning="$claude_reasoning_effort"
+      main_context_window="$claude_context_window"
       opposite_runtime="codex-worker-mcp"
       opposite_model="$codex_model"
       opposite_reasoning="$codex_reasoning_effort"
+      opposite_context_window="$codex_context_window"
       ;;
     *)
       die "Unknown outer runtime: $outer_runtime"
       ;;
   esac
 
-  emit_routing_role "project_manager" "$main_runtime" "$main_model" "$main_reasoning" "default" "main"
-  emit_routing_role "team_lead" "$main_runtime" "$main_model" "$main_reasoning" "default" "main"
-  emit_routing_role "pm_beads_plan_handoff" "$main_runtime" "$main_model" "$main_reasoning" "default" "main"
-  emit_routing_role "pm_implement_handoff" "$main_runtime" "$main_model" "$main_reasoning" "default" "main"
+  emit_routing_role "project_manager" "$main_runtime" "$main_model" "$main_reasoning" "default" "main" "$main_context_window"
+  emit_routing_role "team_lead" "$main_runtime" "$main_model" "$main_reasoning" "default" "main" "$main_context_window"
+  emit_routing_role "pm_beads_plan_handoff" "$main_runtime" "$main_model" "$main_reasoning" "default" "main" "$main_context_window"
+  emit_routing_role "pm_implement_handoff" "$main_runtime" "$main_model" "$main_reasoning" "default" "main" "$main_context_window"
 
   if [ "$execution_mode" = "$EXECUTION_MODE_MAIN_ONLY" ]; then
-    emit_routing_role "senior_engineer" "$main_runtime" "$main_model" "$main_reasoning" "explorer" "sub"
-    emit_routing_role "librarian" "$main_runtime" "$main_model" "$main_reasoning" "default" "sub"
-    emit_routing_role "smoke_test_planner" "$main_runtime" "$main_model" "$main_reasoning" "default" "sub"
-    emit_routing_role "alternative_pm" "$main_runtime" "$main_model" "$main_reasoning" "default" "sub"
-    emit_routing_role "researcher" "$main_runtime" "$main_model" "$main_reasoning" "default" "sub"
-    emit_routing_role "backend_engineer" "$main_runtime" "$main_model" "$main_reasoning" "worker" "sub"
-    emit_routing_role "frontend_engineer" "$main_runtime" "$main_model" "$main_reasoning" "worker" "sub"
-    emit_routing_role "security_engineer" "$main_runtime" "$main_model" "$main_reasoning" "worker" "sub"
-    emit_routing_role "agents_compliance_reviewer" "$main_runtime" "$main_model" "$main_reasoning" "default" "sub"
-    emit_routing_role "jazz_reviewer" "$main_runtime" "$main_model" "$main_reasoning" "default" "sub"
-    emit_routing_role "codex_reviewer" "$main_runtime" "$main_model" "$main_reasoning" "default" "sub"
-    emit_routing_role "manual_qa" "$main_runtime" "$main_model" "$main_reasoning" "default" "sub"
-    emit_routing_role "task_verification" "$main_runtime" "$main_model" "$main_reasoning" "default" "sub"
+    emit_routing_role "senior_engineer" "$main_runtime" "$main_model" "$main_reasoning" "explorer" "sub" "$main_context_window"
+    emit_routing_role "librarian" "$main_runtime" "$main_model" "$main_reasoning" "default" "sub" "$main_context_window"
+    emit_routing_role "smoke_test_planner" "$main_runtime" "$main_model" "$main_reasoning" "default" "sub" "$main_context_window"
+    emit_routing_role "alternative_pm" "$main_runtime" "$main_model" "$main_reasoning" "default" "sub" "$main_context_window"
+    emit_routing_role "researcher" "$main_runtime" "$main_model" "$main_reasoning" "default" "sub" "$main_context_window"
+    emit_routing_role "backend_engineer" "$main_runtime" "$main_model" "$main_reasoning" "worker" "sub" "$main_context_window"
+    emit_routing_role "frontend_engineer" "$main_runtime" "$main_model" "$main_reasoning" "worker" "sub" "$main_context_window"
+    emit_routing_role "security_engineer" "$main_runtime" "$main_model" "$main_reasoning" "worker" "sub" "$main_context_window"
+    emit_routing_role "agents_compliance_reviewer" "$main_runtime" "$main_model" "$main_reasoning" "default" "sub" "$main_context_window"
+    emit_routing_role "jazz_reviewer" "$main_runtime" "$main_model" "$main_reasoning" "default" "sub" "$main_context_window"
+    emit_routing_role "codex_reviewer" "$main_runtime" "$main_model" "$main_reasoning" "default" "sub" "$main_context_window"
+    emit_routing_role "manual_qa" "$main_runtime" "$main_model" "$main_reasoning" "default" "sub" "$main_context_window"
+    emit_routing_role "task_verification" "$main_runtime" "$main_model" "$main_reasoning" "default" "sub" "$main_context_window"
     return 0
   fi
 
   case "$outer_runtime" in
     "$RUNTIME_PROVIDER_CODEX")
-      emit_routing_role "senior_engineer" "$opposite_runtime" "$opposite_model" "$opposite_reasoning" "explorer" "sub"
-      emit_routing_role "librarian" "$opposite_runtime" "$opposite_model" "$opposite_reasoning" "default" "sub"
-      emit_routing_role "smoke_test_planner" "$opposite_runtime" "$opposite_model" "$opposite_reasoning" "default" "sub"
-      emit_routing_role "alternative_pm" "$opposite_runtime" "$opposite_model" "$opposite_reasoning" "default" "sub"
-      emit_routing_role "researcher" "$opposite_runtime" "$opposite_model" "$opposite_reasoning" "default" "sub"
-      emit_routing_role "backend_engineer" "$main_runtime" "$main_model" "$main_reasoning" "worker" "sub"
-      emit_routing_role "frontend_engineer" "$main_runtime" "$main_model" "$main_reasoning" "worker" "sub"
-      emit_routing_role "security_engineer" "$main_runtime" "$main_model" "$main_reasoning" "worker" "sub"
-      emit_routing_role "agents_compliance_reviewer" "$main_runtime" "$main_model" "$main_reasoning" "default" "sub"
-      emit_routing_role "jazz_reviewer" "$opposite_runtime" "$opposite_model" "$opposite_reasoning" "default" "sub"
-      emit_routing_role "codex_reviewer" "$main_runtime" "$main_model" "$main_reasoning" "default" "sub"
-      emit_routing_role "manual_qa" "$main_runtime" "$main_model" "$main_reasoning" "default" "sub"
-      emit_routing_role "task_verification" "$main_runtime" "$main_model" "$main_reasoning" "default" "sub"
+      emit_routing_role "senior_engineer" "$opposite_runtime" "$opposite_model" "$opposite_reasoning" "explorer" "sub" "$opposite_context_window"
+      emit_routing_role "librarian" "$opposite_runtime" "$opposite_model" "$opposite_reasoning" "default" "sub" "$opposite_context_window"
+      emit_routing_role "smoke_test_planner" "$opposite_runtime" "$opposite_model" "$opposite_reasoning" "default" "sub" "$opposite_context_window"
+      emit_routing_role "alternative_pm" "$opposite_runtime" "$opposite_model" "$opposite_reasoning" "default" "sub" "$opposite_context_window"
+      emit_routing_role "researcher" "$opposite_runtime" "$opposite_model" "$opposite_reasoning" "default" "sub" "$opposite_context_window"
+      emit_routing_role "backend_engineer" "$main_runtime" "$main_model" "$main_reasoning" "worker" "sub" "$main_context_window"
+      emit_routing_role "frontend_engineer" "$main_runtime" "$main_model" "$main_reasoning" "worker" "sub" "$main_context_window"
+      emit_routing_role "security_engineer" "$main_runtime" "$main_model" "$main_reasoning" "worker" "sub" "$main_context_window"
+      emit_routing_role "agents_compliance_reviewer" "$main_runtime" "$main_model" "$main_reasoning" "default" "sub" "$main_context_window"
+      emit_routing_role "jazz_reviewer" "$opposite_runtime" "$opposite_model" "$opposite_reasoning" "default" "sub" "$opposite_context_window"
+      emit_routing_role "codex_reviewer" "$main_runtime" "$main_model" "$main_reasoning" "default" "sub" "$main_context_window"
+      emit_routing_role "manual_qa" "$main_runtime" "$main_model" "$main_reasoning" "default" "sub" "$main_context_window"
+      emit_routing_role "task_verification" "$main_runtime" "$main_model" "$main_reasoning" "default" "sub" "$main_context_window"
       ;;
     "$RUNTIME_PROVIDER_CLAUDE")
-      emit_routing_role "senior_engineer" "$opposite_runtime" "$opposite_model" "$opposite_reasoning" "explorer" "sub"
-      emit_routing_role "librarian" "$main_runtime" "$main_model" "$main_reasoning" "default" "sub"
-      emit_routing_role "smoke_test_planner" "$opposite_runtime" "$opposite_model" "$opposite_reasoning" "default" "sub"
-      emit_routing_role "alternative_pm" "$opposite_runtime" "$opposite_model" "$opposite_reasoning" "default" "sub"
-      emit_routing_role "researcher" "$main_runtime" "$main_model" "$main_reasoning" "default" "sub"
-      emit_routing_role "backend_engineer" "$main_runtime" "$main_model" "$main_reasoning" "worker" "sub"
-      emit_routing_role "frontend_engineer" "$main_runtime" "$main_model" "$main_reasoning" "worker" "sub"
-      emit_routing_role "security_engineer" "$main_runtime" "$main_model" "$main_reasoning" "worker" "sub"
-      emit_routing_role "agents_compliance_reviewer" "$main_runtime" "$main_model" "$main_reasoning" "default" "sub"
-      emit_routing_role "jazz_reviewer" "$opposite_runtime" "$opposite_model" "$opposite_reasoning" "default" "sub"
-      emit_routing_role "codex_reviewer" "$main_runtime" "$main_model" "$main_reasoning" "default" "sub"
-      emit_routing_role "manual_qa" "$main_runtime" "$main_model" "$main_reasoning" "default" "sub"
-      emit_routing_role "task_verification" "$main_runtime" "$main_model" "$main_reasoning" "default" "sub"
+      emit_routing_role "senior_engineer" "$opposite_runtime" "$opposite_model" "$opposite_reasoning" "explorer" "sub" "$opposite_context_window"
+      emit_routing_role "librarian" "$main_runtime" "$main_model" "$main_reasoning" "default" "sub" "$main_context_window"
+      emit_routing_role "smoke_test_planner" "$opposite_runtime" "$opposite_model" "$opposite_reasoning" "default" "sub" "$opposite_context_window"
+      emit_routing_role "alternative_pm" "$opposite_runtime" "$opposite_model" "$opposite_reasoning" "default" "sub" "$opposite_context_window"
+      emit_routing_role "researcher" "$main_runtime" "$main_model" "$main_reasoning" "default" "sub" "$main_context_window"
+      emit_routing_role "backend_engineer" "$main_runtime" "$main_model" "$main_reasoning" "worker" "sub" "$main_context_window"
+      emit_routing_role "frontend_engineer" "$main_runtime" "$main_model" "$main_reasoning" "worker" "sub" "$main_context_window"
+      emit_routing_role "security_engineer" "$main_runtime" "$main_model" "$main_reasoning" "worker" "sub" "$main_context_window"
+      emit_routing_role "agents_compliance_reviewer" "$main_runtime" "$main_model" "$main_reasoning" "default" "sub" "$main_context_window"
+      emit_routing_role "jazz_reviewer" "$opposite_runtime" "$opposite_model" "$opposite_reasoning" "default" "sub" "$opposite_context_window"
+      emit_routing_role "codex_reviewer" "$main_runtime" "$main_model" "$main_reasoning" "default" "sub" "$main_context_window"
+      emit_routing_role "manual_qa" "$main_runtime" "$main_model" "$main_reasoning" "default" "sub" "$main_context_window"
+      emit_routing_role "task_verification" "$main_runtime" "$main_model" "$main_reasoning" "default" "sub" "$main_context_window"
       ;;
   esac
 }
@@ -4657,6 +4739,7 @@ Supported invocations:
 - $pm beads route-map|preflight
 - $pm self-check
 - $pm execution-mode show|set|reset
+- $pm context-window show|check
 - $pm claude-contract validate-context|evaluate-response|run-loop
 - $pm telemetry init-db|log-step|query-task|query-run
 - $pm self-update
@@ -4698,6 +4781,7 @@ Self-check policy:
 
 Runtime policy:
 - Provider-neutral execution modes with runtime-inferred routing
+- Codex-native context window resolves from `model_context_window`, with 421053 as the pinned fallback
 - Beads-dependent PM/helper paths must run `pm-command.sh beads preflight --phase <phase>` before any `bd` command
 - Beads preflight manages CLI upgrades, legacy server-mode recovery, embedded-mode migration, and hard-stop diagnostics
 - Claude usage is permitted only through claude-code MCP
@@ -4804,12 +4888,12 @@ run_plan_gate() {
   local selection_source=""
   local persisted_mode selected_mode selected_label
   local outer_runtime="" outer_runtime_source="" outer_runtime_detail=""
-  local selected_main_runtime="" selected_main_model="" selected_main_reasoning_effort=""
+  local selected_main_runtime="" selected_main_model="" selected_main_reasoning_effort="" selected_main_context_window=""
   local block_reason="" block_remediation="" block_detail="" next_action="start_discovery"
   local requires_claude_mcp=0 requires_codex_worker_mcp=0
   local gate_started_at gate_ended_at gate_duration_ms
   local gate_start_ms gate_end_ms gate_run_id workspace_path metadata_json
-  local claude_model claude_reasoning codex_model codex_reasoning
+  local claude_model claude_reasoning codex_model codex_reasoning codex_context_window claude_context_window
 
   gate_started_at="$(now_utc)"
   gate_start_ms="$(epoch_ms)"
@@ -4872,8 +4956,10 @@ run_plan_gate() {
   selection_source="$(execution_mode_selection_source "$mode_override")"
   codex_model="$(resolved_codex_model)"
   codex_reasoning="$(resolved_codex_reasoning_effort)"
+  codex_context_window="$(resolved_codex_context_window)"
   claude_model="$(resolved_claude_model)"
   claude_reasoning="$(resolved_claude_reasoning_effort)"
+  claude_context_window="$UNPINNED_CONTEXT_WINDOW_VALUE"
 
   if ! detect_outer_runtime; then
     block_reason="runtime_detection_failed"
@@ -4894,13 +4980,14 @@ run_plan_gate() {
   outer_runtime_source="${OUTER_RUNTIME_LAST_SOURCE:-detected}"
   outer_runtime_detail="${OUTER_RUNTIME_LAST_DETAIL:-Outer runtime detected successfully.}"
   echo "RUNTIME_DETECTION|run_id=$gate_run_id|route=$route|workspace_path=$workspace_path|outer_runtime=$outer_runtime|source=$outer_runtime_source|detail=$outer_runtime_detail"
-  echo "EXECUTION_MODE_GATE|route=$route|question=Select execution mode before Discovery|options=$EXECUTION_MODE_OPTION_DYNAMIC;$EXECUTION_MODE_OPTION_MAIN_ONLY|persisted_mode=$persisted_mode|selected_mode=$selected_mode|selected_label=$selected_label|selection_source=$selection_source|outer_runtime=$outer_runtime|outer_runtime_source=$outer_runtime_source|codex_model=$codex_model|codex_reasoning_effort=$codex_reasoning|claude_model=$claude_model|claude_reasoning_effort=$claude_reasoning|state_file=$(display_path "$state_file")"
+  echo "EXECUTION_MODE_GATE|route=$route|question=Select execution mode before Discovery|options=$EXECUTION_MODE_OPTION_DYNAMIC;$EXECUTION_MODE_OPTION_MAIN_ONLY|persisted_mode=$persisted_mode|selected_mode=$selected_mode|selected_label=$selected_label|selection_source=$selection_source|outer_runtime=$outer_runtime|outer_runtime_source=$outer_runtime_source|codex_model=$codex_model|codex_reasoning_effort=$codex_reasoning|claude_model=$claude_model|claude_reasoning_effort=$claude_reasoning|codex_context_window=$codex_context_window|claude_context_window=$claude_context_window|state_file=$(display_path "$state_file")"
 
   case "$outer_runtime" in
     "$RUNTIME_PROVIDER_CODEX")
       selected_main_runtime="codex-native"
       selected_main_model="$codex_model"
       selected_main_reasoning_effort="$codex_reasoning"
+      selected_main_context_window="$codex_context_window"
       if [ "$selected_mode" = "$EXECUTION_MODE_DYNAMIC" ]; then
         requires_claude_mcp=1
       fi
@@ -4909,6 +4996,7 @@ run_plan_gate() {
       selected_main_runtime="claude-native"
       selected_main_model="$claude_model"
       selected_main_reasoning_effort="$claude_reasoning"
+      selected_main_context_window="$claude_context_window"
       if [ "$selected_mode" = "$EXECUTION_MODE_DYNAMIC" ]; then
         requires_codex_worker_mcp=1
       fi
@@ -4957,7 +5045,7 @@ run_plan_gate() {
     return 1
   fi
 
-  echo "ROUTING_PROFILE|route=$route|mode=$selected_mode|selection_source=$selection_source|outer_runtime=$outer_runtime|outer_runtime_source=$outer_runtime_source|main_runtime=$selected_main_runtime|main_model=$selected_main_model|main_reasoning_effort=$selected_main_reasoning_effort|fallback_active=0"
+  echo "ROUTING_PROFILE|route=$route|mode=$selected_mode|selection_source=$selection_source|outer_runtime=$outer_runtime|outer_runtime_source=$outer_runtime_source|main_runtime=$selected_main_runtime|main_model=$selected_main_model|main_reasoning_effort=$selected_main_reasoning_effort|fallback_active=0|main_context_window=$selected_main_context_window"
   emit_routing_matrix_for_mode "$outer_runtime" "$selected_mode"
 
   gate_ended_at="$(now_utc)"
@@ -5016,6 +5104,50 @@ run_plan() {
       ;;
     *)
       die "Unknown plan subcommand: $subcommand"
+      ;;
+  esac
+}
+
+run_context_window() {
+  local subcommand="${1:-show}"
+  local estimated_tokens=""
+  local model context_window
+
+  shift || true
+  model="$(resolved_codex_model)"
+  context_window="$(resolved_codex_context_window)"
+
+  case "$subcommand" in
+    show)
+      echo "CONTEXT_WINDOW|runtime=codex-native|model=$model|context_window=$context_window|source=model_context_window"
+      ;;
+    check)
+      while [ $# -gt 0 ]; do
+        case "$1" in
+          --estimated-tokens)
+            estimated_tokens="${2:-}"
+            shift 2
+            ;;
+          -h|--help)
+            usage
+            exit 0
+            ;;
+          *)
+            die "Unknown context-window check argument: $1"
+            ;;
+        esac
+      done
+      [ -n "$estimated_tokens" ] || die "--estimated-tokens is required for context-window check"
+      [[ "$estimated_tokens" =~ ^[0-9]+$ ]] || die "--estimated-tokens must be a positive integer"
+      if [ "$estimated_tokens" -le "$context_window" ]; then
+        echo "CONTEXT_WINDOW_CHECK|status=ok|runtime=codex-native|model=$model|estimated_tokens=$estimated_tokens|context_window=$context_window"
+        return 0
+      fi
+      echo "CONTEXT_WINDOW_CHECK|status=exceeded|runtime=codex-native|model=$model|estimated_tokens=$estimated_tokens|context_window=$context_window|excess_tokens=$((estimated_tokens - context_window))"
+      return 1
+      ;;
+    *)
+      die "Unknown context-window subcommand: $subcommand"
       ;;
   esac
 }
@@ -6461,6 +6593,9 @@ main() {
       ;;
     lead-model)
       run_lead_model "$@"
+      ;;
+    context-window)
+      run_context_window "$@"
       ;;
     plan)
       run_plan "$@"

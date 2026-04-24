@@ -239,7 +239,7 @@ Runtime policy is execution-mode driven with `dynamic-cross-runtime` default and
 The public orchestration contract uses only generic subagent types (`default`, `explorer`, `worker`).
 Required PM support, handoff, implementation, review, and QA subagents should launch by default whenever the active runtime/tool policy permits delegation; only platform/runtime policy failures should force the documented local fallback path.
 Claude remains an external MCP runtime rather than a public launcher type, and any Codex-side Claude wrapper is internal-only if implemented.
-Codex-native roles resolve model and reasoning effort from `.codex/config.toml`, then `~/.codex/config.toml`, with `gpt-5.5` / `xhigh` as the fallback.
+Codex-native roles resolve model, reasoning effort, and `model_context_window` from `.codex/config.toml`, then `~/.codex/config.toml`, with `gpt-5.5` / `xhigh` / `421053` as the fallback.
 Claude-native roles resolve model and effort from `.claude/settings.local.json`, `.claude/settings.json`, then `~/.claude/settings.json`, with `<unpinned>` as the fallback.
 Selection precedence is explicit `--mode` override, then persisted execution-mode state. Outer runtime is inferred fresh on every gate run.
 `Main Runtime Only` requires no opposite-provider MCP runtime.

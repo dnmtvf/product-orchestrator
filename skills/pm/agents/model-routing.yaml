@@ -50,6 +50,10 @@ runtimes:
       - repo .codex/config.toml
       - ~/.codex/config.toml
       - fallback gpt-5.5 / xhigh
+    context_window_source:
+      - repo .codex/config.toml model_context_window
+      - ~/.codex/config.toml model_context_window
+      - fallback 421053
 
   claude-code-mcp:
     description: External Claude MCP path for roles that must cross from Codex into Claude.
@@ -86,6 +90,10 @@ runtimes:
       - repo .codex/config.toml
       - ~/.codex/config.toml
       - fallback gpt-5.5 / xhigh
+    context_window_source:
+      - repo .codex/config.toml model_context_window
+      - ~/.codex/config.toml model_context_window
+      - fallback 421053
 
 execution_modes:
   dynamic-cross-runtime:

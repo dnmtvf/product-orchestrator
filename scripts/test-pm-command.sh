@@ -57,6 +57,7 @@ write_codex_config() {
   cat >"$config_path" <<EOF
 model = "$model"
 model_reasoning_effort = "$reasoning_effort"
+model_context_window = 421053
 
 [mcp_servers.claude-code]
 command = "$CLAUDE_WRAPPER"
@@ -492,6 +493,7 @@ assert_contains "$help_out" '$pm execution-mode show|set|reset'
 assert_contains "$help_out" '$pm self-check'
 assert_contains "$help_out" '$pm telemetry init-db|log-step|query-task|query-run'
 assert_contains "$help_out" '$pm self-update'
+assert_contains "$help_out" '$pm context-window show|check'
 assert_contains "$help_out" 'Self-update policy:'
 assert_contains "$help_out" 'Self-check policy:'
 assert_contains "$help_out" 'Deterministic fixture suite with verbose artifact capture under `.codex/self-check-runs`'
@@ -515,8 +517,19 @@ assert_contains "$help_out" '$pm claude-contract validate-context|evaluate-respo
 assert_contains "$help_out" 'Claude delegation contract:'
 assert_contains "$help_out" 'claude-contract run-loop'
 assert_contains "$help_out" 'Codex secondary-runtime usage inside Claude is permitted only through codex-worker MCP'
+assert_contains "$help_out" 'Codex-native context window resolves from `model_context_window`, with 421053 as the pinned fallback'
 assert_not_contains "$help_out" 'workflow falls back to codex-native'
 assert_not_contains "$help_out" 'Claude-mapped roles fallback to codex-native'
+
+echo "[test-pm-command] case: context-window show and check use configured Codex window"
+context_window_show="$("$HELPER" context-window show)"
+assert_contains "$context_window_show" 'CONTEXT_WINDOW|runtime=codex-native|model=gpt-global|context_window=421053|source=model_context_window'
+context_window_ok="$("$HELPER" context-window check --estimated-tokens 421053)"
+assert_contains "$context_window_ok" 'CONTEXT_WINDOW_CHECK|status=ok|runtime=codex-native|model=gpt-global|estimated_tokens=421053|context_window=421053'
+if context_window_exceeded="$("$HELPER" context-window check --estimated-tokens 421054 2>&1)"; then
+  fail "context-window check should fail when estimate exceeds configured context window"
+fi
+assert_contains "$context_window_exceeded" 'CONTEXT_WINDOW_CHECK|status=exceeded|runtime=codex-native|model=gpt-global|estimated_tokens=421054|context_window=421053|excess_tokens=1'
 
 echo "[test-pm-command] case: beads route map exposes shared preflight policy"
 beads_route_map_out="$("$HELPER" beads route-map)"
@@ -1029,9 +1042,10 @@ assert_contains "$plan_gate_default" 'EXECUTION_MODE_GATE|route=default'
 assert_contains "$plan_gate_default" 'options=Dynamic Cross-Runtime;Main Runtime Only'
 assert_contains "$plan_gate_default" 'persisted_mode=dynamic-cross-runtime|selected_mode=dynamic-cross-runtime|selected_label=Dynamic Cross-Runtime|selection_source=persisted_state|outer_runtime=claude|outer_runtime_source=explicit_override'
 assert_contains "$plan_gate_default" 'codex_model=gpt-global|codex_reasoning_effort=medium|claude_model=opus|claude_reasoning_effort=high'
+assert_contains "$plan_gate_default" 'codex_context_window=421053|claude_context_window=<unpinned>'
 assert_contains "$plan_gate_default" 'ROUTING_PROFILE|route=default|mode=dynamic-cross-runtime|selection_source=persisted_state|outer_runtime=claude|outer_runtime_source=explicit_override|main_runtime=claude-native|main_model=opus|main_reasoning_effort=high|fallback_active=0'
 assert_contains "$plan_gate_default" 'ROUTING_ROLE|role=pm_beads_plan_handoff|class=main|runtime=claude-native|model=opus|reasoning_effort=high|agent_type=default'
-assert_contains "$plan_gate_default" 'ROUTING_ROLE|role=senior_engineer|class=sub|runtime=codex-worker-mcp|model=gpt-global|reasoning_effort=medium|agent_type=explorer'
+assert_contains "$plan_gate_default" 'ROUTING_ROLE|role=senior_engineer|class=sub|runtime=codex-worker-mcp|model=gpt-global|reasoning_effort=medium|agent_type=explorer|context_window=421053'
 assert_contains "$plan_gate_default" 'ROUTING_ROLE|role=task_verification|class=sub|runtime=claude-native|model=opus|reasoning_effort=high|agent_type=default'
 assert_contains "$plan_gate_default" 'PLAN_ROUTE_READY|route=default|selected_mode=dynamic-cross-runtime|selected_label=Dynamic Cross-Runtime|selection_source=persisted_state|outer_runtime=claude|outer_runtime_source=explicit_override|discovery_can_start=1'
 
@@ -1042,8 +1056,8 @@ plan_gate_main_only="$(
   "$HELPER" plan gate --route big-feature --mode main-runtime-only --state-file "$EXECUTION_MODE_STATE_FILE"
 )"
 assert_contains "$plan_gate_main_only" 'selected_mode=main-runtime-only'
-assert_contains "$plan_gate_main_only" 'ROUTING_PROFILE|route=big-feature|mode=main-runtime-only|selection_source=explicit_override|outer_runtime=codex|outer_runtime_source=explicit_override|main_runtime=codex-native|main_model=gpt-global|main_reasoning_effort=medium|fallback_active=0'
-assert_contains "$plan_gate_main_only" 'ROUTING_ROLE|role=librarian|class=sub|runtime=codex-native|model=gpt-global|reasoning_effort=medium|agent_type=default'
+assert_contains "$plan_gate_main_only" 'ROUTING_PROFILE|route=big-feature|mode=main-runtime-only|selection_source=explicit_override|outer_runtime=codex|outer_runtime_source=explicit_override|main_runtime=codex-native|main_model=gpt-global|main_reasoning_effort=medium|fallback_active=0|main_context_window=421053'
+assert_contains "$plan_gate_main_only" 'ROUTING_ROLE|role=librarian|class=sub|runtime=codex-native|model=gpt-global|reasoning_effort=medium|agent_type=default|context_window=421053'
 assert_contains "$plan_gate_main_only" 'ROUTING_ROLE|role=task_verification|class=sub|runtime=codex-native|model=gpt-global|reasoning_effort=medium|agent_type=default'
 assert_contains "$plan_gate_main_only" 'PLAN_ROUTE_READY|route=big-feature|selected_mode=main-runtime-only|selected_label=Main Runtime Only|selection_source=explicit_override|outer_runtime=codex|outer_runtime_source=explicit_override|discovery_can_start=1'
 jq -e '.selected_mode == "main-runtime-only"' "$EXECUTION_MODE_STATE_FILE" >/dev/null || fail "plan gate override did not persist main-runtime-only mode"
@@ -1056,7 +1070,7 @@ plan_gate_dynamic_codex="$(
 )"
 assert_contains "$plan_gate_dynamic_codex" 'selected_mode=dynamic-cross-runtime'
 assert_contains "$plan_gate_dynamic_codex" 'ROUTING_PROFILE|route=default|mode=dynamic-cross-runtime|selection_source=explicit_override|outer_runtime=codex|outer_runtime_source=explicit_override|main_runtime=codex-native|main_model=gpt-global|main_reasoning_effort=medium|fallback_active=0'
-assert_contains "$plan_gate_dynamic_codex" 'ROUTING_ROLE|role=project_manager|class=main|runtime=codex-native|model=gpt-global|reasoning_effort=medium|agent_type=default'
+assert_contains "$plan_gate_dynamic_codex" 'ROUTING_ROLE|role=project_manager|class=main|runtime=codex-native|model=gpt-global|reasoning_effort=medium|agent_type=default|context_window=421053'
 assert_contains "$plan_gate_dynamic_codex" 'ROUTING_ROLE|role=librarian|class=sub|runtime=claude-code-mcp|model=opus|reasoning_effort=high|agent_type=default'
 assert_contains "$plan_gate_dynamic_codex" 'ROUTING_ROLE|role=task_verification|class=sub|runtime=codex-native|model=gpt-global|reasoning_effort=medium|agent_type=default'
 assert_contains "$plan_gate_dynamic_codex" 'PLAN_ROUTE_READY|route=default|selected_mode=dynamic-cross-runtime|selected_label=Dynamic Cross-Runtime|selection_source=explicit_override|outer_runtime=codex|outer_runtime_source=explicit_override|discovery_can_start=1'
